@@ -5,14 +5,17 @@ import "time"
 type EventType string
 
 const (
-	EventStageStart     EventType = "stage_start"
-	EventStageComplete  EventType = "stage_complete"
-	EventStageFailed    EventType = "stage_failed"
-	EventHumanRequired  EventType = "human_required"
-	EventPipelineDone   EventType = "pipeline_done"
-	EventPipelineFailed EventType = "pipeline_failed"
-	EventAgentOutput    EventType = "agent_output"
-	EventPipelineStuck  EventType = "pipeline_stuck"
+	EventStageStart      EventType = "stage_start"
+	EventStageComplete   EventType = "stage_complete"
+	EventStageFailed     EventType = "stage_failed"
+	EventHumanRequired   EventType = "human_required"
+	EventPipelineDone    EventType = "pipeline_done"
+	EventPipelineFailed  EventType = "pipeline_failed"
+	EventPipelinePaused  EventType = "pipeline_paused"
+	EventPipelineResumed EventType = "pipeline_resumed"
+	EventActionApplied   EventType = "action_applied"
+	EventAgentOutput     EventType = "agent_output"
+	EventPipelineStuck   EventType = "pipeline_stuck"
 )
 
 type Event struct {

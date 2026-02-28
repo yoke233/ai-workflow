@@ -107,7 +107,8 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 		}
 	}
 
-	for i := range p.Stages {
+	startIndex := e.resolveStartIndex(p, allowAlreadyRunning)
+	for i := startIndex; i < len(p.Stages); i++ {
 		stage := p.Stages[i]
 		p.CurrentStage = stage.Name
 		if err := e.store.SavePipeline(p); err != nil {
@@ -258,6 +259,51 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 		PipelineID: p.ID,
 		Timestamp:  time.Now(),
 	})
+	return nil
+}
+
+func (e *Executor) resolveStartIndex(p *core.Pipeline, allowAlreadyRunning bool) int {
+	if !allowAlreadyRunning || p.CurrentStage == "" {
+		return 0
+	}
+
+	currentIndex := findStageIndex(p.Stages, p.CurrentStage)
+	if currentIndex < 0 {
+		return 0
+	}
+
+	checkpoints, err := e.store.GetCheckpoints(p.ID)
+	if err != nil {
+		e.logger.Warn("resolve start index fallback to current stage due checkpoint read error", "pipeline_id", p.ID, "error", err)
+		return currentIndex
+	}
+
+	last := latestCheckpointForStage(checkpoints, p.CurrentStage)
+	if last != nil && last.Status == core.CheckpointSuccess {
+		next := currentIndex + 1
+		if next > len(p.Stages) {
+			return len(p.Stages)
+		}
+		return next
+	}
+	return currentIndex
+}
+
+func findStageIndex(stages []core.StageConfig, stage core.StageID) int {
+	for i := range stages {
+		if stages[i].Name == stage {
+			return i
+		}
+	}
+	return -1
+}
+
+func latestCheckpointForStage(checkpoints []core.Checkpoint, stage core.StageID) *core.Checkpoint {
+	for i := len(checkpoints) - 1; i >= 0; i-- {
+		if checkpoints[i].StageName == stage {
+			return &checkpoints[i]
+		}
+	}
 	return nil
 }
 
