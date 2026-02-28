@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	agentclaude "github.com/user/ai-workflow/internal/plugins/agent-claude"
+	runtimeprocess "github.com/user/ai-workflow/internal/plugins/runtime-process"
 	"github.com/user/ai-workflow/internal/tui"
 )
 
@@ -51,12 +53,14 @@ func run() error {
 			return fmt.Errorf("unknown pipeline command: %s", args[1])
 		}
 	case "tui":
-		_, store, err := bootstrap()
+		exec, store, err := bootstrap()
 		if err != nil {
 			return err
 		}
 		defer store.Close()
-		return tui.Run(store)
+		claude := agentclaude.New("claude")
+		runtime := runtimeprocess.New()
+		return tui.Run(exec, store, claude, runtime)
 	default:
 		return fmt.Errorf("unknown command: %s", args[0])
 	}

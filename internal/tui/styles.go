@@ -13,5 +13,9 @@ var (
 		"aborted":       lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
 		"paused":        lipgloss.NewStyle().Foreground(lipgloss.Color("226")),
 	}
-	StyleHelp = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	StyleHelp  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	StyleInput = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252")).
+			Background(lipgloss.Color("236")).
+			Padding(0, 1)
 )
