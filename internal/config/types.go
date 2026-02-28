@@ -4,6 +4,7 @@ import "time"
 
 type Config struct {
 	Agents    AgentsConfig    `yaml:"agents"`
+	Runtime   RuntimeConfig   `yaml:"runtime"`
 	Pipeline  PipelineConfig  `yaml:"pipeline"`
 	Scheduler SchedulerConfig `yaml:"scheduler"`
 	Server    ServerConfig    `yaml:"server"`
@@ -19,6 +20,7 @@ type AgentsConfig struct {
 }
 
 type AgentConfig struct {
+	Plugin       *string   `yaml:"plugin"`
 	Binary       *string   `yaml:"binary"`
 	MaxTurns     *int      `yaml:"default_max_turns"`
 	DefaultTools *[]string `yaml:"default_tools"`
@@ -33,6 +35,10 @@ type PipelineConfig struct {
 	GlobalTimeout     time.Duration `yaml:"global_timeout"`
 	AutoInferTemplate bool          `yaml:"auto_infer_template"`
 	MaxTotalRetries   int           `yaml:"max_total_retries"`
+}
+
+type RuntimeConfig struct {
+	Driver string `yaml:"driver"`
 }
 
 type SchedulerConfig struct {
@@ -71,6 +77,7 @@ type LogConfig struct {
 // ConfigLayer 表示可选覆盖层。nil 字段表示“未设置”，用于多层配置继承合并。
 type ConfigLayer struct {
 	Agents    *AgentsLayer    `yaml:"agents"`
+	Runtime   *RuntimeLayer   `yaml:"runtime"`
 	Pipeline  *PipelineLayer  `yaml:"pipeline"`
 	Scheduler *SchedulerLayer `yaml:"scheduler"`
 	Server    *ServerLayer    `yaml:"server"`
@@ -90,6 +97,10 @@ type PipelineLayer struct {
 	GlobalTimeout     *time.Duration `yaml:"global_timeout"`
 	AutoInferTemplate *bool          `yaml:"auto_infer_template"`
 	MaxTotalRetries   *int           `yaml:"max_total_retries"`
+}
+
+type RuntimeLayer struct {
+	Driver *string `yaml:"driver"`
 }
 
 type SchedulerLayer struct {

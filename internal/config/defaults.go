@@ -6,10 +6,12 @@ func Defaults() Config {
 	return Config{
 		Agents: AgentsConfig{
 			Claude: &AgentConfig{
+				Plugin:   ptrValue("claude"),
 				Binary:   ptrValue("claude"),
 				MaxTurns: ptrValue(30),
 			},
 			Codex: &AgentConfig{
+				Plugin:    ptrValue("codex"),
 				Binary:    ptrValue("codex"),
 				Model:     ptrValue("gpt-5.3-codex"),
 				Reasoning: ptrValue("high"),
@@ -19,6 +21,9 @@ func Defaults() Config {
 			OpenSpec: &AgentConfig{
 				Binary: ptrValue("openspec"),
 			},
+		},
+		Runtime: RuntimeConfig{
+			Driver: "process",
 		},
 		Pipeline: PipelineConfig{
 			DefaultTemplate:   "standard",

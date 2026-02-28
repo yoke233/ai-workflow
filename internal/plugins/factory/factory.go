@@ -15,8 +15,6 @@ import (
 	storesqlite "github.com/user/ai-workflow/internal/plugins/store-sqlite"
 )
 
-const defaultRuntimeName = "process"
-
 // BootstrapSet contains initialized plugins required by engine bootstrap.
 type BootstrapSet struct {
 	Agents  map[string]core.AgentPlugin
@@ -67,17 +65,18 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 		return nil, fmt.Errorf("plugin is not a store provider: slot=%s name=%s", core.SlotStore, storeName)
 	}
 
-	runtimeModule, ok := registry.Get(core.SlotRuntime, defaultRuntimeName)
+	runtimeName := strings.TrimSpace(effective.Runtime.Driver)
+	runtimeModule, ok := registry.Get(core.SlotRuntime, runtimeName)
 	if !ok {
-		return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotRuntime, defaultRuntimeName)
+		return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotRuntime, runtimeName)
 	}
 	runtimeRaw, err := runtimeModule.Factory(nil)
 	if err != nil {
-		return nil, fmt.Errorf("build runtime plugin %q: %w", defaultRuntimeName, err)
+		return nil, fmt.Errorf("build runtime plugin %q: %w", runtimeName, err)
 	}
 	runtimePlugin, ok := runtimeRaw.(core.RuntimePlugin)
 	if !ok {
-		return nil, fmt.Errorf("plugin is not a runtime plugin: slot=%s name=%s", core.SlotRuntime, defaultRuntimeName)
+		return nil, fmt.Errorf("plugin is not a runtime plugin: slot=%s name=%s", core.SlotRuntime, runtimeName)
 	}
 
 	agentConfigs := map[string]*config.AgentConfig{
@@ -89,17 +88,22 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 		if agentCfg == nil {
 			continue
 		}
-		module, ok := registry.Get(core.SlotAgent, agentName)
+		moduleName := agentName
+		if agentCfg.Plugin != nil && strings.TrimSpace(*agentCfg.Plugin) != "" {
+			moduleName = strings.TrimSpace(*agentCfg.Plugin)
+		}
+
+		module, ok := registry.Get(core.SlotAgent, moduleName)
 		if !ok {
-			return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotAgent, agentName)
+			return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotAgent, moduleName)
 		}
 		raw, err := module.Factory(agentConfigToMap(agentCfg))
 		if err != nil {
-			return nil, fmt.Errorf("build agent plugin %q: %w", agentName, err)
+			return nil, fmt.Errorf("build agent plugin %q: %w", moduleName, err)
 		}
 		agentPlugin, ok := raw.(core.AgentPlugin)
 		if !ok {
-			return nil, fmt.Errorf("plugin is not an agent plugin: slot=%s name=%s", core.SlotAgent, agentName)
+			return nil, fmt.Errorf("plugin is not an agent plugin: slot=%s name=%s", core.SlotAgent, moduleName)
 		}
 		agents[agentName] = agentPlugin
 	}
@@ -177,6 +181,9 @@ func withDefaults(cfg config.Config) config.Config {
 	}
 	if cfg.Agents.Codex == nil {
 		cfg.Agents.Codex = def.Agents.Codex
+	}
+	if cfg.Runtime.Driver == "" {
+		cfg.Runtime.Driver = def.Runtime.Driver
 	}
 	if cfg.Store.Driver == "" {
 		cfg.Store.Driver = def.Store.Driver

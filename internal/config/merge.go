@@ -11,6 +11,9 @@ func MergeAgentConfig(base, override *AgentConfig) *AgentConfig {
 	}
 
 	out := *base
+	if override.Plugin != nil {
+		out.Plugin = override.Plugin
+	}
 	if override.Binary != nil {
 		out.Binary = override.Binary
 	}
@@ -38,7 +41,7 @@ func MergeAgentConfig(base, override *AgentConfig) *AgentConfig {
 func MergeForPipeline(global *Config, project *ConfigLayer, override map[string]any) (*Config, error) {
 	merged := Defaults()
 	if global != nil {
-		merged = *global
+		merged = cloneConfig(*global)
 	}
 
 	ApplyConfigLayer(&merged, project)
@@ -55,6 +58,48 @@ func MergeForPipeline(global *Config, project *ConfigLayer, override map[string]
 		return nil, err
 	}
 	return &merged, nil
+}
+
+func cloneConfig(in Config) Config {
+	out := in
+	out.Agents = AgentsConfig{
+		Claude:   cloneAgentConfig(in.Agents.Claude),
+		Codex:    cloneAgentConfig(in.Agents.Codex),
+		OpenSpec: cloneAgentConfig(in.Agents.OpenSpec),
+	}
+	return out
+}
+
+func cloneAgentConfig(in *AgentConfig) *AgentConfig {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	if in.Binary != nil {
+		out.Binary = ptrValue(*in.Binary)
+	}
+	if in.Plugin != nil {
+		out.Plugin = ptrValue(*in.Plugin)
+	}
+	if in.MaxTurns != nil {
+		out.MaxTurns = ptrValue(*in.MaxTurns)
+	}
+	if in.DefaultTools != nil {
+		out.DefaultTools = cloneStringSlicePtr(in.DefaultTools)
+	}
+	if in.Model != nil {
+		out.Model = ptrValue(*in.Model)
+	}
+	if in.Reasoning != nil {
+		out.Reasoning = ptrValue(*in.Reasoning)
+	}
+	if in.Sandbox != nil {
+		out.Sandbox = ptrValue(*in.Sandbox)
+	}
+	if in.Approval != nil {
+		out.Approval = ptrValue(*in.Approval)
+	}
+	return &out
 }
 
 func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
@@ -80,6 +125,12 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		}
 		if pipeline.MaxTotalRetries != nil {
 			cfg.Pipeline.MaxTotalRetries = *pipeline.MaxTotalRetries
+		}
+	}
+
+	if runtime := layer.Runtime; runtime != nil {
+		if runtime.Driver != nil {
+			cfg.Runtime.Driver = *runtime.Driver
 		}
 	}
 

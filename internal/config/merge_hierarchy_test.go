@@ -56,6 +56,37 @@ func TestMergeHierarchy_GlobalProjectPipeline(t *testing.T) {
 	}
 }
 
+func TestMergeForPipeline_DoesNotMutateGlobalWithEnvOverride(t *testing.T) {
+	t.Setenv("AI_WORKFLOW_AGENTS_CLAUDE_BINARY", "claude-env")
+
+	global := &Config{
+		Agents: AgentsConfig{
+			Claude: &AgentConfig{
+				Binary: ptr("claude-global"),
+			},
+		},
+	}
+
+	merged, err := MergeForPipeline(global, nil, nil)
+	if err != nil {
+		t.Fatalf("MergeForPipeline returned error: %v", err)
+	}
+
+	if merged.Agents.Claude == nil || merged.Agents.Claude.Binary == nil {
+		t.Fatal("expected merged claude binary to be set")
+	}
+	if got := *merged.Agents.Claude.Binary; got != "claude-env" {
+		t.Fatalf("expected merged binary from env override, got %q", got)
+	}
+
+	if global.Agents.Claude == nil || global.Agents.Claude.Binary == nil {
+		t.Fatal("expected global claude binary to remain set")
+	}
+	if got := *global.Agents.Claude.Binary; got != "claude-global" {
+		t.Fatalf("expected global binary unchanged, got %q", got)
+	}
+}
+
 func ptrSlice(values ...string) *[]string {
 	v := append([]string(nil), values...)
 	return &v

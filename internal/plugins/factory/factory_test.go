@@ -44,3 +44,33 @@ func TestFactoryBuildUnknownPlugin(t *testing.T) {
 		t.Fatalf("expected unknown plugin error, got %v", err)
 	}
 }
+
+func TestFactoryBuildUnknownRuntimePlugin(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Store.Path = ":memory:"
+	cfg.Runtime.Driver = "unknown-runtime"
+
+	_, err := BuildFromConfig(cfg)
+	if err == nil {
+		t.Fatal("expected BuildFromConfig to fail for unknown runtime plugin")
+	}
+	if !strings.Contains(err.Error(), "unknown plugin") {
+		t.Fatalf("expected unknown plugin error, got %v", err)
+	}
+}
+
+func TestFactoryBuildUnknownAgentPlugin(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Store.Path = ":memory:"
+	cfg.Agents.Codex.Plugin = stringPtr("unknown-agent")
+
+	_, err := BuildFromConfig(cfg)
+	if err == nil {
+		t.Fatal("expected BuildFromConfig to fail for unknown agent plugin")
+	}
+	if !strings.Contains(err.Error(), "unknown plugin") {
+		t.Fatalf("expected unknown plugin error, got %v", err)
+	}
+}
+
+func stringPtr(v string) *string { return &v }
