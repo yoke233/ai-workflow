@@ -6,6 +6,8 @@ type Config struct {
 	Agents    AgentsConfig    `yaml:"agents"`
 	Pipeline  PipelineConfig  `yaml:"pipeline"`
 	Scheduler SchedulerConfig `yaml:"scheduler"`
+	Server    ServerConfig    `yaml:"server"`
+	GitHub    GitHubConfig    `yaml:"github"`
 	Store     StoreConfig     `yaml:"store"`
 	Log       LogConfig       `yaml:"log"`
 }
@@ -17,12 +19,13 @@ type AgentsConfig struct {
 }
 
 type AgentConfig struct {
-	Binary    *string `yaml:"binary"`
-	MaxTurns  *int    `yaml:"default_max_turns"`
-	Model     *string `yaml:"model"`
-	Reasoning *string `yaml:"reasoning"`
-	Sandbox   *string `yaml:"sandbox"`
-	Approval  *string `yaml:"approval"`
+	Binary       *string   `yaml:"binary"`
+	MaxTurns     *int      `yaml:"default_max_turns"`
+	DefaultTools *[]string `yaml:"default_tools"`
+	Model        *string   `yaml:"model"`
+	Reasoning    *string   `yaml:"reasoning"`
+	Sandbox      *string   `yaml:"sandbox"`
+	Approval     *string   `yaml:"approval"`
 }
 
 type PipelineConfig struct {
@@ -37,6 +40,22 @@ type SchedulerConfig struct {
 	MaxProjectPipelines int `yaml:"max_project_pipelines"`
 }
 
+type ServerConfig struct {
+	Host        string `yaml:"host"`
+	Port        int    `yaml:"port"`
+	AuthEnabled bool   `yaml:"auth_enabled"`
+	AuthToken   string `yaml:"auth_token"`
+}
+
+type GitHubConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	Token          string `yaml:"token"`
+	AppID          int64  `yaml:"app_id"`
+	PrivateKeyPath string `yaml:"private_key_path"`
+	InstallationID int64  `yaml:"installation_id"`
+	WebhookSecret  string `yaml:"webhook_secret"`
+}
+
 type StoreConfig struct {
 	Driver string `yaml:"driver"`
 	Path   string `yaml:"path"`
@@ -47,4 +66,61 @@ type LogConfig struct {
 	File       string `yaml:"file"`
 	MaxSizeMB  int    `yaml:"max_size_mb"`
 	MaxAgeDays int    `yaml:"max_age_days"`
+}
+
+// ConfigLayer 表示可选覆盖层。nil 字段表示“未设置”，用于多层配置继承合并。
+type ConfigLayer struct {
+	Agents    *AgentsLayer    `yaml:"agents"`
+	Pipeline  *PipelineLayer  `yaml:"pipeline"`
+	Scheduler *SchedulerLayer `yaml:"scheduler"`
+	Server    *ServerLayer    `yaml:"server"`
+	GitHub    *GitHubLayer    `yaml:"github"`
+	Store     *StoreLayer     `yaml:"store"`
+	Log       *LogLayer       `yaml:"log"`
+}
+
+type AgentsLayer struct {
+	Claude   *AgentConfig `yaml:"claude"`
+	Codex    *AgentConfig `yaml:"codex"`
+	OpenSpec *AgentConfig `yaml:"openspec"`
+}
+
+type PipelineLayer struct {
+	DefaultTemplate   *string        `yaml:"default_template"`
+	GlobalTimeout     *time.Duration `yaml:"global_timeout"`
+	AutoInferTemplate *bool          `yaml:"auto_infer_template"`
+	MaxTotalRetries   *int           `yaml:"max_total_retries"`
+}
+
+type SchedulerLayer struct {
+	MaxGlobalAgents     *int `yaml:"max_global_agents"`
+	MaxProjectPipelines *int `yaml:"max_project_pipelines"`
+}
+
+type ServerLayer struct {
+	Host        *string `yaml:"host"`
+	Port        *int    `yaml:"port"`
+	AuthEnabled *bool   `yaml:"auth_enabled"`
+	AuthToken   *string `yaml:"auth_token"`
+}
+
+type GitHubLayer struct {
+	Enabled        *bool   `yaml:"enabled"`
+	Token          *string `yaml:"token"`
+	AppID          *int64  `yaml:"app_id"`
+	PrivateKeyPath *string `yaml:"private_key_path"`
+	InstallationID *int64  `yaml:"installation_id"`
+	WebhookSecret  *string `yaml:"webhook_secret"`
+}
+
+type StoreLayer struct {
+	Driver *string `yaml:"driver"`
+	Path   *string `yaml:"path"`
+}
+
+type LogLayer struct {
+	Level      *string `yaml:"level"`
+	File       *string `yaml:"file"`
+	MaxSizeMB  *int    `yaml:"max_size_mb"`
+	MaxAgeDays *int    `yaml:"max_age_days"`
 }
