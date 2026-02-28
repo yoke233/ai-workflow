@@ -30,15 +30,13 @@ const (
 
 // StageConfig holds the declarative configuration for a single pipeline stage.
 type StageConfig struct {
-	Name           StageID       `json:"name"`
-	Agent          string        `json:"agent"`
-	PromptTemplate string        `json:"prompt_template"`
-	Timeout        time.Duration `json:"timeout"`
-	MaxRetries     int           `json:"max_retries"`
-	RequireHuman   bool          `json:"require_human"`
-	OnFailure      OnFailure     `json:"on_failure"`
-	DependsOn      []StageID     `json:"depends_on,omitempty"`
-	Condition      string        `json:"condition,omitempty"`
+	Name           StageID       `yaml:"name" json:"name"`
+	Agent          string        `yaml:"agent" json:"agent"`
+	PromptTemplate string        `yaml:"prompt_template" json:"prompt_template"`
+	Timeout        time.Duration `yaml:"timeout" json:"timeout"`
+	MaxRetries     int           `yaml:"max_retries" json:"max_retries"`
+	RequireHuman   bool          `yaml:"require_human" json:"require_human"`
+	OnFailure      OnFailure     `yaml:"on_failure" json:"on_failure"`
 }
 
 // CheckpointStatus represents the completion state of a stage checkpoint.
@@ -57,10 +55,11 @@ type Checkpoint struct {
 	PipelineID string            `json:"pipeline_id"`
 	StageName  StageID           `json:"stage_name"`
 	Status     CheckpointStatus  `json:"status"`
-	Artifacts  map[string]string `json:"artifacts,omitempty"`
+	Artifacts  map[string]string `json:"artifacts"`
 	StartedAt  time.Time         `json:"started_at"`
-	FinishedAt time.Time         `json:"finished_at,omitempty"`
-	AgentUsed  string            `json:"agent_used,omitempty"`
-	TokensUsed int               `json:"tokens_used,omitempty"`
+	FinishedAt time.Time         `json:"finished_at"`
+	AgentUsed  string            `json:"agent_used"`
+	TokensUsed int               `json:"tokens_used"`
 	RetryCount int               `json:"retry_count"`
+	Error      string            `json:"error,omitempty"`
 }

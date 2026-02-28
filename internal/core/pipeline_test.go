@@ -1,0 +1,42 @@
+package core
+
+import "testing"
+
+func TestValidateTransition(t *testing.T) {
+	valid := []struct {
+		from PipelineStatus
+		to   PipelineStatus
+	}{
+		{StatusCreated, StatusRunning},
+		{StatusCreated, StatusAborted},
+		{StatusRunning, StatusWaitingHuman},
+		{StatusRunning, StatusPaused},
+		{StatusRunning, StatusFailed},
+		{StatusRunning, StatusDone},
+		{StatusPaused, StatusRunning},
+		{StatusPaused, StatusAborted},
+		{StatusWaitingHuman, StatusRunning},
+		{StatusWaitingHuman, StatusAborted},
+		{StatusFailed, StatusRunning},
+	}
+	for _, tt := range valid {
+		if err := ValidateTransition(tt.from, tt.to); err != nil {
+			t.Errorf("expected valid: %s -> %s, got err: %v", tt.from, tt.to, err)
+		}
+	}
+
+	invalid := []struct {
+		from PipelineStatus
+		to   PipelineStatus
+	}{
+		{StatusCreated, StatusDone},
+		{StatusDone, StatusRunning},
+		{StatusAborted, StatusRunning},
+		{StatusFailed, StatusDone},
+	}
+	for _, tt := range invalid {
+		if err := ValidateTransition(tt.from, tt.to); err == nil {
+			t.Errorf("expected invalid: %s -> %s, got nil", tt.from, tt.to)
+		}
+	}
+}

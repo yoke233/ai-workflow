@@ -58,27 +58,26 @@ func ValidateTransition(from, to PipelineStatus) error {
 
 // Pipeline is the central aggregate representing one workflow execution.
 type Pipeline struct {
-	ID          string            `json:"id"`
-	ProjectID   string            `json:"project_id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	Template    string            `json:"template"`
-	Status      PipelineStatus    `json:"status"`
+	ID          string         `json:"id"`
+	ProjectID   string         `json:"project_id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Template    string         `json:"template"`
+	Status      PipelineStatus `json:"status"`
 
-	CurrentStage StageID          `json:"current_stage,omitempty"`
-	Stages       []StageConfig    `json:"stages"`
-	Artifacts    map[string]string `json:"artifacts,omitempty"`
-	Config       map[string]any    `json:"config,omitempty"`
-
-	BranchName   string `json:"branch_name,omitempty"`
-	WorktreePath string `json:"worktree_path,omitempty"`
-	ErrorMessage string `json:"error_message,omitempty"`
+	CurrentStage StageID           `json:"current_stage"`
+	Stages       []StageConfig     `json:"stages"`
+	Artifacts    map[string]string `json:"artifacts"`
+	Config       map[string]any    `json:"config"`
+	BranchName   string            `json:"branch_name"`
+	WorktreePath string            `json:"worktree_path"`
+	ErrorMessage string            `json:"error_message,omitempty"`
 
 	MaxTotalRetries int `json:"max_total_retries"`
 	TotalRetries    int `json:"total_retries"`
 
-	StartedAt  *time.Time `json:"started_at,omitempty"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
