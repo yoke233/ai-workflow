@@ -95,6 +95,13 @@ Critical Path:
 - [Wave 2 — Contract/Store Upgrade](2026-03-01-p3-prerequisites-wave2.md)
 - [Wave 3 — Spec Plugin/Config/Factory](2026-03-01-p3-prerequisites-wave3.md)
 - [Wave 4 — API/Docs/Regression Gate](2026-03-01-p3-prerequisites-wave4.md)
+- [P3 Entry Checklist](2026-03-01-p3-prerequisites-entry-checklist.md)
+
+## 5.1 P3 Entry Rule
+
+- 进入 P3 主计划前，必须先更新并确认 [P3 Entry Checklist](2026-03-01-p3-prerequisites-entry-checklist.md)。
+- 仅当 checklist `Status=Ready` 时允许启动 `2026-03-01-p3-github-integration.md` Wave 1。
+- 若任一门禁失败，状态保持 `Not Ready`，并阻断进入 P3。
 
 ## 6. Full Regression Command Set
 

@@ -6,6 +6,12 @@
 **Architecture:** P3 通过 `tracker-github`、`scm-github`、Webhook 分发器和状态同步器把本地状态镜像到 GitHub。所有核心决策仍在本地执行：Pipeline 通过 `task_item_id` 关联 TaskItem，GitHub 只接收镜像和人工指令。异常路径采用 best-effort + no-op 降级，保证 GitHub 故障不阻塞执行主链路。  
 **Tech Stack:** Go 1.23+, chi, go-github/v68, ghinstallation/v2, SQLite, EventBus, React + Vitest。
 
+## 0. Entry Preconditions
+
+- 启动本计划前，必须先通过前置计划的 [P3 Entry Checklist](2026-03-01-p3-prerequisites-entry-checklist.md)。
+- 仅当 checklist 的 `Status=Ready`，才允许进入本计划 Wave 1（`gh-1`）。
+- 若 checklist 为 `Not Ready`，需先修复对应门禁失败项并重新记录证据。
+
 ---
 
 ## 1. Context and Scope
