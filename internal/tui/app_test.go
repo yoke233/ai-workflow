@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -119,6 +120,15 @@ func (s *createSpyStore) CreateProject(p *core.Project) error {
 	return nil
 }
 
+type createFailStore struct {
+	noopStore
+	err error
+}
+
+func (s *createFailStore) CreateProject(p *core.Project) error {
+	return s.err
+}
+
 func TestSplitArgsQuoted(t *testing.T) {
 	args, err := splitArgs(`pipeline create demo auth "实现 登录 与 注册" quick`)
 	if err != nil {
@@ -210,6 +220,25 @@ func TestResolveChatInputAutoInferByDir(t *testing.T) {
 	}
 }
 
+func TestResolveChatInputWithSelectionPrefersSelectedProject(t *testing.T) {
+	msg, proj, autoMatched, err := resolveChatInputWithSelection("讨论需求", []core.Project{
+		{ID: "a", RepoPath: "D:/repo/a"},
+		{ID: "b", RepoPath: "D:/repo/b"},
+	}, "D:/repo/a/service", "b")
+	if err != nil {
+		t.Fatalf("resolve with selected project failed: %v", err)
+	}
+	if msg != "讨论需求" {
+		t.Fatalf("unexpected message: %s", msg)
+	}
+	if proj.ID != "b" {
+		t.Fatalf("expected selected project b, got %s", proj.ID)
+	}
+	if !autoMatched {
+		t.Fatal("expected autoMatched=true")
+	}
+}
+
 func TestResolveChatInputUnknownPrefixFallbackToDir(t *testing.T) {
 	msg, proj, err := resolveChatInput("@demo 讨论需求", []core.Project{
 		{ID: "a", RepoPath: "D:/repo/a"},
@@ -270,6 +299,38 @@ func TestCanAttemptAutoCreateProject(t *testing.T) {
 	}
 	if !canAttemptAutoCreateProject("@demo 讨论需求") {
 		t.Fatal("expected valid @prefix to allow auto-create")
+	}
+}
+
+func TestTUI_SlashClearAlias(t *testing.T) {
+	m := NewModel(noopExecutor{}, noopStore{}, nil, nil)
+	m.history = []string{"[10:00:00] old"}
+	m.input = "/clear"
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	after := updated.(Model)
+	if len(after.history) != 0 {
+		t.Fatalf("expected history cleared, got: %v", after.history)
+	}
+	if after.running {
+		t.Fatal("expected running=false after /clear")
+	}
+}
+
+func TestTUI_AutoCreateProjectErrorSurfaced(t *testing.T) {
+	store := &createFailStore{err: errors.New("db down")}
+	m := NewModel(noopExecutor{}, store, nil, nil)
+	m.workDir = "D:/repo/new-proj"
+	m.input = "讨论需求"
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	after := updated.(Model)
+	historyText := strings.Join(after.history, "\n")
+	if !strings.Contains(historyText, "自动创建项目失败") {
+		t.Fatalf("expected auto-create failure in history, got: %s", historyText)
+	}
+	if !strings.Contains(historyText, "db down") {
+		t.Fatalf("expected underlying create error in history, got: %s", historyText)
 	}
 }
 

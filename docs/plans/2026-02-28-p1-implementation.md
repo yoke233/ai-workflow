@@ -562,6 +562,20 @@ git add -A
 git commit -m "feat: complete p1 multi-project scheduler and config-driven orchestration"
 ```
 
+**验收记录（2026-03-01）**
+
+- 第四批（Task 10-11）已先执行代码 review，再执行修复：
+  - 修复 `internal/engine/integration_p1_test.go` 在 runner goroutine 调用 `t.Fatalf` 的并发测试风险，改为 error channel 回传并由主测试 goroutine 失败。
+  - 增加并发观测断言（`maxGlobalObserved >= 2`）以避免“退化串行仍通过”的漏报。
+  - 提取并复用恢复错误常量，恢复测试改为结构化断言，降低文案变更导致的脆弱性。
+  - 修复 TUI `/clear` 命令别名不一致问题，并补单测。
+  - 修复自动创建项目失败时错误被吞的问题，并补单测。
+  - 补充 selected project 优先级单测，覆盖多项目路由关键分支。
+- 执行验证结果：
+  - `go test ./internal/engine -run IntegrationP1 -v` -> PASS
+  - `go test ./... -v` -> PASS
+  - `go build ./cmd/ai-flow` -> PASS
+
 ---
 
 Plan complete and saved to `docs/plans/2026-02-28-p1-implementation.md`.

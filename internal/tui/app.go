@@ -180,6 +180,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.appendHistory("error: 请输入命令，例如 /help")
 					return m, nil
 				}
+				if cmdLine == "clear" {
+					m.history = nil
+					return m, nil
+				}
 				m.appendHistory("> /" + cmdLine)
 				m.running = true
 				return m, executeCommandCmd(m.store, m.executor, cmdLine)
@@ -188,7 +192,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			prompt, proj, autoMatched, err := resolveChatInputWithSelection(line, m.projects, m.workDir, m.selectedProjectID)
 			if err != nil && canAttemptAutoCreateProject(line) {
 				autoProj, created, createErr := ensureProjectForWorkDir(m.store, m.projects, m.workDir)
-				if createErr == nil {
+				if createErr != nil {
+					err = fmt.Errorf("自动创建项目失败: %w", createErr)
+				} else {
 					if !projectIDExists(m.projects, autoProj.ID) {
 						m.projects = append(m.projects, autoProj)
 					}

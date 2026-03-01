@@ -11,6 +11,8 @@ import (
 	"github.com/user/ai-workflow/internal/core"
 )
 
+const recoveryInterruptedCheckpointError = "recovered: previous in_progress checkpoint interrupted by crash"
+
 func (e *Executor) RecoverActivePipelines(ctx context.Context) error {
 	pipelines, err := e.store.GetActivePipelines()
 	if err != nil {
@@ -56,7 +58,7 @@ func (e *Executor) recoverRunningPipeline(ctx context.Context, p *core.Pipeline)
 			FinishedAt: time.Now(),
 			AgentUsed:  cp.AgentUsed,
 			RetryCount: cp.RetryCount,
-			Error:      "recovered: previous in_progress checkpoint interrupted by crash",
+			Error:      recoveryInterruptedCheckpointError,
 		}
 		if err := e.store.SaveCheckpoint(failed); err != nil {
 			return err
