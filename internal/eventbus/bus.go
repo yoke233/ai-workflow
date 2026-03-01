@@ -11,8 +11,21 @@ type Bus struct {
 	subs map[chan core.Event]struct{}
 }
 
+var (
+	defaultBusMu sync.RWMutex
+	defaultBus   *Bus
+)
+
 func New() *Bus {
-	return &Bus{subs: make(map[chan core.Event]struct{})}
+	bus := &Bus{subs: make(map[chan core.Event]struct{})}
+
+	defaultBusMu.Lock()
+	if defaultBus == nil {
+		defaultBus = bus
+	}
+	defaultBusMu.Unlock()
+
+	return bus
 }
 
 func (b *Bus) Subscribe() chan core.Event {
@@ -50,4 +63,18 @@ func (b *Bus) Close() {
 		close(ch)
 		delete(b.subs, ch)
 	}
+}
+
+// Default returns the process-wide default event bus.
+func Default() *Bus {
+	defaultBusMu.RLock()
+	defer defaultBusMu.RUnlock()
+	return defaultBus
+}
+
+// SetDefault overrides the process-wide default event bus.
+func SetDefault(bus *Bus) {
+	defaultBusMu.Lock()
+	defer defaultBusMu.Unlock()
+	defaultBus = bus
 }

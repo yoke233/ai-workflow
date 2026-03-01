@@ -8,14 +8,18 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/user/ai-workflow/internal/core"
+	"github.com/user/ai-workflow/internal/eventbus"
+	ghwebhook "github.com/user/ai-workflow/internal/github"
 )
 
 type webhookHandlers struct {
-	store  core.Store
-	secret string
+	store      core.Store
+	secret     string
+	dispatcher *ghwebhook.WebhookDispatcher
 }
 
 type githubWebhookEnvelope struct {
@@ -29,9 +33,17 @@ type githubWebhookEnvelope struct {
 }
 
 func registerWebhookRoutes(r chi.Router, store core.Store, secret string) {
+	var publisher interface{ Publish(evt core.Event) }
+	if bus := eventbus.Default(); bus != nil {
+		publisher = bus
+	}
+
 	h := &webhookHandlers{
 		store:  store,
 		secret: strings.TrimSpace(secret),
+		dispatcher: ghwebhook.NewWebhookDispatcher(ghwebhook.WebhookDispatcherOptions{
+			Publisher: publisher,
+		}),
 	}
 	r.Post("/webhook", h.handleWebhook)
 }
@@ -82,6 +94,33 @@ func (h *webhookHandlers) handleWebhook(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusAccepted, map[string]any{
 			"status":     "ignored",
 			"project_id": project.ID,
+		})
+		return
+	}
+
+	if h.dispatcher != nil {
+		result, err := h.dispatcher.Dispatch(r.Context(), ghwebhook.WebhookDispatchRequest{
+			ProjectID:  project.ID,
+			EventType:  eventType,
+			Action:     strings.TrimSpace(envelope.Action),
+			DeliveryID: strings.TrimSpace(r.Header.Get("X-GitHub-Delivery")),
+			Payload:    payload,
+			ReceivedAt: time.Now(),
+		})
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to dispatch webhook", "WEBHOOK_DISPATCH_FAILED")
+			return
+		}
+
+		status := "accepted"
+		if result.Duplicate {
+			status = "deduplicated"
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"status":     status,
+			"project_id": project.ID,
+			"event":      eventType,
+			"action":     envelope.Action,
 		})
 		return
 	}
