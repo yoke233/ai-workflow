@@ -1,0 +1,16 @@
+{
+  "action": "closed",
+  "pull_request": {
+    "number": 301,
+    "merged": true
+  },
+  "repository": {
+    "name": "ai-workflow",
+    "owner": {
+      "login": "acme"
+    }
+  },
+  "sender": {
+    "login": "maintainer-a"
+  }
+}
