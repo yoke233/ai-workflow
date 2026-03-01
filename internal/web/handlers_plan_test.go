@@ -530,6 +530,81 @@ func TestPlanActionApproveRequiresWaitingHumanFinalApproval(t *testing.T) {
 	}
 }
 
+func TestPlanTaskPayload_IncludesInputsOutputsAcceptance(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-plan-structured",
+		Name:     "plan-structured",
+		RepoPath: filepath.Join(t.TempDir(), "repo-plan-structured"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	plan := &core.TaskPlan{
+		ID:               "plan-20260301-structured",
+		ProjectID:        project.ID,
+		Name:             "structured-plan",
+		Status:           core.PlanDraft,
+		WaitReason:       core.WaitNone,
+		FailPolicy:       core.FailBlock,
+		SpecProfile:      "default",
+		ContractVersion:  "v1",
+		ContractChecksum: "sha256:abcd",
+	}
+	if err := store.CreateTaskPlan(plan); err != nil {
+		t.Fatalf("seed plan: %v", err)
+	}
+
+	task := core.TaskItem{
+		ID:          "task-structured-1",
+		PlanID:      plan.ID,
+		Title:       "structured task",
+		Description: "structured payload test",
+		Inputs:      []string{"oauth_app_id"},
+		Outputs:     []string{"oauth_token"},
+		Acceptance:  []string{"callback returns 200"},
+		Constraints: []string{"must keep backward compatibility"},
+		Template:    "standard",
+		Status:      core.ItemPending,
+	}
+	if err := store.CreateTaskItem(&task); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-plan-structured/plans/" + plan.ID)
+	if err != nil {
+		t.Fatalf("GET /api/v1/projects/{pid}/plans/{id}: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var got core.TaskPlan
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode plan response: %v", err)
+	}
+	if len(got.Tasks) != 1 {
+		t.Fatalf("expected one task, got %d", len(got.Tasks))
+	}
+	if len(got.Tasks[0].Inputs) != 1 || got.Tasks[0].Inputs[0] != "oauth_app_id" {
+		t.Fatalf("unexpected task inputs: %#v", got.Tasks[0].Inputs)
+	}
+	if len(got.Tasks[0].Outputs) != 1 || got.Tasks[0].Outputs[0] != "oauth_token" {
+		t.Fatalf("unexpected task outputs: %#v", got.Tasks[0].Outputs)
+	}
+	if len(got.Tasks[0].Acceptance) != 1 || got.Tasks[0].Acceptance[0] != "callback returns 200" {
+		t.Fatalf("unexpected task acceptance: %#v", got.Tasks[0].Acceptance)
+	}
+	if len(got.Tasks[0].Constraints) != 1 || got.Tasks[0].Constraints[0] != "must keep backward compatibility" {
+		t.Fatalf("unexpected task constraints: %#v", got.Tasks[0].Constraints)
+	}
+}
+
 type testPlanManager struct {
 	createDraftFn  func(ctx context.Context, input secretary.CreateDraftInput) (*core.TaskPlan, error)
 	submitReviewFn func(ctx context.Context, planID string, input secretary.ReviewInput) (*core.TaskPlan, error)

@@ -179,4 +179,91 @@ describe("apiClient", () => {
       action: "abort",
     });
   });
+
+  it("getPipeline/listPlans 能携带 task_item_id 与结构化任务字段", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "pipe-1",
+            project_id: "proj-1",
+            name: "pipeline-one",
+            description: "pipeline",
+            template: "standard",
+            status: "created",
+            current_stage: "implement",
+            artifacts: {},
+            config: {},
+            branch_name: "",
+            worktree_path: "",
+            max_total_retries: 5,
+            total_retries: 0,
+            task_item_id: "task-1",
+            started_at: "",
+            finished_at: "",
+            created_at: "2026-03-01T00:00:00Z",
+            updated_at: "2026-03-01T00:00:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                id: "plan-1",
+                project_id: "proj-1",
+                session_id: "chat-1",
+                name: "plan",
+                status: "draft",
+                wait_reason: "",
+                fail_policy: "block",
+                review_round: 0,
+                tasks: [
+                  {
+                    id: "task-1",
+                    plan_id: "plan-1",
+                    title: "task",
+                    description: "task description",
+                    labels: [],
+                    depends_on: [],
+                    inputs: ["oauth_app_id"],
+                    outputs: ["oauth_token"],
+                    acceptance: ["callback returns 200"],
+                    constraints: ["keep backward compatibility"],
+                    template: "standard",
+                    pipeline_id: "",
+                    external_id: "",
+                    status: "pending",
+                    created_at: "2026-03-01T00:00:00Z",
+                    updated_at: "2026-03-01T00:00:00Z",
+                  },
+                ],
+                created_at: "2026-03-01T00:00:00Z",
+                updated_at: "2026-03-01T00:00:00Z",
+              },
+            ],
+            total: 1,
+            offset: 0,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    const pipeline = await client.getPipeline("proj-1", "pipe-1");
+    const plans = await client.listPlans("proj-1");
+
+    expect(pipeline.task_item_id).toBe("task-1");
+    expect(plans.items[0]?.tasks[0]?.inputs[0]).toBe("oauth_app_id");
+    expect(plans.items[0]?.tasks[0]?.outputs[0]).toBe("oauth_token");
+    expect(plans.items[0]?.tasks[0]?.acceptance[0]).toBe("callback returns 200");
+    expect(plans.items[0]?.tasks[0]?.constraints[0]).toBe("keep backward compatibility");
+  });
 });

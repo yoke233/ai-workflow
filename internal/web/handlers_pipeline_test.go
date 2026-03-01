@@ -282,6 +282,64 @@ func TestDefaultPipelineStageConfig_DefaultAgentAndE2E(t *testing.T) {
 	}
 }
 
+func TestGetPipeline_IncludesTaskItemID(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-pipe-task-item-id",
+		Name:     "project-pipe-task-item-id",
+		RepoPath: filepath.Join(t.TempDir(), "repo-pipe-task-item-id"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	now := time.Now()
+	pipeline := &core.Pipeline{
+		ID:              "pipe-task-item-id-1",
+		ProjectID:       project.ID,
+		Name:            "task-item-pipeline",
+		Template:        "quick",
+		Status:          core.StatusCreated,
+		TaskItemID:      "task-a3f1b2c0-1",
+		Stages:          []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
+		Artifacts:       map[string]string{},
+		Config:          map[string]any{},
+		MaxTotalRetries: 5,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := store.SavePipeline(pipeline); err != nil {
+		t.Fatalf("seed pipeline: %v", err)
+	}
+
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-pipe-task-item-id/pipelines/pipe-task-item-id-1")
+	if err != nil {
+		t.Fatalf("GET /api/v1/projects/{pid}/pipelines/{id}: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var got struct {
+		ID         string `json:"id"`
+		TaskItemID string `json:"task_item_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode pipeline response: %v", err)
+	}
+	if got.ID != pipeline.ID {
+		t.Fatalf("expected pipeline id %s, got %s", pipeline.ID, got.ID)
+	}
+	if got.TaskItemID != pipeline.TaskItemID {
+		t.Fatalf("expected task_item_id %s, got %s", pipeline.TaskItemID, got.TaskItemID)
+	}
+}
+
 type testPipelineExecutor struct {
 	applyActionFn func(ctx context.Context, action core.PipelineAction) error
 }

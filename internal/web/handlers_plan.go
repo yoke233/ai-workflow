@@ -166,7 +166,7 @@ func (h *planHandlers) createPlan(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "failed to create task plan", "CREATE_TASK_PLAN_FAILED")
 		return
 	}
-	writeJSON(w, http.StatusCreated, created)
+	writeJSON(w, http.StatusCreated, normalizeTaskPlanForAPI(created))
 }
 
 func (h *planHandlers) listPlans(w http.ResponseWriter, r *http.Request) {
@@ -217,7 +217,7 @@ func (h *planHandlers) listPlans(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, planListResponse{
-		Items:  items,
+		Items:  normalizeTaskPlansForAPI(items),
 		Total:  total,
 		Offset: offset,
 	})
@@ -228,7 +228,7 @@ func (h *planHandlers) getPlan(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, plan)
+	writeJSON(w, http.StatusOK, normalizeTaskPlanForAPI(plan))
 }
 
 func (h *planHandlers) getPlanDAG(w http.ResponseWriter, r *http.Request) {
@@ -531,4 +531,52 @@ func feedbackErrorCode(err error) string {
 	default:
 		return "INVALID_FEEDBACK"
 	}
+}
+
+func normalizeTaskPlansForAPI(items []core.TaskPlan) []core.TaskPlan {
+	if len(items) == 0 {
+		return []core.TaskPlan{}
+	}
+	out := make([]core.TaskPlan, len(items))
+	for i := range items {
+		normalized := normalizeTaskPlanForAPI(&items[i])
+		if normalized == nil {
+			out[i] = core.TaskPlan{}
+			continue
+		}
+		out[i] = *normalized
+	}
+	return out
+}
+
+func normalizeTaskPlanForAPI(plan *core.TaskPlan) *core.TaskPlan {
+	if plan == nil {
+		return nil
+	}
+	clone := *plan
+	if len(plan.Tasks) == 0 {
+		clone.Tasks = []core.TaskItem{}
+		return &clone
+	}
+	clone.Tasks = make([]core.TaskItem, len(plan.Tasks))
+	for i := range plan.Tasks {
+		task := plan.Tasks[i]
+		task.Labels = normalizeStringSlice(task.Labels)
+		task.DependsOn = normalizeStringSlice(task.DependsOn)
+		task.Inputs = normalizeStringSlice(task.Inputs)
+		task.Outputs = normalizeStringSlice(task.Outputs)
+		task.Acceptance = normalizeStringSlice(task.Acceptance)
+		task.Constraints = normalizeStringSlice(task.Constraints)
+		clone.Tasks[i] = task
+	}
+	return &clone
+}
+
+func normalizeStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	out := make([]string, len(values))
+	copy(out, values)
+	return out
 }

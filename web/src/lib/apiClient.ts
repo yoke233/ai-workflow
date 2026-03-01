@@ -1,4 +1,5 @@
 import type {
+  ApiPipeline,
   ApiStatsResponse,
   CreateChatResponse,
   CreateChatRequest,
@@ -20,7 +21,7 @@ import type {
   TaskActionRequest,
   TaskActionResponse,
 } from "../types/api";
-import type { Pipeline, Project } from "../types/workflow";
+import type { Project } from "../types/workflow";
 
 type Primitive = string | number | boolean;
 type PaginationParams = {
@@ -158,7 +159,7 @@ export interface ApiClient {
   listProjects(): Promise<ListProjectsResponse>;
   createProject(body: CreateProjectRequest): Promise<Project>;
   listPipelines(projectId: string, pagination?: PaginationParams): Promise<ListPipelinesResponse>;
-  createPipeline(projectId: string, body: CreatePipelineRequest): Promise<Pipeline>;
+  createPipeline(projectId: string, body: CreatePipelineRequest): Promise<ApiPipeline>;
   createChat(projectId: string, body: CreateChatRequest): Promise<CreateChatResponse>;
   getChat(projectId: string, sessionId: string): Promise<GetChatResponse>;
   createPlan(projectId: string, body: CreatePlanRequest): Promise<CreatePlanResponse>;
@@ -176,7 +177,7 @@ export interface ApiClient {
   ): Promise<TaskActionResponse>;
   listPlans(projectId: string, pagination?: PaginationParams): Promise<ListPlansResponse>;
   getPlanDag(projectId: string, planId: string): Promise<PlanDagResponse>;
-  getPipeline(projectId: string, pipelineId: string): Promise<Pipeline>;
+  getPipeline(projectId: string, pipelineId: string): Promise<ApiPipeline>;
   getPipelineCheckpoints(
     projectId: string,
     pipelineId: string,
@@ -281,7 +282,7 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         query: pagination,
       }),
     createPipeline: (projectId, body) =>
-      request<Pipeline, CreatePipelineRequest>({
+      request<ApiPipeline, CreatePipelineRequest>({
         path: `/projects/${projectId}/pipelines`,
         method: "POST",
         body,
@@ -329,7 +330,7 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         path: `/projects/${projectId}/plans/${planId}/dag`,
       }),
     getPipeline: (projectId, pipelineId) =>
-      request<Pipeline>({
+      request<ApiPipeline>({
         path: `/projects/${projectId}/pipelines/${pipelineId}`,
       }),
     getPipelineCheckpoints: (projectId, pipelineId) =>

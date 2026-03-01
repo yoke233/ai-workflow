@@ -94,7 +94,7 @@ func (h *pipelineHandlers) listPipelines(w http.ResponseWriter, r *http.Request)
 	}
 
 	writeJSON(w, http.StatusOK, pipelineListResponse{
-		Items:  items,
+		Items:  normalizePipelinesForAPI(items),
 		Total:  len(items),
 		Offset: offset,
 	})
@@ -177,7 +177,8 @@ func (h *pipelineHandlers) createPipeline(w http.ResponseWriter, r *http.Request
 		created = pipeline
 	}
 
-	writeJSON(w, http.StatusCreated, created)
+	normalized := normalizePipelineForAPI(*created)
+	writeJSON(w, http.StatusCreated, normalized)
 }
 
 func (h *pipelineHandlers) getPipelineByProject(w http.ResponseWriter, r *http.Request) {
@@ -206,7 +207,8 @@ func (h *pipelineHandlers) getPipelineByProject(w http.ResponseWriter, r *http.R
 		writeAPIError(w, http.StatusNotFound, fmt.Sprintf("pipeline %s not found in project %s", id, projectID), "PIPELINE_NOT_FOUND")
 		return
 	}
-	writeJSON(w, http.StatusOK, pipeline)
+	normalized := normalizePipelineForAPI(*pipeline)
+	writeJSON(w, http.StatusOK, normalized)
 }
 
 func (h *pipelineHandlers) getPipelineCheckpoints(w http.ResponseWriter, r *http.Request) {
@@ -301,7 +303,8 @@ func (h *pipelineHandlers) getPipelineByID(w http.ResponseWriter, r *http.Reques
 		writeAPIError(w, http.StatusInternalServerError, "failed to load pipeline", "GET_PIPELINE_FAILED")
 		return
 	}
-	writeJSON(w, http.StatusOK, pipeline)
+	normalized := normalizePipelineForAPI(*pipeline)
+	writeJSON(w, http.StatusOK, normalized)
 }
 
 func (h *pipelineHandlers) loadPipelineForProject(w http.ResponseWriter, r *http.Request) (*core.Pipeline, bool) {
@@ -371,6 +374,22 @@ func parsePaginationParams(r *http.Request) (int, int, error) {
 	}
 
 	return limit, offset, nil
+}
+
+func normalizePipelinesForAPI(items []core.Pipeline) []core.Pipeline {
+	if len(items) == 0 {
+		return []core.Pipeline{}
+	}
+	out := make([]core.Pipeline, len(items))
+	for i := range items {
+		out[i] = normalizePipelineForAPI(items[i])
+	}
+	return out
+}
+
+func normalizePipelineForAPI(item core.Pipeline) core.Pipeline {
+	item.TaskItemID = strings.TrimSpace(item.TaskItemID)
+	return item
 }
 
 func buildPipelineStages(template string) ([]core.StageConfig, error) {

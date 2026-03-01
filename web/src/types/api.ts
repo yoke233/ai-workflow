@@ -3,6 +3,7 @@ import type {
   Pipeline,
   PipelineStatus,
   Project,
+  TaskItem,
   TaskItemStatus,
   TaskPlan,
   TaskPlanStatus,
@@ -112,8 +113,26 @@ export interface PaginatedResponse<T> {
   offset: number;
 }
 
-export type ListPipelinesResponse = PaginatedResponse<Pipeline>;
-export type ListPlansResponse = PaginatedResponse<TaskPlan>;
+export interface ApiPipeline extends Pipeline {
+  task_item_id: string;
+}
+
+export interface ApiTaskItem extends TaskItem {
+  inputs: string[];
+  outputs: string[];
+  acceptance: string[];
+  constraints: string[];
+}
+
+export interface ApiTaskPlan extends TaskPlan {
+  spec_profile: string;
+  contract_version: string;
+  contract_checksum: string;
+  tasks: ApiTaskItem[];
+}
+
+export type ListPipelinesResponse = PaginatedResponse<ApiPipeline>;
+export type ListPlansResponse = PaginatedResponse<ApiTaskPlan>;
 
 export interface PlanDagNode {
   id: string;
@@ -160,4 +179,4 @@ export interface CreateChatResponse {
 }
 
 export type GetChatResponse = ChatSession;
-export type CreatePlanResponse = TaskPlan;
+export type CreatePlanResponse = ApiTaskPlan;
