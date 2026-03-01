@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/user/ai-workflow/internal/core"
+	"github.com/user/ai-workflow/internal/observability"
 )
 
 func (e *Executor) ApplyAction(ctx context.Context, action core.PipelineAction) error {
@@ -16,6 +17,12 @@ func (e *Executor) ApplyAction(ctx context.Context, action core.PipelineAction) 
 	p, err := e.store.GetPipeline(action.PipelineID)
 	if err != nil {
 		return err
+	}
+	if traceID := observability.TraceID(ctx); traceID != "" {
+		if p.Config == nil {
+			p.Config = map[string]any{}
+		}
+		p.Config["trace_id"] = traceID
 	}
 
 	stage := action.Stage
@@ -230,6 +237,9 @@ func (e *Executor) publishActionApplied(p *core.Pipeline, action core.PipelineAc
 	}
 	if action.Agent != "" {
 		data["agent"] = action.Agent
+	}
+	if traceID := pipelineTraceID(p); traceID != "" {
+		data["trace_id"] = traceID
 	}
 
 	e.bus.Publish(core.Event{

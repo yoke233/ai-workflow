@@ -87,7 +87,7 @@ func NewServer(cfg Config) *Server {
 
 	r.Get("/health", handleHealth)
 	r.Get("/api/v1/health", handleHealth)
-	webhookReplayer := registerWebhookRoutes(r, cfg.Store, strings.TrimSpace(cfg.WebhookSecret))
+	webhookReplayer := registerWebhookRoutes(r, cfg.Store, cfg.PipelineExec, strings.TrimSpace(cfg.WebhookSecret))
 	if cfg.WebhookReplayer != nil {
 		webhookReplayer = cfg.WebhookReplayer
 	}

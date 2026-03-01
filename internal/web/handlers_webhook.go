@@ -1,10 +1,12 @@
 package web
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/user/ai-workflow/internal/core"
+	"github.com/user/ai-workflow/internal/engine"
 	"github.com/user/ai-workflow/internal/eventbus"
 	ghwebhook "github.com/user/ai-workflow/internal/github"
 	"github.com/user/ai-workflow/internal/observability"
@@ -20,6 +23,7 @@ import (
 type webhookHandlers struct {
 	store      core.Store
 	secret     string
+	executor   PipelineExecutor
 	dispatcher *ghwebhook.WebhookDispatcher
 }
 
@@ -33,28 +37,201 @@ type githubWebhookEnvelope struct {
 	} `json:"repository"`
 	Issue struct {
 		Number int `json:"number"`
+		Title  string
+		Body   string
 		Labels []struct {
 			Name string `json:"name"`
 		} `json:"labels"`
 	} `json:"issue"`
+	Comment struct {
+		Body              string `json:"body"`
+		AuthorAssociation string `json:"author_association"`
+	} `json:"comment"`
+	Sender struct {
+		Login string `json:"login"`
+	} `json:"sender"`
 }
 
-func registerWebhookRoutes(r chi.Router, store core.Store, secret string) WebhookDeliveryReplayer {
+func registerWebhookRoutes(r chi.Router, store core.Store, executor PipelineExecutor, secret string) WebhookDeliveryReplayer {
 	var publisher interface{ Publish(evt core.Event) }
 	if bus := eventbus.Default(); bus != nil {
 		publisher = bus
 	}
 
 	h := &webhookHandlers{
-		store:  store,
-		secret: strings.TrimSpace(secret),
-		dispatcher: ghwebhook.NewWebhookDispatcher(ghwebhook.WebhookDispatcherOptions{
-			Publisher: publisher,
-			DLQStore:  ghwebhook.DefaultDLQStore(),
-		}),
+		store:    store,
+		secret:   strings.TrimSpace(secret),
+		executor: executor,
 	}
+	h.dispatcher = ghwebhook.NewWebhookDispatcher(ghwebhook.WebhookDispatcherOptions{
+		Handler: ghwebhook.WebhookDispatchHandlerFunc(func(ctx context.Context, req ghwebhook.WebhookDispatchRequest) error {
+			return h.handleDispatchedWebhook(ctx, req)
+		}),
+		Publisher: publisher,
+		DLQStore:  ghwebhook.DefaultDLQStore(),
+	})
 	r.Post("/webhook", h.handleWebhook)
 	return h.dispatcher
+}
+
+func (h *webhookHandlers) handleDispatchedWebhook(ctx context.Context, req ghwebhook.WebhookDispatchRequest) error {
+	var envelope githubWebhookEnvelope
+	if err := json.Unmarshal(req.Payload, &envelope); err != nil {
+		return err
+	}
+
+	switch strings.TrimSpace(req.EventType) {
+	case "issues":
+		return h.handleIssuesEvent(ctx, req, envelope)
+	case "issue_comment":
+		return h.handleIssueCommentEvent(ctx, req, envelope)
+	default:
+		return nil
+	}
+}
+
+func (h *webhookHandlers) handleIssuesEvent(
+	ctx context.Context,
+	req ghwebhook.WebhookDispatchRequest,
+	envelope githubWebhookEnvelope,
+) error {
+	if strings.TrimSpace(envelope.Action) != "opened" {
+		return nil
+	}
+	if h.store == nil {
+		return errors.New("store is required")
+	}
+
+	trigger := ghwebhook.NewPipelineTrigger(h.store, h.createPipelineForTrigger)
+	_, err := trigger.TriggerFromIssue(ctx, ghwebhook.IssueTriggerInput{
+		ProjectID:            req.ProjectID,
+		IssueNumber:          envelope.Issue.Number,
+		IssueTitle:           strings.TrimSpace(envelope.Issue.Title),
+		IssueBody:            strings.TrimSpace(envelope.Issue.Body),
+		Labels:               extractIssueLabels(envelope),
+		LabelTemplateMapping: nil,
+		TraceID:              req.TraceID,
+	})
+	return err
+}
+
+func (h *webhookHandlers) handleIssueCommentEvent(
+	ctx context.Context,
+	req ghwebhook.WebhookDispatchRequest,
+	envelope githubWebhookEnvelope,
+) error {
+	if strings.TrimSpace(envelope.Action) != "created" {
+		return nil
+	}
+
+	command, ok, err := ghwebhook.ParseSlashCommand(envelope.Comment.Body)
+	if err != nil || !ok {
+		return err
+	}
+
+	allowed := ghwebhook.IsSlashCommandAllowed(
+		envelope.Sender.Login,
+		envelope.Comment.AuthorAssociation,
+		command.Type,
+		ghwebhook.SlashACLConfig{},
+	)
+	if !allowed {
+		return nil
+	}
+
+	switch command.Type {
+	case ghwebhook.SlashCommandRun:
+		trigger := ghwebhook.NewPipelineTrigger(h.store, h.createPipelineForTrigger)
+		_, err := trigger.TriggerFromCommand(ctx, ghwebhook.CommandTriggerInput{
+			ProjectID:       req.ProjectID,
+			IssueNumber:     envelope.Issue.Number,
+			Message:         strings.TrimSpace(envelope.Comment.Body),
+			Template:        strings.TrimSpace(command.Template),
+			DefaultTemplate: "standard",
+			Labels:          extractIssueLabels(envelope),
+			TraceID:         req.TraceID,
+		})
+		return err
+	case ghwebhook.SlashCommandApprove:
+		return h.applySlashPipelineAction(ctx, req.ProjectID, envelope.Issue.Number, core.PipelineAction{
+			Type: core.ActionApprove,
+		})
+	case ghwebhook.SlashCommandReject:
+		return h.applySlashPipelineAction(ctx, req.ProjectID, envelope.Issue.Number, core.PipelineAction{
+			Type:    core.ActionReject,
+			Stage:   command.Stage,
+			Message: command.Reason,
+		})
+	case ghwebhook.SlashCommandAbort:
+		return h.applySlashPipelineAction(ctx, req.ProjectID, envelope.Issue.Number, core.PipelineAction{
+			Type:    core.ActionAbort,
+			Message: command.Reason,
+		})
+	case ghwebhook.SlashCommandStatus:
+		return nil
+	default:
+		return nil
+	}
+}
+
+func (h *webhookHandlers) applySlashPipelineAction(
+	ctx context.Context,
+	projectID string,
+	issueNumber int,
+	action core.PipelineAction,
+) error {
+	if h.executor == nil || h.store == nil {
+		return nil
+	}
+
+	pipeline, err := engine.FindPipelineByIssueNumber(h.store, projectID, issueNumber)
+	if err != nil {
+		return err
+	}
+	if pipeline == nil {
+		return nil
+	}
+
+	action.PipelineID = pipeline.ID
+	if action.Stage == "" {
+		action.Stage = pipeline.CurrentStage
+	}
+	return h.executor.ApplyAction(ctx, action)
+}
+
+func (h *webhookHandlers) createPipelineForTrigger(
+	projectID,
+	name,
+	description,
+	template string,
+) (*core.Pipeline, error) {
+	if h == nil || h.store == nil {
+		return nil, errors.New("store is required")
+	}
+	stages, err := buildPipelineStages(template)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	pipeline := &core.Pipeline{
+		ID:              engine.NewPipelineID(),
+		ProjectID:       strings.TrimSpace(projectID),
+		Name:            strings.TrimSpace(name),
+		Description:     strings.TrimSpace(description),
+		Template:        strings.TrimSpace(template),
+		Status:          core.StatusCreated,
+		Stages:          stages,
+		Artifacts:       map[string]string{},
+		Config:          map[string]any{},
+		MaxTotalRetries: 5,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := h.store.SavePipeline(pipeline); err != nil {
+		return nil, err
+	}
+	return pipeline, nil
 }
 
 func (h *webhookHandlers) handleWebhook(w http.ResponseWriter, r *http.Request) {
