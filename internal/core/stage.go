@@ -16,6 +16,22 @@ const (
 	StageCleanup       StageID = "cleanup"
 )
 
+var knownStageIDs = map[StageID]struct{}{
+	StageRequirements:  {},
+	StageWorktreeSetup: {},
+	StageImplement:     {},
+	StageCodeReview:    {},
+	StageFixup:         {},
+	StageE2ETest:       {},
+	StageMerge:         {},
+	StageCleanup:       {},
+}
+
+func IsKnownStage(stage StageID) bool {
+	_, ok := knownStageIDs[stage]
+	return ok
+}
+
 // OnFailure defines what happens when a stage fails.
 type OnFailure string
 

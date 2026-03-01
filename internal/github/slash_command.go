@@ -115,17 +115,5 @@ func IsSlashCommandAllowed(actor string, association string, command SlashComman
 }
 
 func isValidRejectStage(stage core.StageID) bool {
-	switch stage {
-	case core.StageRequirements,
-		core.StageWorktreeSetup,
-		core.StageImplement,
-		core.StageCodeReview,
-		core.StageFixup,
-		core.StageE2ETest,
-		core.StageMerge,
-		core.StageCleanup:
-		return true
-	default:
-		return false
-	}
+	return core.IsKnownStage(stage)
 }

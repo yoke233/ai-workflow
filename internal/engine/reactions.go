@@ -54,9 +54,14 @@ func CompileOnFailureReactions(stage core.StageConfig) []ReactionRule {
 		action = ReactionAbortPipeline
 	}
 
+	ruleName := fmt.Sprintf("on_failure_%s", stage.OnFailure)
+	if stage.Name != "" {
+		ruleName = fmt.Sprintf("on_failure_%s_%s", stage.Name, stage.OnFailure)
+	}
+
 	return []ReactionRule{
 		{
-			Name:   fmt.Sprintf("on_failure_%s", stage.OnFailure),
+			Name:   ruleName,
 			Action: action,
 		},
 	}
