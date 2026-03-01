@@ -90,6 +90,38 @@ func TestDepScheduler_StartPlan_IdempotentForManagedPlan(t *testing.T) {
 	}
 }
 
+func TestDepScheduler_TrackerWarning_DoesNotBlockMainFlow(t *testing.T) {
+	store := newSchedulerTestStore(t)
+	defer store.Close()
+
+	project := mustCreateSchedulerProject(t, store, "proj-scheduler-tracker-warning")
+	plan := mustCreateTaskPlanWithItems(t, store, project.ID, "plan-tracker-warning", core.FailBlock, []core.TaskItem{
+		newTaskItem("task-a", "A", nil),
+	})
+
+	runner := &schedulerRunner{}
+	s := NewDepScheduler(store, nil, runner.Run, &warningTracker{}, 1)
+	if err := s.StartPlan(context.Background(), plan); err != nil {
+		t.Fatalf("StartPlan() error = %v", err)
+	}
+
+	taskA := waitTaskStatus(t, store, "task-a", core.ItemRunning, 2*time.Second)
+	if taskA.ExternalID != "" {
+		t.Fatalf("tracker warning path should not assign external id, got %q", taskA.ExternalID)
+	}
+
+	if err := s.OnEvent(context.Background(), core.Event{
+		Type:       core.EventPipelineDone,
+		PipelineID: taskA.PipelineID,
+		Timestamp:  time.Now(),
+	}); err != nil {
+		t.Fatalf("OnEvent(done A) error = %v", err)
+	}
+
+	waitTaskStatus(t, store, "task-a", core.ItemDone, 2*time.Second)
+	waitPlanStatus(t, store, plan.ID, core.PlanDone, 2*time.Second)
+}
+
 func TestScheduler_FailPolicyBlock(t *testing.T) {
 	store := newSchedulerTestStore(t)
 	defer store.Close()
@@ -908,4 +940,28 @@ func (s *flakyTaskSaveStore) SaveTaskItem(item *core.TaskItem) error {
 		return errInjectedTaskSave
 	}
 	return s.Store.SaveTaskItem(item)
+}
+
+type warningTracker struct{}
+
+func (w *warningTracker) Name() string { return "warning-tracker" }
+
+func (w *warningTracker) Init(context.Context) error { return nil }
+
+func (w *warningTracker) Close() error { return nil }
+
+func (w *warningTracker) CreateTask(context.Context, *core.TaskItem) (string, error) {
+	return "", core.NewTrackerWarning("create issue", errors.New("github api unavailable"))
+}
+
+func (w *warningTracker) UpdateStatus(context.Context, string, core.TaskItemStatus) error {
+	return core.NewTrackerWarning("update issue", errors.New("github api unavailable"))
+}
+
+func (w *warningTracker) SyncDependencies(context.Context, *core.TaskItem, []core.TaskItem) error {
+	return core.NewTrackerWarning("sync dependencies", errors.New("github api unavailable"))
+}
+
+func (w *warningTracker) OnExternalComplete(context.Context, string) error {
+	return nil
 }

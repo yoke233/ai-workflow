@@ -18,6 +18,7 @@ import (
 	scmlocalgit "github.com/user/ai-workflow/internal/plugins/scm-local-git"
 	specnoop "github.com/user/ai-workflow/internal/plugins/spec-noop"
 	storesqlite "github.com/user/ai-workflow/internal/plugins/store-sqlite"
+	trackergithub "github.com/user/ai-workflow/internal/plugins/tracker-github"
 	trackerlocal "github.com/user/ai-workflow/internal/plugins/tracker-local"
 	"github.com/user/ai-workflow/internal/secretary"
 )
@@ -194,7 +195,9 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 	if !ok {
 		return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotTracker, trackerName)
 	}
-	trackerRaw, err := trackerModule.Factory(nil)
+	trackerRaw, err := trackerModule.Factory(map[string]any{
+		"github": effective.GitHub,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("build tracker plugin %q: %w", trackerName, err)
 	}
@@ -345,6 +348,7 @@ func newDefaultRegistry() (*core.Registry, error) {
 				return trackerlocal.New(), nil
 			},
 		},
+		trackergithub.Module(),
 		{
 			Name: defaultSCMPlugin,
 			Slot: core.SlotSCM,
