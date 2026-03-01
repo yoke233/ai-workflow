@@ -27,7 +27,7 @@ func RenderPipelineList(pipelines []core.Pipeline, cursor int, styleStatus map[s
 		if currentStage == "" {
 			currentStage = "-"
 		}
-		b.WriteString(fmt.Sprintf("%s%-21s %-20s %-16s %s\n", prefix, p.ID, p.Name, currentStage, status))
+		b.WriteString(fmt.Sprintf("%s%-12s %-21s %-20s %-16s %s\n", prefix, p.ProjectID, p.ID, p.Name, currentStage, status))
 	}
 	return b.String()
 }

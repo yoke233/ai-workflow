@@ -20,6 +20,7 @@ import (
 type pipelineExecutor interface {
 	CreatePipeline(projectID, name, description, template string) (*core.Pipeline, error)
 	Run(ctx context.Context, pipelineID string) error
+	ApplyAction(ctx context.Context, action core.PipelineAction) error
 }
 
 type Model struct {
@@ -31,6 +32,9 @@ type Model struct {
 
 	projects  []core.Project
 	pipelines []core.Pipeline
+
+	selectedProjectID string
+	projectCursor     int
 
 	input   string
 	history []string
@@ -88,6 +92,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case snapshotMsg:
 		m.projects = msg.projects
 		m.pipelines = msg.pipelines
+		m.syncProjectSelection()
 		return m, nil
 
 	case errMsg:
@@ -141,6 +146,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case "tab":
+			m.switchProject(1)
+			return m, nil
+
+		case "shift+tab":
+			m.switchProject(-1)
+			return m, nil
+
 		case "enter":
 			line := strings.TrimSpace(m.input)
 			m.input = ""
@@ -172,7 +185,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, executeCommandCmd(m.store, m.executor, cmdLine)
 			}
 
-			prompt, proj, err := resolveChatInput(line, m.projects, m.workDir)
+			prompt, proj, autoMatched, err := resolveChatInputWithSelection(line, m.projects, m.workDir, m.selectedProjectID)
 			if err != nil && canAttemptAutoCreateProject(line) {
 				autoProj, created, createErr := ensureProjectForWorkDir(m.store, m.projects, m.workDir)
 				if createErr == nil {
@@ -182,12 +195,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if created {
 						m.appendHistory(fmt.Sprintf("自动创建项目: %s -> %s", autoProj.ID, autoProj.RepoPath))
 					}
-					prompt, proj, err = resolveChatInput(line, m.projects, m.workDir)
+					prompt, proj, autoMatched, err = resolveChatInputWithSelection(line, m.projects, m.workDir, m.selectedProjectID)
 				}
 			}
 			if err != nil {
 				m.appendHistory("error: " + err.Error())
 				return m, nil
+			}
+			if autoMatched {
+				m.appendHistory(fmt.Sprintf("自动匹配项目: %s", proj.ID))
 			}
 			m.appendHistory(fmt.Sprintf("你@%s> %s", proj.ID, prompt))
 
@@ -232,10 +248,86 @@ func (m *Model) appendHistory(text string) {
 	}
 }
 
+func (m *Model) syncProjectSelection() {
+	if len(m.projects) == 0 {
+		m.selectedProjectID = ""
+		m.projectCursor = 0
+		return
+	}
+
+	for i, p := range m.projects {
+		if p.ID == m.selectedProjectID {
+			m.projectCursor = i
+			return
+		}
+	}
+
+	m.selectedProjectID = m.projects[0].ID
+	m.projectCursor = 0
+}
+
+func (m *Model) switchProject(delta int) {
+	if len(m.projects) == 0 {
+		return
+	}
+	if delta == 0 {
+		return
+	}
+
+	n := len(m.projects)
+	next := (m.projectCursor + delta) % n
+	if next < 0 {
+		next += n
+	}
+	m.projectCursor = next
+	m.selectedProjectID = m.projects[next].ID
+}
+
+func (m Model) selectedProjectLabel() string {
+	if m.selectedProjectID == "" {
+		return "(未选择)"
+	}
+	return m.selectedProjectID
+}
+
+func (m Model) pipelinesForSelectedProject() []core.Pipeline {
+	if m.selectedProjectID == "" {
+		return m.pipelines
+	}
+
+	out := make([]core.Pipeline, 0, len(m.pipelines))
+	for _, p := range m.pipelines {
+		if p.ProjectID == m.selectedProjectID {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func summarizeSchedulerState(pipelines []core.Pipeline) (running, queued, waitingHuman int) {
+	for _, p := range pipelines {
+		switch p.Status {
+		case core.StatusRunning:
+			running++
+		case core.StatusCreated:
+			queued++
+		case core.StatusWaitingHuman:
+			waitingHuman++
+		}
+	}
+	return
+}
+
 func (m Model) View() string {
 	var b strings.Builder
 	b.WriteString(StyleTitle.Render("AI Workflow Orchestrator (Chat + Pipeline)") + "\n")
-	b.WriteString(StyleHelp.Render("直接输入文本会发送给 Claude。输入 /help 查看流水线命令。") + "\n\n")
+	b.WriteString(StyleHelp.Render("直接输入文本会发送给 Claude。输入 /help 查看流水线命令。Tab/Shift+Tab 切换项目。") + "\n")
+
+	runningCount, queuedCount, waitingCount := summarizeSchedulerState(m.pipelines)
+	b.WriteString(StyleHelp.Render(fmt.Sprintf(
+		"当前项目: %s | 调度状态 running=%d queued=%d waiting_human=%d",
+		m.selectedProjectLabel(), runningCount, queuedCount, waitingCount,
+	)) + "\n\n")
 
 	statusRenderer := map[string]func(string) string{}
 	for k, st := range StyleStatus {
@@ -245,8 +337,11 @@ func (m Model) View() string {
 		}
 	}
 
+	b.WriteString("Projects\n")
+	b.WriteString(views.RenderProjectList(m.projects, m.projectCursor) + "\n")
+
 	b.WriteString("Pipelines\n")
-	pipelineView := views.RenderPipelineList(m.pipelines, -1, statusRenderer)
+	pipelineView := views.RenderPipelineList(m.pipelinesForSelectedProject(), -1, statusRenderer)
 	b.WriteString(pipelineView + "\n")
 
 	b.WriteString("Output\n")
@@ -276,7 +371,7 @@ func (m Model) View() string {
 	}
 	b.WriteString("\n")
 	b.WriteString(StyleInput.Render("> "+m.input) + "\n")
-	b.WriteString(StyleHelp.Render("Enter 发送 | Esc 停止 Claude 当前输出 | /help 命令 | clear 清屏 | q 退出 | 状态: " + state))
+	b.WriteString(StyleHelp.Render("Enter 发送 | Esc 停止 Claude 当前输出 | /help 命令 | /pipeline action ... | clear 清屏 | q 退出 | 状态: " + state))
 	return b.String()
 }
 
@@ -422,6 +517,36 @@ func resolveChatInput(line string, projects []core.Project, workDir string) (str
 	}
 
 	return "", core.Project{}, fmt.Errorf("检测到多个项目，且无法根据当前目录自动匹配项目（当前目录: %s）", workDir)
+}
+
+func resolveChatInputWithSelection(
+	line string,
+	projects []core.Project,
+	workDir string,
+	selectedProjectID string,
+) (string, core.Project, bool, error) {
+	msg := strings.TrimSpace(line)
+	if msg == "" {
+		return "", core.Project{}, false, fmt.Errorf("输入内容为空")
+	}
+
+	if strings.HasPrefix(msg, "@") {
+		prompt, proj, err := resolveChatInput(line, projects, workDir)
+		return prompt, proj, false, err
+	}
+
+	if selectedProjectID != "" {
+		if proj, ok := findProjectByID(selectedProjectID, projects); ok {
+			return msg, proj, true, nil
+		}
+	}
+
+	prompt, proj, err := resolveChatInput(line, projects, workDir)
+	if err != nil {
+		return "", core.Project{}, false, err
+	}
+	// No explicit @prefix and matched by fallback rules, treat as auto-matched.
+	return prompt, proj, true, nil
 }
 
 func findProjectByID(id string, projects []core.Project) (core.Project, bool) {
@@ -620,7 +745,7 @@ func runProjectCommand(store core.Store, args []string) (string, error) {
 
 func runPipelineCommand(ctx context.Context, store core.Store, executor pipelineExecutor, args []string) (string, error) {
 	if len(args) == 0 {
-		return "", fmt.Errorf("usage: pipeline <create|start|status|list>")
+		return "", fmt.Errorf("usage: pipeline <create|start|status|list|action>")
 	}
 
 	switch args[0] {
@@ -692,8 +817,71 @@ func runPipelineCommand(ctx context.Context, store core.Store, executor pipeline
 		}
 		return b.String(), nil
 
+	case "action":
+		if len(args) < 3 {
+			return "", fmt.Errorf("usage: pipeline action <pipeline-id> <approve|reject|modify|skip|rerun|change_agent|abort|pause|resume> [--stage <stage>] [--agent <agent>] [--message <text>]")
+		}
+		actionType, err := parseHumanActionType(args[2])
+		if err != nil {
+			return "", err
+		}
+
+		action := core.PipelineAction{
+			PipelineID: args[1],
+			Type:       actionType,
+		}
+		for i := 3; i < len(args); i++ {
+			switch args[i] {
+			case "--stage":
+				i++
+				if i >= len(args) {
+					return "", fmt.Errorf("--stage requires a value")
+				}
+				action.Stage = core.StageID(args[i])
+			case "--agent":
+				i++
+				if i >= len(args) {
+					return "", fmt.Errorf("--agent requires a value")
+				}
+				action.Agent = args[i]
+			case "--message":
+				i++
+				if i >= len(args) {
+					return "", fmt.Errorf("--message requires a value")
+				}
+				action.Message = strings.Join(args[i:], " ")
+				i = len(args)
+			default:
+				action.Message = strings.Join(args[i:], " ")
+				i = len(args)
+			}
+		}
+
+		if err := executor.ApplyAction(ctx, action); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Action applied: %s %s", action.PipelineID, action.Type), nil
+
 	default:
 		return "", fmt.Errorf("unknown pipeline command: %s", args[0])
+	}
+}
+
+func parseHumanActionType(raw string) (core.HumanActionType, error) {
+	action := core.HumanActionType(strings.ToLower(strings.TrimSpace(raw)))
+	switch action {
+	case core.ActionApprove,
+		core.ActionReject,
+		core.ActionModify,
+		core.ActionSkip,
+		core.ActionRerun,
+		core.ActionChangeAgent,
+		core.ActionAbort,
+		core.ActionPause,
+		core.ActionResume:
+		return action, nil
+	default:
+		return "", fmt.Errorf("unknown action type: %s", raw)
 	}
 }
 
@@ -787,6 +975,7 @@ func helpText() string {
 		"- /pipeline start <pipeline-id>",
 		"- /pipeline status <pipeline-id>",
 		"- /pipeline list [project-id]",
+		"- /pipeline action <pipeline-id> <approve|reject|modify|skip|rerun|change_agent|abort|pause|resume> [--stage <stage>] [--agent <agent>] [--message <text>]",
 		`Tip: 含空格参数请加引号，例如: /pipeline create demo p1 "实现登录与注册" quick`,
 	}, "\n")
 }

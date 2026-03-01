@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/user/ai-workflow/internal/core"
 )
 
@@ -15,6 +16,10 @@ func (noopExecutor) CreatePipeline(projectID, name, description, template string
 }
 
 func (noopExecutor) Run(ctx context.Context, pipelineID string) error {
+	return nil
+}
+
+func (noopExecutor) ApplyAction(ctx context.Context, action core.PipelineAction) error {
 	return nil
 }
 
@@ -56,6 +61,18 @@ func (noopStore) GetActivePipelines() ([]core.Pipeline, error) {
 	return nil, nil
 }
 
+func (noopStore) ListRunnablePipelines(limit int) ([]core.Pipeline, error) {
+	return nil, nil
+}
+
+func (noopStore) CountRunningPipelinesByProject(projectID string) (int, error) {
+	return 0, nil
+}
+
+func (noopStore) TryMarkPipelineRunning(id string, from ...core.PipelineStatus) (bool, error) {
+	return false, nil
+}
+
 func (noopStore) SaveCheckpoint(cp *core.Checkpoint) error {
 	return nil
 }
@@ -66,6 +83,10 @@ func (noopStore) GetCheckpoints(pipelineID string) ([]core.Checkpoint, error) {
 
 func (noopStore) GetLastSuccessCheckpoint(pipelineID string) (*core.Checkpoint, error) {
 	return nil, nil
+}
+
+func (noopStore) InvalidateCheckpointsFromStage(pipelineID string, stage core.StageID) error {
+	return nil
 }
 
 func (noopStore) AppendLog(entry core.LogEntry) error {
@@ -249,5 +270,56 @@ func TestCanAttemptAutoCreateProject(t *testing.T) {
 	}
 	if !canAttemptAutoCreateProject("@demo 讨论需求") {
 		t.Fatal("expected valid @prefix to allow auto-create")
+	}
+}
+
+type actionSpyExecutor struct {
+	noopExecutor
+	lastAction core.PipelineAction
+}
+
+func (s *actionSpyExecutor) ApplyAction(ctx context.Context, action core.PipelineAction) error {
+	s.lastAction = action
+	return nil
+}
+
+func TestTUI_ProjectSwitchChangesPipelineContext(t *testing.T) {
+	m := NewModel(noopExecutor{}, noopStore{}, nil, nil)
+	m.projects = []core.Project{
+		{ID: "a", RepoPath: "D:/repo/a"},
+		{ID: "b", RepoPath: "D:/repo/b"},
+	}
+	m.pipelines = []core.Pipeline{
+		{ID: "pipe-a", ProjectID: "a", Name: "A", Status: core.StatusCreated},
+		{ID: "pipe-b", ProjectID: "b", Name: "B", Status: core.StatusCreated},
+	}
+	m.syncProjectSelection()
+
+	viewA := m.View()
+	if !strings.Contains(viewA, "pipe-a") {
+		t.Fatalf("expected project a pipeline visible, got: %s", viewA)
+	}
+	if strings.Contains(viewA, "pipe-b") {
+		t.Fatalf("expected project b pipeline hidden before switch, got: %s", viewA)
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	after := updated.(Model).View()
+	if !strings.Contains(after, "pipe-b") {
+		t.Fatalf("expected project b pipeline visible after switch, got: %s", after)
+	}
+}
+
+func TestTUI_ActionApproveCommand(t *testing.T) {
+	spy := &actionSpyExecutor{}
+	out, err := runCommand(context.Background(), noopStore{}, spy, "pipeline action p-1 approve --message 已通过")
+	if err != nil {
+		t.Fatalf("action command failed: %v", err)
+	}
+	if !strings.Contains(out, "Action applied") {
+		t.Fatalf("expected action output, got: %s", out)
+	}
+	if spy.lastAction.PipelineID != "p-1" || spy.lastAction.Type != core.ActionApprove {
+		t.Fatalf("unexpected action parsed: %+v", spy.lastAction)
 	}
 }
