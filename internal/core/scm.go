@@ -10,11 +10,35 @@ type SCM interface {
 	Push(ctx context.Context, remote string, branch string) error
 	Merge(ctx context.Context, branch string) (mergeCommit string, err error)
 	CreatePR(ctx context.Context, req PullRequest) (prURL string, err error)
+	UpdatePR(ctx context.Context, req PullRequestUpdate) error
+	ConvertToReady(ctx context.Context, number int) error
+	MergePR(ctx context.Context, req PullRequestMerge) error
 }
 
 type PullRequest struct {
-	Title string
-	Body  string
-	Head  string
-	Base  string
+	Title     string
+	Body      string
+	Head      string
+	Base      string
+	Draft     *bool
+	Reviewers []string
+}
+
+type PullRequestUpdate struct {
+	Number              int
+	Title               *string
+	Body                *string
+	Base                *string
+	State               *string
+	MaintainerCanModify *bool
+	AddComment          string
+}
+
+type PullRequestMerge struct {
+	Number             int
+	CommitTitle        string
+	CommitMessage      string
+	Method             string
+	SHA                string
+	DontDefaultIfBlank bool
 }

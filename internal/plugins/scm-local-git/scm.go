@@ -89,6 +89,18 @@ func (s *LocalGitSCM) CreatePR(context.Context, core.PullRequest) (string, error
 	return "", fmt.Errorf("local-git does not support pull request creation")
 }
 
+func (s *LocalGitSCM) UpdatePR(context.Context, core.PullRequestUpdate) error {
+	return fmt.Errorf("local-git does not support pull request update")
+}
+
+func (s *LocalGitSCM) ConvertToReady(context.Context, int) error {
+	return fmt.Errorf("local-git does not support pull request ready transition")
+}
+
+func (s *LocalGitSCM) MergePR(context.Context, core.PullRequestMerge) error {
+	return fmt.Errorf("local-git does not support pull request merge")
+}
+
 func (s *LocalGitSCM) run(ctx context.Context, args ...string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
