@@ -86,8 +86,12 @@ type DepScheduler struct {
 	pipelineIndex map[string]pipelineRef
 	lastPlanID    string
 
-	loopCancel context.CancelFunc
-	loopWG     sync.WaitGroup
+	loopCancel  context.CancelFunc
+	loopWG      sync.WaitGroup
+	reconcileWG sync.WaitGroup
+
+	reconcileInterval time.Duration
+	reconcileRun      func(context.Context) error
 }
 
 func NewDepScheduler(
@@ -120,6 +124,20 @@ func NewDepScheduler(
 	}
 }
 
+// SetReconcileRunner configures periodic reconcile hook for status drift repair.
+func (s *DepScheduler) SetReconcileRunner(interval time.Duration, run func(context.Context) error) {
+	if s == nil {
+		return
+	}
+	if interval <= 0 {
+		interval = 10 * time.Minute
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reconcileInterval = interval
+	s.reconcileRun = run
+}
+
 func (s *DepScheduler) Start(ctx context.Context) error {
 	if s == nil || s.bus == nil {
 		return nil
@@ -133,6 +151,11 @@ func (s *DepScheduler) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	s.loopCancel = cancel
 	ch := s.bus.Subscribe()
+	reconcileRun := s.reconcileRun
+	reconcileInterval := s.reconcileInterval
+	if reconcileInterval <= 0 {
+		reconcileInterval = 10 * time.Minute
+	}
 	s.loopWG.Add(1)
 	s.mu.Unlock()
 
@@ -151,6 +174,24 @@ func (s *DepScheduler) Start(ctx context.Context) error {
 			}
 		}
 	}()
+	if reconcileRun != nil {
+		s.reconcileWG.Add(1)
+		go func(runCtx context.Context, interval time.Duration, runFn func(context.Context) error) {
+			defer s.reconcileWG.Done()
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-runCtx.Done():
+					return
+				case <-ticker.C:
+					if err := runFn(context.Background()); err != nil {
+						// Best-effort reconcile hook; scheduler loop keeps running.
+					}
+				}
+			}
+		}(runCtx, reconcileInterval, reconcileRun)
+	}
 	return nil
 }
 
@@ -172,6 +213,7 @@ func (s *DepScheduler) Stop(ctx context.Context) error {
 	go func() {
 		defer close(done)
 		s.loopWG.Wait()
+		s.reconcileWG.Wait()
 	}()
 
 	select {
