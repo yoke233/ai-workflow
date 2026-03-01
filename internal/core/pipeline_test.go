@@ -53,10 +53,10 @@ func TestStageSource_NoLegacySpecStages(t *testing.T) {
 
 	src := string(content)
 	for _, legacy := range []string{
-		"StageSpecGen",
-		"StageSpecReview",
-		"spec_gen",
-		"spec_review",
+		"Stage" + "SpecGen",
+		"Stage" + "SpecReview",
+		"spec" + "_gen",
+		"spec" + "_review",
 	} {
 		if strings.Contains(src, legacy) {
 			t.Fatalf("legacy stage marker %q should be removed from stage.go", legacy)

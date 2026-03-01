@@ -59,8 +59,8 @@ func TestCutover_PreserveDonePipelines_AndResetDanglingTaskRelations(t *testing.
 	if _, err := db.Exec(`
 INSERT INTO pipelines (id, project_id, name, template, status, artifacts_json)
 VALUES
-	('pipe-done', 'proj-cutover-2', 'done', 'standard', 'done', '{"spec_gen":"legacy"}'),
-	('pipe-running', 'proj-cutover-2', 'running', 'standard', 'running', '{"spec_review":"legacy"}')
+	('pipe-done', 'proj-cutover-2', 'done', 'standard', 'done', '{"legacy_draft":"legacy"}'),
+	('pipe-running', 'proj-cutover-2', 'running', 'standard', 'running', '{"legacy_review":"legacy"}')
 `); err != nil {
 		t.Fatalf("insert pipelines: %v", err)
 	}

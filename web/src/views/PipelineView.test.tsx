@@ -4,11 +4,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import PipelineView from "./PipelineView";
 import type { ApiClient } from "../lib/apiClient";
-import type { Pipeline } from "../types/workflow";
+import type { ApiPipeline } from "../types/api";
 
-const buildPipeline = (id: string): Pipeline => ({
+const buildPipeline = (id: string): ApiPipeline => ({
   id,
   project_id: "proj-1",
+  task_item_id: `task-${id}`,
   name: `Pipeline ${id}`,
   description: "",
   template: "standard",
@@ -152,7 +153,7 @@ describe("PipelineView", () => {
 
   it("项目切换后会忽略旧请求返回，避免脏回写", async () => {
     const staleDeferred = createDeferred<{
-      items: Pipeline[];
+      items: ApiPipeline[];
       total: number;
       offset: number;
     }>();

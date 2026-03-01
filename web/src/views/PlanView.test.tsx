@@ -6,8 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import PlanView, { resolveMiniMapNodeColor } from "./PlanView";
 import type { ApiClient } from "../lib/apiClient";
 import type { WsClient } from "../lib/wsClient";
-import type { TaskPlan } from "../types/workflow";
-import type { ListPlansResponse } from "../types/api";
+import type { ApiTaskPlan, ListPlansResponse } from "../types/api";
 
 vi.mock("@xyflow/react", () => {
   return {
@@ -30,8 +29,8 @@ vi.mock("@xyflow/react", () => {
 const buildPlan = (
   id: string,
   name: string,
-  overrides?: Partial<TaskPlan>,
-): TaskPlan => ({
+  overrides?: Partial<ApiTaskPlan>,
+): ApiTaskPlan => ({
   id,
   project_id: "proj-1",
   session_id: "chat-1",
@@ -41,6 +40,9 @@ const buildPlan = (
   tasks: [],
   fail_policy: "block",
   review_round: 0,
+  spec_profile: "default",
+  contract_version: "v1",
+  contract_checksum: "checksum",
   created_at: "2026-03-01T10:00:00.000Z",
   updated_at: "2026-03-01T10:00:00.000Z",
   ...overrides,

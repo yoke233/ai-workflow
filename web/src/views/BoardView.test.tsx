@@ -4,9 +4,34 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import BoardView, { groupBoardTasks, toBoardStatus, type BoardTask } from "./BoardView";
 import type { ApiClient } from "../lib/apiClient";
-import type { TaskPlan } from "../types/workflow";
+import type { ApiTaskItem, ApiTaskPlan } from "../types/api";
 
-const buildPlan = (tasks: TaskPlan["tasks"]): TaskPlan => ({
+const buildTask = (
+  id: string,
+  title: string,
+  status: ApiTaskItem["status"],
+  overrides?: Partial<ApiTaskItem>,
+): ApiTaskItem => ({
+  id,
+  plan_id: "plan-1",
+  title,
+  description: "d",
+  labels: [],
+  depends_on: [],
+  template: "",
+  pipeline_id: "",
+  external_id: "",
+  status,
+  inputs: [],
+  outputs: [],
+  acceptance: [],
+  constraints: [],
+  created_at: "2026-03-01T10:00:00.000Z",
+  updated_at: "2026-03-01T10:00:00.000Z",
+  ...overrides,
+});
+
+const buildPlan = (tasks: ApiTaskPlan["tasks"]): ApiTaskPlan => ({
   id: "plan-1",
   project_id: "proj-1",
   session_id: "chat-1",
@@ -16,6 +41,9 @@ const buildPlan = (tasks: TaskPlan["tasks"]): TaskPlan => ({
   tasks,
   fail_policy: "block",
   review_round: 0,
+  spec_profile: "default",
+  contract_version: "v1",
+  contract_checksum: "checksum",
   created_at: "2026-03-01T10:00:00.000Z",
   updated_at: "2026-03-01T10:00:00.000Z",
 });
@@ -46,34 +74,8 @@ const createMockApiClient = (): ApiClient => {
     listPlans: vi.fn().mockResolvedValue({
       items: [
         buildPlan([
-          {
-            id: "task-1",
-            plan_id: "plan-1",
-            title: "Task pending",
-            description: "d1",
-            labels: [],
-            depends_on: [],
-            template: "",
-            pipeline_id: "",
-            external_id: "",
-            status: "pending",
-            created_at: "2026-03-01T10:00:00.000Z",
-            updated_at: "2026-03-01T10:00:00.000Z",
-          },
-          {
-            id: "task-2",
-            plan_id: "plan-1",
-            title: "Task failed",
-            description: "d2",
-            labels: [],
-            depends_on: [],
-            template: "",
-            pipeline_id: "",
-            external_id: "",
-            status: "blocked_by_failure",
-            created_at: "2026-03-01T10:00:00.000Z",
-            updated_at: "2026-03-01T10:00:00.000Z",
-          },
+          buildTask("task-1", "Task pending", "pending", { description: "d1" }),
+          buildTask("task-2", "Task failed", "blocked_by_failure", { description: "d2" }),
         ]),
       ],
       total: 1,
@@ -150,20 +152,9 @@ describe("BoardView", () => {
       .mockResolvedValueOnce({
         items: Array.from({ length: 50 }, (_, index) =>
           buildPlan([
-            {
-              id: `task-${index}`,
+            buildTask(`task-${index}`, `Task ${index}`, "pending", {
               plan_id: `plan-${index}`,
-              title: `Task ${index}`,
-              description: "d",
-              labels: [],
-              depends_on: [],
-              template: "",
-              pipeline_id: "",
-              external_id: "",
-              status: "pending",
-              created_at: "2026-03-01T10:00:00.000Z",
-              updated_at: "2026-03-01T10:00:00.000Z",
-            },
+            }),
           ]),
         ),
         total: 51,
@@ -173,20 +164,9 @@ describe("BoardView", () => {
         items: [
           {
             ...buildPlan([
-              {
-                id: "task-last",
+              buildTask("task-last", "Task Last", "pending", {
                 plan_id: "plan-last",
-                title: "Task Last",
-                description: "d",
-                labels: [],
-                depends_on: [],
-                template: "",
-                pipeline_id: "",
-                external_id: "",
-                status: "pending",
-                created_at: "2026-03-01T10:00:00.000Z",
-                updated_at: "2026-03-01T10:00:00.000Z",
-              },
+              }),
             ]),
             id: "plan-last",
           },
@@ -213,7 +193,7 @@ describe("BoardView", () => {
 
   it("项目切换后会忽略旧请求返回，避免脏回写", async () => {
     const staleDeferred = createDeferred<{
-      items: TaskPlan[];
+      items: ApiTaskPlan[];
       total: number;
       offset: number;
     }>();
@@ -225,20 +205,7 @@ describe("BoardView", () => {
       return Promise.resolve({
         items: [
           buildPlan([
-            {
-              id: "task-fresh",
-              plan_id: "plan-1",
-              title: "Task fresh",
-              description: "d",
-              labels: [],
-              depends_on: [],
-              template: "",
-              pipeline_id: "",
-              external_id: "",
-              status: "ready",
-              created_at: "2026-03-01T10:00:00.000Z",
-              updated_at: "2026-03-01T10:00:00.000Z",
-            },
+            buildTask("task-fresh", "Task fresh", "ready"),
           ]),
         ],
         total: 1,
@@ -253,20 +220,7 @@ describe("BoardView", () => {
     staleDeferred.resolve({
       items: [
         buildPlan([
-          {
-            id: "task-stale",
-            plan_id: "plan-1",
-            title: "Task stale",
-            description: "d",
-            labels: [],
-            depends_on: [],
-            template: "",
-            pipeline_id: "",
-            external_id: "",
-            status: "pending",
-            created_at: "2026-03-01T10:00:00.000Z",
-            updated_at: "2026-03-01T10:00:00.000Z",
-          },
+          buildTask("task-stale", "Task stale", "pending"),
         ]),
       ],
       total: 1,

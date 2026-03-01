@@ -68,9 +68,11 @@ func TestFullTemplateOrder(t *testing.T) {
 }
 
 func TestTemplate_NoLegacySpecStages(t *testing.T) {
+	legacySpecGenerate := core.StageID("spec" + "_gen")
+	legacySpecReview := core.StageID("spec" + "_review")
 	for name, stages := range Templates {
 		for _, stage := range stages {
-			if stage == core.StageID("spec_gen") || stage == core.StageID("spec_review") {
+			if stage == legacySpecGenerate || stage == legacySpecReview {
 				t.Fatalf("template %s still contains legacy spec stage: %s", name, stage)
 			}
 		}

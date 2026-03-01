@@ -4,10 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ChatView from "./ChatView";
 import type { ApiClient } from "../lib/apiClient";
-import type { TaskPlan } from "../types/workflow";
-import type { CreateChatResponse } from "../types/api";
+import type { ApiTaskPlan, CreateChatResponse } from "../types/api";
 
-const buildPlan = (id: string): TaskPlan => ({
+const buildPlan = (id: string): ApiTaskPlan => ({
   id,
   project_id: "proj-1",
   session_id: "chat-1",
@@ -17,6 +16,9 @@ const buildPlan = (id: string): TaskPlan => ({
   tasks: [],
   fail_policy: "block",
   review_round: 0,
+  spec_profile: "default",
+  contract_version: "v1",
+  contract_checksum: "checksum",
   created_at: "2026-03-01T10:00:00.000Z",
   updated_at: "2026-03-01T10:00:00.000Z",
 });
@@ -156,7 +158,7 @@ describe("ChatView", () => {
   });
 
   it("createPlan 请求在项目切换后晚到时不会回写新项目状态", async () => {
-    const deferredPlan = createDeferred<TaskPlan>();
+    const deferredPlan = createDeferred<ApiTaskPlan>();
     const apiClient = createMockApiClient();
     vi.mocked(apiClient.createPlan).mockImplementation(() => deferredPlan.promise);
 
