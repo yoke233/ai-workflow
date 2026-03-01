@@ -27,6 +27,16 @@ export type TaskItemStatus =
   | "skipped"
   | "blocked_by_failure";
 
+export type GitHubConnectionStatus = "connected" | "degraded" | "disconnected";
+
+export interface GitHubRef {
+  connection_status?: GitHubConnectionStatus;
+  issue_number?: number;
+  issue_url?: string;
+  pr_number?: number;
+  pr_url?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -60,6 +70,7 @@ export interface Pipeline {
   finished_at: string;
   created_at: string;
   updated_at: string;
+  github?: GitHubRef;
 }
 
 export interface ChatMessage {
@@ -89,6 +100,7 @@ export interface TaskItem {
   status: TaskItemStatus;
   created_at: string;
   updated_at: string;
+  github?: GitHubRef;
 }
 
 export interface TaskPlan {

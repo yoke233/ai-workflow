@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import PlanView, { resolveMiniMapNodeColor } from "./PlanView";
 import type { ApiClient } from "../lib/apiClient";
 import type { WsClient } from "../lib/wsClient";
-import type { ApiTaskPlan, ListPlansResponse } from "../types/api";
+import type { ApiTaskItem, ApiTaskPlan, ListPlansResponse } from "../types/api";
 
 vi.mock("@xyflow/react", () => {
   return {
@@ -43,6 +43,26 @@ const buildPlan = (
   spec_profile: "default",
   contract_version: "v1",
   contract_checksum: "checksum",
+  created_at: "2026-03-01T10:00:00.000Z",
+  updated_at: "2026-03-01T10:00:00.000Z",
+  ...overrides,
+});
+
+const buildTask = (id: string, overrides?: Partial<ApiTaskItem>): ApiTaskItem => ({
+  id,
+  plan_id: "plan-1",
+  title: `Task ${id}`,
+  description: "task",
+  labels: [],
+  depends_on: [],
+  inputs: [],
+  outputs: [],
+  acceptance: [],
+  constraints: [],
+  template: "standard",
+  pipeline_id: "",
+  external_id: "",
+  status: "pending",
   created_at: "2026-03-01T10:00:00.000Z",
   updated_at: "2026-03-01T10:00:00.000Z",
   ...overrides,
@@ -344,6 +364,41 @@ describe("PlanView", () => {
         action: "abort",
       });
     });
+  });
+
+  it("展示 Task 的 GitHub Issue 链接", async () => {
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.listPlans).mockResolvedValue({
+      items: [
+        buildPlan("plan-1", "Plan One", {
+          tasks: [
+            buildTask("task-1", {
+              github: {
+                issue_number: 201,
+                issue_url: "https://github.com/acme/ai-workflow/issues/201",
+              },
+            }),
+          ],
+        }),
+      ],
+      total: 1,
+      offset: 0,
+    });
+    const wsClient = createMockWsClient();
+
+    render(
+      <PlanView
+        apiClient={apiClient}
+        wsClient={wsClient}
+        projectId="proj-1"
+        refreshToken={0}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("plan-github-links")).toBeTruthy();
+    });
+    expect(screen.getByText("Issue #201")).toBeTruthy();
   });
 });
 

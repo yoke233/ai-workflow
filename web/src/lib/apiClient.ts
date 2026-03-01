@@ -1,4 +1,6 @@
 import type {
+  ApiTaskItem,
+  ApiTaskPlan,
   ApiPipeline,
   ApiStatsResponse,
   CreateChatResponse,
@@ -140,6 +142,108 @@ const extractErrorMessage = (status: number, data: unknown): string => {
   return `Request failed with status ${status}`;
 };
 
+const toSafeNumber = (raw: unknown): number | undefined => {
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.trunc(raw);
+  }
+  if (typeof raw === "string") {
+    const parsed = Number.parseInt(raw.trim(), 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+};
+
+const toSafeString = (raw: unknown): string | undefined => {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const normalizeIssueNumberFromExternalId = (externalId: string): number | undefined => {
+  const trimmed = externalId.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const hashStripped = trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
+  const direct = Number.parseInt(hashStripped, 10);
+  if (Number.isFinite(direct)) {
+    return direct;
+  }
+
+  const matches = hashStripped.match(/(\d+)(?!.*\d)/);
+  if (!matches) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(matches[1] ?? "", 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const normalizeApiPipeline = (pipeline: ApiPipeline): ApiPipeline => {
+  const config = pipeline.config ?? {};
+  const issueNumber =
+    toSafeNumber(config.issue_number) ?? toSafeNumber(config.github_issue_number);
+  const prNumber = toSafeNumber(config.pr_number) ?? toSafeNumber(config.github_pr_number);
+  const issueUrl =
+    toSafeString(config.issue_url) ?? toSafeString(config.github_issue_url);
+  const prUrl = toSafeString(config.pr_url) ?? toSafeString(config.github_pr_url);
+  const rawConnectionStatus =
+    toSafeString(config.github_connection_status) ?? toSafeString(config.connection_status);
+
+  const connectionStatus =
+    rawConnectionStatus === "connected" ||
+    rawConnectionStatus === "degraded" ||
+    rawConnectionStatus === "disconnected"
+      ? rawConnectionStatus
+      : issueNumber || prNumber || issueUrl || prUrl
+        ? "connected"
+        : "disconnected";
+
+  return {
+    ...pipeline,
+    github: {
+      connection_status: connectionStatus,
+      issue_number: issueNumber,
+      issue_url: issueUrl,
+      pr_number: prNumber,
+      pr_url: prUrl,
+    },
+  };
+};
+
+const normalizeApiTaskItem = (task: ApiTaskItem): ApiTaskItem => {
+  const issueNumber =
+    normalizeIssueNumberFromExternalId(task.external_id ?? "") ??
+    toSafeNumber((task as { github?: { issue_number?: unknown } }).github?.issue_number);
+  const issueUrl =
+    toSafeString((task as { github?: { issue_url?: unknown } }).github?.issue_url) ??
+    (toSafeString(task.external_id)?.startsWith("http")
+      ? toSafeString(task.external_id)
+      : undefined);
+
+  return {
+    ...task,
+    inputs: Array.isArray(task.inputs) ? task.inputs : [],
+    outputs: Array.isArray(task.outputs) ? task.outputs : [],
+    acceptance: Array.isArray(task.acceptance) ? task.acceptance : [],
+    constraints: Array.isArray(task.constraints) ? task.constraints : [],
+    github: {
+      issue_number: issueNumber,
+      issue_url: issueUrl,
+    },
+  };
+};
+
+const normalizeApiTaskPlan = (plan: ApiTaskPlan): ApiTaskPlan => {
+  return {
+    ...plan,
+    tasks: Array.isArray(plan.tasks) ? plan.tasks.map(normalizeApiTaskItem) : [],
+  };
+};
+
 export interface ApiClient {
   request<TResponse, TBody = unknown>(options: RequestOptions<TBody>): Promise<TResponse>;
   get<TResponse>(path: string, options?: Omit<RequestOptions<never>, "path" | "method">): Promise<TResponse>;
@@ -276,17 +380,24 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         method: "POST",
         body,
       }),
-    listPipelines: (projectId, pagination) =>
-      request<ListPipelinesResponse>({
+    listPipelines: async (projectId, pagination) => {
+      const response = await request<ListPipelinesResponse>({
         path: `/projects/${projectId}/pipelines`,
         query: pagination,
-      }),
-    createPipeline: (projectId, body) =>
-      request<ApiPipeline, CreatePipelineRequest>({
+      });
+      return {
+        ...response,
+        items: response.items.map(normalizeApiPipeline),
+      };
+    },
+    createPipeline: async (projectId, body) => {
+      const response = await request<ApiPipeline, CreatePipelineRequest>({
         path: `/projects/${projectId}/pipelines`,
         method: "POST",
         body,
-      }),
+      });
+      return normalizeApiPipeline(response);
+    },
     createChat: (projectId, body) =>
       request<CreateChatResponse, CreateChatRequest>({
         path: `/projects/${projectId}/chat`,
@@ -297,12 +408,14 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       request<GetChatResponse>({
         path: `/projects/${projectId}/chat/${sessionId}`,
       }),
-    createPlan: (projectId, body) =>
-      request<CreatePlanResponse, CreatePlanRequest>({
+    createPlan: async (projectId, body) => {
+      const response = await request<CreatePlanResponse, CreatePlanRequest>({
         path: `/projects/${projectId}/plans`,
         method: "POST",
         body,
-      }),
+      });
+      return normalizeApiTaskPlan(response);
+    },
     submitPlanReview: (projectId, planId) =>
       request<SubmitPlanReviewResponse>({
         path: `/projects/${projectId}/plans/${planId}/review`,
@@ -320,19 +433,26 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         method: "POST",
         body,
       }),
-    listPlans: (projectId, pagination) =>
-      request<ListPlansResponse>({
+    listPlans: async (projectId, pagination) => {
+      const response = await request<ListPlansResponse>({
         path: `/projects/${projectId}/plans`,
         query: pagination,
-      }),
+      });
+      return {
+        ...response,
+        items: response.items.map(normalizeApiTaskPlan),
+      };
+    },
     getPlanDag: (projectId, planId) =>
       request<PlanDagResponse>({
         path: `/projects/${projectId}/plans/${planId}/dag`,
       }),
-    getPipeline: (projectId, pipelineId) =>
-      request<ApiPipeline>({
+    getPipeline: async (projectId, pipelineId) => {
+      const response = await request<ApiPipeline>({
         path: `/projects/${projectId}/pipelines/${pipelineId}`,
-      }),
+      });
+      return normalizeApiPipeline(response);
+    },
     getPipelineCheckpoints: (projectId, pipelineId) =>
       request<GetPipelineCheckpointsResponse>({
         path: `/projects/${projectId}/pipelines/${pipelineId}/checkpoints`,

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiClient } from "../lib/apiClient";
 import type { Pipeline } from "../types/workflow";
 import type { PipelineActionRequest, PipelineCheckpoint } from "../types/api";
+import GitHubStatusBadge from "../components/GitHubStatusBadge";
 
 interface PipelineViewProps {
   apiClient: ApiClient;
@@ -296,6 +297,9 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
           <p className="mt-2 text-xs text-slate-500">请选择流水线查看阶段进度。</p>
         ) : (
           <>
+            <div className="mt-2">
+              <GitHubStatusBadge status={selectedPipeline.github?.connection_status} />
+            </div>
             <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-200">
               <div
                 data-testid="pipeline-progress-value"
@@ -318,6 +322,38 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
             <p className="mt-2 text-xs text-slate-500">请选择流水线查看输出。</p>
           ) : (
             <div className="mt-2 space-y-2 text-xs">
+              <p className="text-slate-600">GitHub</p>
+              <div data-testid="pipeline-github-links" className="rounded-md border border-slate-200 px-2 py-2">
+                <div className="flex flex-wrap gap-3">
+                  {selectedPipeline.github?.issue_url ? (
+                    <a
+                      href={selectedPipeline.github.issue_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-700 underline"
+                    >
+                      {selectedPipeline.github.issue_number
+                        ? `Issue #${selectedPipeline.github.issue_number}`
+                        : "Issue Link"}
+                    </a>
+                  ) : null}
+                  {selectedPipeline.github?.pr_url ? (
+                    <a
+                      href={selectedPipeline.github.pr_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-700 underline"
+                    >
+                      {selectedPipeline.github.pr_number
+                        ? `PR #${selectedPipeline.github.pr_number}`
+                        : "PR Link"}
+                    </a>
+                  ) : null}
+                </div>
+                {!selectedPipeline.github?.issue_url && !selectedPipeline.github?.pr_url ? (
+                  <p className="text-slate-500">暂无 GitHub Issue/PR 关联。</p>
+                ) : null}
+              </div>
               <p className="text-slate-600">Artifacts</p>
               <pre className="max-h-52 overflow-auto rounded-md bg-slate-950 p-3 text-slate-100">
                 {JSON.stringify(selectedPipeline.artifacts ?? {}, null, 2)}

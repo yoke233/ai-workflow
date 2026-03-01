@@ -25,6 +25,9 @@ const buildPipeline = (id: string): ApiPipeline => ({
   finished_at: "",
   created_at: "2026-03-01T10:00:00.000Z",
   updated_at: "2026-03-01T10:10:00.000Z",
+  github: {
+    connection_status: "disconnected",
+  },
 });
 
 const createMockApiClient = (): ApiClient => {
@@ -218,5 +221,35 @@ describe("PipelineView", () => {
     await vi.advanceTimersByTimeAsync(10_000);
 
     expect(apiClient.listPipelines).toHaveBeenCalledTimes(2);
+  });
+
+  it("显示 GitHub issue/pr 链接与状态徽标", async () => {
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.listPipelines).mockResolvedValue({
+      items: [
+        {
+          ...buildPipeline("pipe-github"),
+          github: {
+            connection_status: "connected",
+            issue_number: 201,
+            issue_url: "https://github.com/acme/ai-workflow/issues/201",
+            pr_number: 301,
+            pr_url: "https://github.com/acme/ai-workflow/pull/301",
+          },
+        },
+      ],
+      total: 1,
+      offset: 0,
+    });
+
+    render(<PipelineView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Pipeline pipe-github")).toBeTruthy();
+    });
+
+    expect(screen.getByText("Issue #201")).toBeTruthy();
+    expect(screen.getByText("PR #301")).toBeTruthy();
+    expect(screen.getByTestId("github-status-badge").textContent).toContain("Connected");
   });
 });

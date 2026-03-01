@@ -1,5 +1,6 @@
 import type {
   ChatSession,
+  GitHubConnectionStatus,
   Pipeline,
   PipelineStatus,
   Project,
@@ -115,6 +116,13 @@ export interface PaginatedResponse<T> {
 
 export interface ApiPipeline extends Pipeline {
   task_item_id: string;
+  github?: {
+    connection_status?: GitHubConnectionStatus;
+    issue_number?: number;
+    issue_url?: string;
+    pr_number?: number;
+    pr_url?: string;
+  };
 }
 
 export interface ApiTaskItem extends TaskItem {
@@ -122,6 +130,10 @@ export interface ApiTaskItem extends TaskItem {
   outputs: string[];
   acceptance: string[];
   constraints: string[];
+  github?: {
+    issue_number?: number;
+    issue_url?: string;
+  };
 }
 
 export interface ApiTaskPlan extends TaskPlan {

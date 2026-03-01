@@ -17,6 +17,8 @@ export interface BoardTask {
   title: string;
   status: BoardStatus;
   pipeline_id: string;
+  github_issue_number?: number;
+  github_issue_url?: string;
 }
 
 type TaskActionType = "retry" | "skip" | "abort";
@@ -166,6 +168,8 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
             title: task.title,
             status: toBoardStatus(task.status),
             pipeline_id: task.pipeline_id,
+            github_issue_number: task.github?.issue_number,
+            github_issue_url: task.github?.issue_url,
           })),
         );
         if (!cancelled) {
@@ -368,6 +372,17 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
                     <p className="mt-1 opacity-80">plan={task.plan_name}</p>
                     {task.pipeline_id ? (
                       <p className="mt-1 opacity-80">pipeline={task.pipeline_id}</p>
+                    ) : null}
+                    {task.github_issue_url ? (
+                      <a
+                        href={task.github_issue_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        data-testid="board-github-issue-icon"
+                        className="mt-1 inline-flex rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700"
+                      >
+                        {task.github_issue_number ? `GH #${task.github_issue_number}` : "GH Issue"}
+                      </a>
                     ) : null}
                   </button>
                 ))

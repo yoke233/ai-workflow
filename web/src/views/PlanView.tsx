@@ -312,6 +312,20 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
     [plans, activePlanId],
   );
 
+  const activePlanGitHubTasks = useMemo(() => {
+    if (!activePlan) {
+      return [];
+    }
+    return activePlan.tasks
+      .map((task) => ({
+        id: task.id,
+        title: task.title,
+        issueNumber: task.github?.issue_number,
+        issueUrl: task.github?.issue_url,
+      }))
+      .filter((task) => task.issueNumber || task.issueUrl);
+  }, [activePlan]);
+
   const canSubmitReview =
     !!activePlan &&
     (activePlan.status === "draft" || activePlan.status === "reviewing") &&
@@ -453,6 +467,31 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
                 <span className="rounded bg-slate-100 px-2 py-1">running: {dag.stats.running}</span>
                 <span className="rounded bg-slate-100 px-2 py-1">done: {dag.stats.done}</span>
                 <span className="rounded bg-slate-100 px-2 py-1">failed: {dag.stats.failed}</span>
+              </div>
+            ) : null}
+            {activePlanGitHubTasks.length > 0 ? (
+              <div data-testid="plan-github-links" className="mt-3 rounded-md border border-slate-200 p-2 text-xs">
+                <p className="font-medium text-slate-700">Task GitHub Issues</p>
+                <ul className="mt-2 space-y-1">
+                  {activePlanGitHubTasks.map((task) => (
+                    <li key={task.id}>
+                      {task.issueUrl ? (
+                        <a
+                          href={task.issueUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-700 underline"
+                        >
+                          {task.issueNumber ? `Issue #${task.issueNumber}` : task.title}
+                        </a>
+                      ) : (
+                        <span className="text-slate-700">
+                          {task.issueNumber ? `Issue #${task.issueNumber}` : task.title}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               </div>
             ) : null}
           </header>

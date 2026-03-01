@@ -190,11 +190,17 @@ describe("apiClient", () => {
             project_id: "proj-1",
             name: "pipeline-one",
             description: "pipeline",
-            template: "standard",
-            status: "created",
-            current_stage: "implement",
-            artifacts: {},
-            config: {},
+                    template: "standard",
+                    status: "created",
+                    current_stage: "implement",
+                    artifacts: {},
+                    config: {
+                      issue_number: 201,
+                      issue_url: "https://github.com/acme/ai-workflow/issues/201",
+                      pr_number: 301,
+                      pr_url: "https://github.com/acme/ai-workflow/pull/301",
+                      github_connection_status: "connected",
+                    },
             branch_name: "",
             worktree_path: "",
             max_total_retries: 5,
@@ -235,7 +241,7 @@ describe("apiClient", () => {
                     constraints: ["keep backward compatibility"],
                     template: "standard",
                     pipeline_id: "",
-                    external_id: "",
+                    external_id: "https://github.com/acme/ai-workflow/issues/201",
                     status: "pending",
                     created_at: "2026-03-01T00:00:00Z",
                     updated_at: "2026-03-01T00:00:00Z",
@@ -265,5 +271,14 @@ describe("apiClient", () => {
     expect(plans.items[0]?.tasks[0]?.outputs[0]).toBe("oauth_token");
     expect(plans.items[0]?.tasks[0]?.acceptance[0]).toBe("callback returns 200");
     expect(plans.items[0]?.tasks[0]?.constraints[0]).toBe("keep backward compatibility");
+    expect(pipeline.github?.issue_number).toBe(201);
+    expect(pipeline.github?.issue_url).toBe("https://github.com/acme/ai-workflow/issues/201");
+    expect(pipeline.github?.pr_number).toBe(301);
+    expect(pipeline.github?.pr_url).toBe("https://github.com/acme/ai-workflow/pull/301");
+    expect(pipeline.github?.connection_status).toBe("connected");
+    expect(plans.items[0]?.tasks[0]?.github?.issue_number).toBe(201);
+    expect(plans.items[0]?.tasks[0]?.github?.issue_url).toBe(
+      "https://github.com/acme/ai-workflow/issues/201",
+    );
   });
 });

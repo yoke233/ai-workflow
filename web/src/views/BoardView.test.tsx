@@ -299,6 +299,34 @@ describe("BoardView", () => {
     });
   });
 
+  it("显示 Task 的 GitHub Issue 图标链接", async () => {
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.listPlans).mockResolvedValue({
+      items: [
+        buildPlan([
+          buildTask("task-gh", "Task with GitHub", "pending", {
+            github: {
+              issue_number: 201,
+              issue_url: "https://github.com/acme/ai-workflow/issues/201",
+            },
+          }),
+        ]),
+      ],
+      total: 1,
+      offset: 0,
+    });
+
+    render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Task with GitHub")).toBeTruthy();
+    });
+
+    const issueLink = screen.getByTestId("board-github-issue-icon");
+    expect(issueLink.getAttribute("href")).toBe("https://github.com/acme/ai-workflow/issues/201");
+    expect(issueLink.textContent).toContain("GH #201");
+  });
+
   it("拖拽到目标列会触发对应 task action API", async () => {
     const apiClient = createMockApiClient();
     render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
