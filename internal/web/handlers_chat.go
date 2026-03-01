@@ -9,10 +9,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/user/ai-workflow/internal/core"
+	"github.com/user/ai-workflow/internal/secretary"
 )
 
 type chatHandlers struct {
-	store core.Store
+	store       core.Store
+	planManager PlanManager
 }
 
 type chatSessionDeleter interface {
@@ -26,10 +28,14 @@ type createChatSessionRequest struct {
 type createChatSessionResponse struct {
 	SessionID string `json:"session_id"`
 	Reply     string `json:"reply"`
+	PlanID    string `json:"plan_id,omitempty"`
 }
 
-func registerChatRoutes(r chi.Router, store core.Store) {
-	h := &chatHandlers{store: store}
+func registerChatRoutes(r chi.Router, store core.Store, planManager PlanManager) {
+	h := &chatHandlers{
+		store:       store,
+		planManager: planManager,
+	}
 	r.Post("/projects/{projectID}/chat", h.createSession)
 	r.Get("/projects/{projectID}/chat/{sessionID}", h.getSession)
 	r.Delete("/projects/{projectID}/chat/{sessionID}", h.deleteSession)
@@ -46,7 +52,8 @@ func (h *chatHandlers) createSession(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "project id is required", "PROJECT_ID_REQUIRED")
 		return
 	}
-	if _, err := h.store.GetProject(projectID); err != nil {
+	project, err := h.store.GetProject(projectID)
+	if err != nil {
 		if isNotFoundError(err) {
 			writeAPIError(w, http.StatusNotFound, fmt.Sprintf("project %s not found", projectID), "PROJECT_NOT_FOUND")
 			return
@@ -92,9 +99,32 @@ func (h *chatHandlers) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	createdPlanID := ""
+	if h.planManager != nil {
+		createReq := secretary.Request{
+			Conversation: summarizeChatMessages(session.Messages),
+			ProjectName:  strings.TrimSpace(project.Name),
+			RepoPath:     strings.TrimSpace(project.RepoPath),
+			WorkDir:      strings.TrimSpace(project.RepoPath),
+		}
+		if createReq.WorkDir == "" {
+			createReq.WorkDir = "."
+		}
+		createdPlan, planErr := h.planManager.CreateDraft(r.Context(), secretary.CreateDraftInput{
+			ProjectID:  projectID,
+			SessionID:  session.ID,
+			FailPolicy: core.FailBlock,
+			Request:    createReq,
+		})
+		if planErr == nil && createdPlan != nil {
+			createdPlanID = strings.TrimSpace(createdPlan.ID)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, createChatSessionResponse{
 		SessionID: session.ID,
 		Reply:     reply,
+		PlanID:    createdPlanID,
 	})
 }
 

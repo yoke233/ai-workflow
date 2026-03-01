@@ -27,7 +27,11 @@ vi.mock("@xyflow/react", () => {
   };
 });
 
-const buildPlan = (id: string, name: string): TaskPlan => ({
+const buildPlan = (
+  id: string,
+  name: string,
+  overrides?: Partial<TaskPlan>,
+): TaskPlan => ({
   id,
   project_id: "proj-1",
   session_id: "chat-1",
@@ -39,6 +43,7 @@ const buildPlan = (id: string, name: string): TaskPlan => ({
   review_round: 0,
   created_at: "2026-03-01T10:00:00.000Z",
   updated_at: "2026-03-01T10:00:00.000Z",
+  ...overrides,
 });
 
 const createMockApiClient = (): ApiClient => {
@@ -56,6 +61,12 @@ const createMockApiClient = (): ApiClient => {
     createChat: vi.fn(),
     getChat: vi.fn(),
     createPlan: vi.fn(),
+    submitPlanReview: vi.fn().mockResolvedValue({ status: "reviewing" }),
+    applyPlanAction: vi.fn().mockResolvedValue({ status: "executing" }),
+    applyTaskAction: vi.fn(),
+    getPipeline: vi.fn(),
+    getPipelineCheckpoints: vi.fn(),
+    applyPipelineAction: vi.fn(),
     listPlans: vi.fn().mockResolvedValue({
       items: [buildPlan("plan-1", "Plan One"), buildPlan("plan-2", "Plan Two")],
       total: 2,
@@ -241,6 +252,96 @@ describe("PlanView", () => {
     });
     expect(screen.getByText("Plan Two")).toBeTruthy();
     expect(screen.queryByText("Plan One")).toBeNull();
+  });
+
+  it("可提交审核并调用 submitPlanReview API", async () => {
+    const apiClient = createMockApiClient();
+    const wsClient = createMockWsClient();
+
+    render(
+      <PlanView
+        apiClient={apiClient}
+        wsClient={wsClient}
+        projectId="proj-1"
+        refreshToken={0}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(apiClient.getPlanDag).toHaveBeenCalledWith("proj-1", "plan-1");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "提交审核" }));
+
+    await waitFor(() => {
+      expect(apiClient.submitPlanReview).toHaveBeenCalledWith("proj-1", "plan-1");
+    });
+  });
+
+  it("可执行通过/驳回/放弃动作并调用 applyPlanAction API", async () => {
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.listPlans).mockResolvedValue({
+      items: [
+        buildPlan("plan-1", "Plan One", {
+          status: "waiting_human",
+          wait_reason: "final_approval",
+        }),
+      ],
+      total: 1,
+      offset: 0,
+    });
+    const wsClient = createMockWsClient();
+
+    render(
+      <PlanView
+        apiClient={apiClient}
+        wsClient={wsClient}
+        projectId="proj-1"
+        refreshToken={0}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(apiClient.getPlanDag).toHaveBeenCalledWith("proj-1", "plan-1");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "通过" }));
+
+    await waitFor(() => {
+      expect(apiClient.applyPlanAction).toHaveBeenCalledWith("proj-1", "plan-1", {
+        action: "approve",
+      });
+    });
+
+    fireEvent.change(screen.getByLabelText("驳回类型"), {
+      target: { value: "coverage_gap" },
+    });
+    fireEvent.change(screen.getByLabelText("驳回说明"), {
+      target: { value: "缺少关键回滚路径与异常分支覆盖，请补齐后再提交审核。" },
+    });
+    fireEvent.change(screen.getByLabelText("期望方向（可选）"), {
+      target: { value: "补齐异常流并拆分任务颗粒度" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "驳回" }));
+
+    await waitFor(() => {
+      expect(apiClient.applyPlanAction).toHaveBeenCalledWith("proj-1", "plan-1", {
+        action: "reject",
+        feedback: {
+          category: "coverage_gap",
+          detail: "缺少关键回滚路径与异常分支覆盖，请补齐后再提交审核。",
+          expected_direction: "补齐异常流并拆分任务颗粒度",
+        },
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "放弃" }));
+
+    await waitFor(() => {
+      expect(apiClient.applyPlanAction).toHaveBeenCalledWith("proj-1", "plan-1", {
+        action: "abort",
+      });
+    });
   });
 });
 

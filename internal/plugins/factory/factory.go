@@ -12,11 +12,13 @@ import (
 	agentclaude "github.com/user/ai-workflow/internal/plugins/agent-claude"
 	agentcodex "github.com/user/ai-workflow/internal/plugins/agent-codex"
 	notifierdesktop "github.com/user/ai-workflow/internal/plugins/notifier-desktop"
+	reviewaipanel "github.com/user/ai-workflow/internal/plugins/review-ai-panel"
 	reviewlocal "github.com/user/ai-workflow/internal/plugins/review-local"
 	runtimeprocess "github.com/user/ai-workflow/internal/plugins/runtime-process"
 	scmlocalgit "github.com/user/ai-workflow/internal/plugins/scm-local-git"
 	storesqlite "github.com/user/ai-workflow/internal/plugins/store-sqlite"
 	trackerlocal "github.com/user/ai-workflow/internal/plugins/tracker-local"
+	"github.com/user/ai-workflow/internal/secretary"
 )
 
 // BootstrapSet contains initialized plugins required by engine bootstrap.
@@ -31,7 +33,8 @@ type BootstrapSet struct {
 }
 
 const (
-	defaultReviewGatePlugin = "review-local"
+	defaultReviewGatePlugin = "review-ai-panel"
+	localReviewGatePlugin   = "review-local"
 	defaultTrackerPlugin    = "tracker-local"
 	defaultSCMPlugin        = "local-git"
 	defaultNotifierPlugin   = "desktop"
@@ -126,19 +129,24 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 		return nil, fmt.Errorf("no agent plugins configured")
 	}
 
-	reviewGateModule, ok := registry.Get(core.SlotReviewGate, defaultReviewGatePlugin)
+	reviewGateName := strings.TrimSpace(effective.Secretary.ReviewGatePlugin)
+	if reviewGateName == "" {
+		reviewGateName = defaultReviewGatePlugin
+	}
+	reviewGateModule, ok := registry.Get(core.SlotReviewGate, reviewGateName)
 	if !ok {
-		return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotReviewGate, defaultReviewGatePlugin)
+		return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotReviewGate, reviewGateName)
 	}
 	reviewGateRaw, err := reviewGateModule.Factory(map[string]any{
-		"store": storePlugin.Store(),
+		"store":      storePlugin.Store(),
+		"max_rounds": effective.Secretary.ReviewPanel.MaxRounds,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("build review gate plugin %q: %w", defaultReviewGatePlugin, err)
+		return nil, fmt.Errorf("build review gate plugin %q: %w", reviewGateName, err)
 	}
 	reviewGatePlugin, ok := reviewGateRaw.(core.ReviewGate)
 	if !ok {
-		return nil, fmt.Errorf("plugin is not a review gate plugin: slot=%s name=%s", core.SlotReviewGate, defaultReviewGatePlugin)
+		return nil, fmt.Errorf("plugin is not a review gate plugin: slot=%s name=%s", core.SlotReviewGate, reviewGateName)
 	}
 
 	trackerModule, ok := registry.Get(core.SlotTracker, defaultTrackerPlugin)
@@ -241,15 +249,38 @@ func newDefaultRegistry() (*core.Registry, error) {
 			Slot: core.SlotReviewGate,
 			Factory: func(cfg map[string]any) (core.Plugin, error) {
 				if cfg == nil {
-					return nil, fmt.Errorf("review-local requires store dependency")
+					return nil, fmt.Errorf("%s requires store dependency", defaultReviewGatePlugin)
 				}
 				rawStore, ok := cfg["store"]
 				if !ok {
-					return nil, fmt.Errorf("review-local requires store dependency")
+					return nil, fmt.Errorf("%s requires store dependency", defaultReviewGatePlugin)
 				}
 				store, ok := rawStore.(core.Store)
 				if !ok || store == nil {
-					return nil, fmt.Errorf("review-local requires valid store dependency")
+					return nil, fmt.Errorf("%s requires valid store dependency", defaultReviewGatePlugin)
+				}
+
+				panel := secretary.NewDefaultReviewPanel(store)
+				if maxRounds, ok := cfg["max_rounds"].(int); ok && maxRounds > 0 {
+					panel.MaxRounds = maxRounds
+				}
+				return reviewaipanel.New(store, panel), nil
+			},
+		},
+		{
+			Name: localReviewGatePlugin,
+			Slot: core.SlotReviewGate,
+			Factory: func(cfg map[string]any) (core.Plugin, error) {
+				if cfg == nil {
+					return nil, fmt.Errorf("%s requires store dependency", localReviewGatePlugin)
+				}
+				rawStore, ok := cfg["store"]
+				if !ok {
+					return nil, fmt.Errorf("%s requires store dependency", localReviewGatePlugin)
+				}
+				store, ok := rawStore.(core.Store)
+				if !ok || store == nil {
+					return nil, fmt.Errorf("%s requires valid store dependency", localReviewGatePlugin)
 				}
 				return reviewlocal.New(store), nil
 			},

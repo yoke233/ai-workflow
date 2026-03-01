@@ -14,7 +14,8 @@ import (
 )
 
 type pipelineHandlers struct {
-	store core.Store
+	store    core.Store
+	executor PipelineExecutor
 }
 
 type createPipelineRequest struct {
@@ -30,12 +31,29 @@ type pipelineListResponse struct {
 	Offset int             `json:"offset"`
 }
 
-func registerPipelineRoutes(r chi.Router, store core.Store) {
-	h := &pipelineHandlers{store: store}
+type pipelineActionRequest struct {
+	Action  string `json:"action"`
+	Stage   string `json:"stage,omitempty"`
+	Message string `json:"message,omitempty"`
+	Agent   string `json:"agent,omitempty"`
+}
+
+type pipelineActionResponse struct {
+	Status       string `json:"status"`
+	CurrentStage string `json:"current_stage,omitempty"`
+}
+
+func registerPipelineRoutes(r chi.Router, store core.Store, executor PipelineExecutor) {
+	h := &pipelineHandlers{
+		store:    store,
+		executor: executor,
+	}
 	r.Get("/pipelines/{id}", h.getPipelineByID)
 	r.Get("/projects/{projectID}/pipelines", h.listPipelines)
 	r.Post("/projects/{projectID}/pipelines", h.createPipeline)
 	r.Get("/projects/{projectID}/pipelines/{id}", h.getPipelineByProject)
+	r.Get("/projects/{projectID}/pipelines/{id}/checkpoints", h.getPipelineCheckpoints)
+	r.Post("/projects/{projectID}/pipelines/{id}/action", h.applyPipelineAction)
 }
 
 func (h *pipelineHandlers) listPipelines(w http.ResponseWriter, r *http.Request) {
@@ -191,6 +209,77 @@ func (h *pipelineHandlers) getPipelineByProject(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, pipeline)
 }
 
+func (h *pipelineHandlers) getPipelineCheckpoints(w http.ResponseWriter, r *http.Request) {
+	pipeline, ok := h.loadPipelineForProject(w, r)
+	if !ok {
+		return
+	}
+
+	checkpoints, err := h.store.GetCheckpoints(pipeline.ID)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "failed to load checkpoints", "GET_CHECKPOINTS_FAILED")
+		return
+	}
+	writeJSON(w, http.StatusOK, checkpoints)
+}
+
+func (h *pipelineHandlers) applyPipelineAction(w http.ResponseWriter, r *http.Request) {
+	if h.executor == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "pipeline executor is not configured", "PIPELINE_EXECUTOR_UNAVAILABLE")
+		return
+	}
+
+	pipeline, ok := h.loadPipelineForProject(w, r)
+	if !ok {
+		return
+	}
+
+	var req pipelineActionRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid json body", "INVALID_JSON")
+		return
+	}
+
+	actionType, err := parsePipelineActionType(req.Action)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error(), "INVALID_ACTION")
+		return
+	}
+
+	action := core.PipelineAction{
+		PipelineID: pipeline.ID,
+		Type:       actionType,
+		Stage:      core.StageID(strings.TrimSpace(req.Stage)),
+		Agent:      strings.TrimSpace(req.Agent),
+		Message:    strings.TrimSpace(req.Message),
+	}
+
+	if err := h.executor.ApplyAction(r.Context(), action); err != nil {
+		msg := strings.ToLower(err.Error())
+		switch {
+		case strings.Contains(msg, "unknown action"):
+			writeAPIError(w, http.StatusBadRequest, err.Error(), "INVALID_ACTION")
+		case strings.Contains(msg, "requires"):
+			writeAPIError(w, http.StatusConflict, err.Error(), "PIPELINE_ACTION_CONFLICT")
+		default:
+			writeAPIError(w, http.StatusInternalServerError, "failed to apply pipeline action", "APPLY_PIPELINE_ACTION_FAILED")
+		}
+		return
+	}
+
+	updated, err := h.store.GetPipeline(pipeline.ID)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "pipeline action applied but reload failed", "PIPELINE_RELOAD_FAILED")
+		return
+	}
+	writeJSON(w, http.StatusOK, pipelineActionResponse{
+		Status:       string(updated.Status),
+		CurrentStage: string(updated.CurrentStage),
+	})
+}
+
 func (h *pipelineHandlers) getPipelineByID(w http.ResponseWriter, r *http.Request) {
 	if h.store == nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
@@ -213,6 +302,52 @@ func (h *pipelineHandlers) getPipelineByID(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, pipeline)
+}
+
+func (h *pipelineHandlers) loadPipelineForProject(w http.ResponseWriter, r *http.Request) (*core.Pipeline, bool) {
+	if h.store == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
+		return nil, false
+	}
+
+	projectID := strings.TrimSpace(chi.URLParam(r, "projectID"))
+	id := strings.TrimSpace(chi.URLParam(r, "id"))
+	if projectID == "" || id == "" {
+		writeAPIError(w, http.StatusBadRequest, "project id and pipeline id are required", "INVALID_PATH_PARAM")
+		return nil, false
+	}
+
+	pipeline, err := h.store.GetPipeline(id)
+	if err != nil {
+		if isNotFoundError(err) {
+			writeAPIError(w, http.StatusNotFound, fmt.Sprintf("pipeline %s not found", id), "PIPELINE_NOT_FOUND")
+			return nil, false
+		}
+		writeAPIError(w, http.StatusInternalServerError, "failed to load pipeline", "GET_PIPELINE_FAILED")
+		return nil, false
+	}
+	if pipeline.ProjectID != projectID {
+		writeAPIError(w, http.StatusNotFound, fmt.Sprintf("pipeline %s not found in project %s", id, projectID), "PIPELINE_NOT_FOUND")
+		return nil, false
+	}
+	return pipeline, true
+}
+
+func parsePipelineActionType(raw string) (core.HumanActionType, error) {
+	switch core.HumanActionType(strings.ToLower(strings.TrimSpace(raw))) {
+	case core.ActionApprove,
+		core.ActionReject,
+		core.ActionModify,
+		core.ActionSkip,
+		core.ActionRerun,
+		core.ActionChangeAgent,
+		core.ActionAbort,
+		core.ActionPause,
+		core.ActionResume:
+		return core.HumanActionType(strings.ToLower(strings.TrimSpace(raw))), nil
+	default:
+		return "", fmt.Errorf("unknown action type: %s", raw)
+	}
 }
 
 func parsePaginationParams(r *http.Request) (int, int, error) {

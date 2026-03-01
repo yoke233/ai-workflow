@@ -13,7 +13,8 @@ import (
 )
 
 type planHandlers struct {
-	store core.Store
+	store       core.Store
+	planManager PlanManager
 }
 
 type createPlanRequest struct {
@@ -70,8 +71,11 @@ type planActionFeedback struct {
 	ExpectedDirection string `json:"expected_direction,omitempty"`
 }
 
-func registerPlanRoutes(r chi.Router, store core.Store) {
-	h := &planHandlers{store: store}
+func registerPlanRoutes(r chi.Router, store core.Store, planManager PlanManager) {
+	h := &planHandlers{
+		store:       store,
+		planManager: planManager,
+	}
 	r.Post("/projects/{projectID}/plans", h.createPlan)
 	r.Get("/projects/{projectID}/plans", h.listPlans)
 	r.Get("/projects/{projectID}/plans/{id}", h.getPlan)
@@ -91,7 +95,8 @@ func (h *planHandlers) createPlan(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "project id is required", "PROJECT_ID_REQUIRED")
 		return
 	}
-	if _, err := h.store.GetProject(projectID); err != nil {
+	project, err := h.store.GetProject(projectID)
+	if err != nil {
 		if isNotFoundError(err) {
 			writeAPIError(w, http.StatusNotFound, fmt.Sprintf("project %s not found", projectID), "PROJECT_NOT_FOUND")
 			return
@@ -136,34 +141,31 @@ func (h *planHandlers) createPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	planID := core.NewTaskPlanID()
-	planName := req.Name
-	if planName == "" {
-		planName = planID
+	if h.planManager == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "plan manager is not configured", "PLAN_MANAGER_UNAVAILABLE")
+		return
 	}
-	plan := &core.TaskPlan{
-		ID:         planID,
+
+	createReq := secretary.Request{
+		Conversation: summarizeChatMessages(session.Messages),
+		ProjectName:  strings.TrimSpace(project.Name),
+		RepoPath:     strings.TrimSpace(project.RepoPath),
+		WorkDir:      strings.TrimSpace(project.RepoPath),
+	}
+	if createReq.WorkDir == "" {
+		createReq.WorkDir = "."
+	}
+	created, err := h.planManager.CreateDraft(r.Context(), secretary.CreateDraftInput{
 		ProjectID:  projectID,
 		SessionID:  req.SessionID,
-		Name:       planName,
-		Status:     core.PlanDraft,
-		WaitReason: core.WaitNone,
+		Name:       req.Name,
 		FailPolicy: failPolicy,
-	}
-	if err := h.store.CreateTaskPlan(plan); err != nil {
+		Request:    createReq,
+	})
+	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "failed to create task plan", "CREATE_TASK_PLAN_FAILED")
 		return
 	}
-
-	created, err := h.store.GetTaskPlan(plan.ID)
-	if err != nil && !isNotFoundError(err) {
-		writeAPIError(w, http.StatusInternalServerError, "task plan created but reload failed", "TASK_PLAN_RELOAD_FAILED")
-		return
-	}
-	if created == nil {
-		created = plan
-	}
-
 	writeJSON(w, http.StatusCreated, created)
 }
 
@@ -298,20 +300,22 @@ func (h *planHandlers) submitReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if plan.Status != core.PlanDraft && plan.Status != core.PlanReviewing {
-		writeAPIError(w, http.StatusConflict, fmt.Sprintf("submit review requires draft/reviewing, got %s", plan.Status), "PLAN_STATUS_INVALID")
+	if h.planManager == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "plan manager is not configured", "PLAN_MANAGER_UNAVAILABLE")
 		return
 	}
 
-	plan.Status = core.PlanReviewing
-	plan.WaitReason = core.WaitNone
-	if err := h.store.SaveTaskPlan(plan); err != nil {
+	updated, err := h.planManager.SubmitReview(r.Context(), plan.ID, h.buildReviewInput(plan))
+	if err != nil {
+		if isPlanStatusConflictError(err) {
+			writeAPIError(w, http.StatusConflict, err.Error(), "PLAN_STATUS_INVALID")
+			return
+		}
 		writeAPIError(w, http.StatusInternalServerError, "failed to update task plan", "SAVE_TASK_PLAN_FAILED")
 		return
 	}
-
 	writeJSON(w, http.StatusOK, taskPlanStatusResponse{
-		Status: string(plan.Status),
+		Status: string(updated.Status),
 	})
 }
 
@@ -335,64 +339,48 @@ func (h *planHandlers) applyAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.planManager == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "plan manager is not configured", "PLAN_MANAGER_UNAVAILABLE")
+		return
+	}
+
+	managerAction := secretary.PlanAction{Action: action}
 	switch action {
 	case "approve":
-		if plan.Status != core.PlanWaitingHuman || plan.WaitReason != core.WaitFinalApproval {
-			writeAPIError(
-				w,
-				http.StatusConflict,
-				fmt.Sprintf("approve requires waiting_human/final_approval, got %s/%s", plan.Status, plan.WaitReason),
-				"PLAN_STATUS_INVALID",
-			)
-			return
-		}
-		plan.Status = core.PlanExecuting
-		plan.WaitReason = core.WaitNone
+		// no-op
 	case "reject":
-		if plan.Status != core.PlanWaitingHuman ||
-			(plan.WaitReason != core.WaitFinalApproval && plan.WaitReason != core.WaitFeedbackReq) {
-			writeAPIError(
-				w,
-				http.StatusConflict,
-				fmt.Sprintf(
-					"reject requires waiting_human/final_approval|feedback_required, got %s/%s",
-					plan.Status,
-					plan.WaitReason,
-				),
-				"PLAN_STATUS_INVALID",
-			)
-			return
-		}
 		if err := validatePlanRejectFeedback(req.Feedback); err != nil {
 			writeAPIError(w, http.StatusBadRequest, err.Error(), feedbackErrorCode(err))
 			return
 		}
-		plan.Status = core.PlanReviewing
-		plan.WaitReason = core.WaitNone
-	case "abort", "abandon":
-		if plan.Status != core.PlanWaitingHuman {
-			writeAPIError(
-				w,
-				http.StatusConflict,
-				fmt.Sprintf("abandon requires waiting_human, got %s", plan.Status),
-				"PLAN_STATUS_INVALID",
-			)
-			return
+		managerAction.Feedback = &secretary.HumanFeedback{
+			Category:          secretary.FeedbackCategory(strings.TrimSpace(req.Feedback.Category)),
+			Detail:            strings.TrimSpace(req.Feedback.Detail),
+			ExpectedDirection: strings.TrimSpace(req.Feedback.ExpectedDirection),
 		}
-		plan.Status = core.PlanAbandoned
-		plan.WaitReason = core.WaitNone
+	case "abort", "abandon":
+		managerAction.Action = secretary.PlanActionAbandon
 	default:
 		writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("unsupported plan action %q", action), "INVALID_ACTION")
 		return
 	}
 
-	if err := h.store.SaveTaskPlan(plan); err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "failed to update task plan", "SAVE_TASK_PLAN_FAILED")
+	updated, err := h.planManager.ApplyPlanAction(r.Context(), plan.ID, managerAction)
+	if err != nil {
+		switch {
+		case isPlanStatusConflictError(err):
+			writeAPIError(w, http.StatusConflict, err.Error(), "PLAN_STATUS_INVALID")
+		case isFeedbackValidationError(err):
+			writeAPIError(w, http.StatusBadRequest, err.Error(), feedbackErrorCode(err))
+		case strings.Contains(strings.ToLower(err.Error()), "unsupported plan action"):
+			writeAPIError(w, http.StatusBadRequest, err.Error(), "INVALID_ACTION")
+		default:
+			writeAPIError(w, http.StatusInternalServerError, "failed to update task plan", "SAVE_TASK_PLAN_FAILED")
+		}
 		return
 	}
-
 	writeJSON(w, http.StatusOK, taskPlanStatusResponse{
-		Status: string(plan.Status),
+		Status: string(updated.Status),
 	})
 }
 
@@ -424,6 +412,71 @@ func (h *planHandlers) loadPlanForProject(w http.ResponseWriter, r *http.Request
 	}
 
 	return plan, true
+}
+
+func (h *planHandlers) buildReviewInput(plan *core.TaskPlan) secretary.ReviewInput {
+	if h == nil || h.store == nil || plan == nil {
+		return secretary.ReviewInput{}
+	}
+
+	input := secretary.ReviewInput{}
+	sessionID := strings.TrimSpace(plan.SessionID)
+	if sessionID != "" {
+		if session, err := h.store.GetChatSession(sessionID); err == nil && session != nil {
+			input.Conversation = summarizeChatMessages(session.Messages)
+		}
+	}
+
+	if project, err := h.store.GetProject(plan.ProjectID); err == nil && project != nil {
+		projectName := strings.TrimSpace(project.Name)
+		repoPath := strings.TrimSpace(project.RepoPath)
+		parts := make([]string, 0, 2)
+		if projectName != "" {
+			parts = append(parts, "project="+projectName)
+		}
+		if repoPath != "" {
+			parts = append(parts, "repo="+repoPath)
+		}
+		input.ProjectContext = strings.Join(parts, " ")
+	}
+	return input
+}
+
+func summarizeChatMessages(messages []core.ChatMessage) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(messages))
+	for i := range messages {
+		content := strings.TrimSpace(messages[i].Content)
+		if content == "" {
+			continue
+		}
+		role := strings.TrimSpace(messages[i].Role)
+		if role == "" {
+			role = "user"
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s", role, content))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func isPlanStatusConflictError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "submit review requires") ||
+		strings.Contains(msg, "approve requires") ||
+		strings.Contains(msg, "reject requires") ||
+		strings.Contains(msg, "abandon requires")
+}
+
+func isFeedbackValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "feedback")
 }
 
 func parseFailPolicy(raw string) (core.FailurePolicy, error) {

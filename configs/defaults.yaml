@@ -21,6 +21,13 @@ scheduler:
   max_global_agents: 3
   max_project_pipelines: 2
 
+secretary:
+  review_gate_plugin: review-ai-panel
+  review_panel:
+    max_rounds: 2
+  dag_scheduler:
+    max_concurrent_tasks: 2
+
 store:
   driver: sqlite
   path: ~/.ai-workflow/data.db

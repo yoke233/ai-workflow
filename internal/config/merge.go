@@ -143,6 +143,22 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		}
 	}
 
+	if secretary := layer.Secretary; secretary != nil {
+		if secretary.ReviewGatePlugin != nil {
+			cfg.Secretary.ReviewGatePlugin = *secretary.ReviewGatePlugin
+		}
+		if panel := secretary.ReviewPanel; panel != nil {
+			if panel.MaxRounds != nil {
+				cfg.Secretary.ReviewPanel.MaxRounds = *panel.MaxRounds
+			}
+		}
+		if dag := secretary.DAGScheduler; dag != nil {
+			if dag.MaxConcurrentTasks != nil {
+				cfg.Secretary.DAGScheduler.MaxConcurrentTasks = *dag.MaxConcurrentTasks
+			}
+		}
+	}
+
 	if server := layer.Server; server != nil {
 		if server.Host != nil {
 			cfg.Server.Host = *server.Host

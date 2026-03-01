@@ -32,8 +32,8 @@ func TestFactoryBuildKnownPlugin(t *testing.T) {
 	if set.ReviewGate == nil {
 		t.Fatal("expected review gate to be initialized")
 	}
-	if set.ReviewGate.Name() != "local" {
-		t.Fatalf("expected review gate name local, got %q", set.ReviewGate.Name())
+	if set.ReviewGate.Name() != "ai-panel" {
+		t.Fatalf("expected review gate name ai-panel, got %q", set.ReviewGate.Name())
 	}
 	if set.Tracker == nil {
 		t.Fatal("expected tracker to be initialized")
@@ -80,6 +80,25 @@ func TestFactoryBuildUnknownRuntimePlugin(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unknown plugin") {
 		t.Fatalf("expected unknown plugin error, got %v", err)
+	}
+}
+
+func TestFactoryBuildReviewGateCanSwitchToLocal(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Store.Path = ":memory:"
+	cfg.Secretary.ReviewGatePlugin = "review-local"
+
+	set, err := BuildFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("BuildFromConfig returned error: %v", err)
+	}
+	defer set.Store.Close()
+
+	if set.ReviewGate == nil {
+		t.Fatal("expected review gate to be initialized")
+	}
+	if set.ReviewGate.Name() != "local" {
+		t.Fatalf("expected review gate name local, got %q", set.ReviewGate.Name())
 	}
 }
 

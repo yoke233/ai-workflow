@@ -6,11 +6,19 @@ import type {
   CreatePipelineRequest,
   CreatePlanRequest,
   CreateProjectRequest,
+  GetPipelineCheckpointsResponse,
   GetChatResponse,
   ListPipelinesResponse,
   ListPlansResponse,
   ListProjectsResponse,
+  PipelineActionRequest,
+  PipelineActionResponse,
+  PlanActionRequest,
+  PlanActionResponse,
   PlanDagResponse,
+  SubmitPlanReviewResponse,
+  TaskActionRequest,
+  TaskActionResponse,
 } from "../types/api";
 import type { Pipeline, Project } from "../types/workflow";
 
@@ -154,8 +162,30 @@ export interface ApiClient {
   createChat(projectId: string, body: CreateChatRequest): Promise<CreateChatResponse>;
   getChat(projectId: string, sessionId: string): Promise<GetChatResponse>;
   createPlan(projectId: string, body: CreatePlanRequest): Promise<CreatePlanResponse>;
+  submitPlanReview(projectId: string, planId: string): Promise<SubmitPlanReviewResponse>;
+  applyPlanAction(
+    projectId: string,
+    planId: string,
+    body: PlanActionRequest,
+  ): Promise<PlanActionResponse>;
+  applyTaskAction(
+    projectId: string,
+    planId: string,
+    taskId: string,
+    body: TaskActionRequest,
+  ): Promise<TaskActionResponse>;
   listPlans(projectId: string, pagination?: PaginationParams): Promise<ListPlansResponse>;
   getPlanDag(projectId: string, planId: string): Promise<PlanDagResponse>;
+  getPipeline(projectId: string, pipelineId: string): Promise<Pipeline>;
+  getPipelineCheckpoints(
+    projectId: string,
+    pipelineId: string,
+  ): Promise<GetPipelineCheckpointsResponse>;
+  applyPipelineAction(
+    projectId: string,
+    pipelineId: string,
+    body: PipelineActionRequest,
+  ): Promise<PipelineActionResponse>;
 }
 
 export const createApiClient = (options: ApiClientOptions): ApiClient => {
@@ -272,6 +302,23 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         method: "POST",
         body,
       }),
+    submitPlanReview: (projectId, planId) =>
+      request<SubmitPlanReviewResponse>({
+        path: `/projects/${projectId}/plans/${planId}/review`,
+        method: "POST",
+      }),
+    applyPlanAction: (projectId, planId, body) =>
+      request<PlanActionResponse, PlanActionRequest>({
+        path: `/projects/${projectId}/plans/${planId}/action`,
+        method: "POST",
+        body,
+      }),
+    applyTaskAction: (projectId, planId, taskId, body) =>
+      request<TaskActionResponse, TaskActionRequest>({
+        path: `/projects/${projectId}/plans/${planId}/tasks/${taskId}/action`,
+        method: "POST",
+        body,
+      }),
     listPlans: (projectId, pagination) =>
       request<ListPlansResponse>({
         path: `/projects/${projectId}/plans`,
@@ -280,6 +327,20 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
     getPlanDag: (projectId, planId) =>
       request<PlanDagResponse>({
         path: `/projects/${projectId}/plans/${planId}/dag`,
+      }),
+    getPipeline: (projectId, pipelineId) =>
+      request<Pipeline>({
+        path: `/projects/${projectId}/pipelines/${pipelineId}`,
+      }),
+    getPipelineCheckpoints: (projectId, pipelineId) =>
+      request<GetPipelineCheckpointsResponse>({
+        path: `/projects/${projectId}/pipelines/${pipelineId}/checkpoints`,
+      }),
+    applyPipelineAction: (projectId, pipelineId, body) =>
+      request<PipelineActionResponse, PipelineActionRequest>({
+        path: `/projects/${projectId}/pipelines/${pipelineId}/action`,
+        method: "POST",
+        body,
       }),
   };
 };

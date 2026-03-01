@@ -11,8 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/user/ai-workflow/internal/config"
 	"github.com/user/ai-workflow/internal/core"
 	"github.com/user/ai-workflow/internal/engine"
+	"github.com/user/ai-workflow/internal/eventbus"
+	pluginfactory "github.com/user/ai-workflow/internal/plugins/factory"
+	"github.com/user/ai-workflow/internal/secretary"
 	"github.com/user/ai-workflow/internal/web"
 )
 
@@ -154,17 +158,23 @@ func TestRunServer_PortPriority(t *testing.T) {
 
 			origSchedulerFactory := newServerScheduler
 			origServerFactory := newAPIServer
+			origPlanManagerFactory := newServerPlanManager
 			t.Cleanup(func() {
 				newServerScheduler = origSchedulerFactory
 				newAPIServer = origServerFactory
+				newServerPlanManager = origPlanManagerFactory
 			})
 
 			startErr := errors.New("server start failed")
 			fakeScheduler := &testScheduler{}
+			fakePlanManager := &testServerPlanManager{}
 			capturedAddr := ""
 
 			newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
 				return fakeScheduler, nil
+			}
+			newServerPlanManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.SecretaryConfig) (serverPlanManager, error) {
+				return fakePlanManager, nil
 			}
 			newAPIServer = func(cfg web.Config) apiServer {
 				capturedAddr = cfg.Addr
@@ -181,6 +191,9 @@ func TestRunServer_PortPriority(t *testing.T) {
 			if !fakeScheduler.stopCalled {
 				t.Fatal("expected scheduler stop to be called on startup failure")
 			}
+			if !fakePlanManager.stopCalled {
+				t.Fatal("expected plan manager stop to be called on startup failure")
+			}
 		})
 	}
 }
@@ -192,17 +205,23 @@ func TestRunServer_StartFailureJoinsSchedulerStopError(t *testing.T) {
 
 	origSchedulerFactory := newServerScheduler
 	origServerFactory := newAPIServer
+	origPlanManagerFactory := newServerPlanManager
 	t.Cleanup(func() {
 		newServerScheduler = origSchedulerFactory
 		newAPIServer = origServerFactory
+		newServerPlanManager = origPlanManagerFactory
 	})
 
 	startErr := errors.New("server start failed")
 	stopErr := errors.New("scheduler stop failed")
 	fakeScheduler := &testScheduler{stopErr: stopErr}
+	fakePlanManager := &testServerPlanManager{}
 
 	newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
 		return fakeScheduler, nil
+	}
+	newServerPlanManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.SecretaryConfig) (serverPlanManager, error) {
+		return fakePlanManager, nil
 	}
 	newAPIServer = func(_ web.Config) apiServer {
 		return &testAPIServer{startErr: startErr}
@@ -220,6 +239,9 @@ func TestRunServer_StartFailureJoinsSchedulerStopError(t *testing.T) {
 	}
 	if !fakeScheduler.stopCalled {
 		t.Fatal("expected scheduler stop to be called on server start failure")
+	}
+	if !fakePlanManager.stopCalled {
+		t.Fatal("expected plan manager stop to be called on server start failure")
 	}
 }
 
@@ -322,4 +344,33 @@ func (s *testScheduler) Start(_ context.Context) error {
 func (s *testScheduler) Stop(_ context.Context) error {
 	s.stopCalled = true
 	return s.stopErr
+}
+
+type testServerPlanManager struct {
+	startErr    error
+	stopErr     error
+	startCalled bool
+	stopCalled  bool
+}
+
+func (m *testServerPlanManager) Start(_ context.Context) error {
+	m.startCalled = true
+	return m.startErr
+}
+
+func (m *testServerPlanManager) Stop(_ context.Context) error {
+	m.stopCalled = true
+	return m.stopErr
+}
+
+func (m *testServerPlanManager) CreateDraft(_ context.Context, _ secretary.CreateDraftInput) (*core.TaskPlan, error) {
+	return nil, nil
+}
+
+func (m *testServerPlanManager) SubmitReview(_ context.Context, _ string, _ secretary.ReviewInput) (*core.TaskPlan, error) {
+	return nil, nil
+}
+
+func (m *testServerPlanManager) ApplyPlanAction(_ context.Context, _ string, _ secretary.PlanAction) (*core.TaskPlan, error) {
+	return nil, nil
 }

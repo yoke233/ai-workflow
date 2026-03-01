@@ -38,6 +38,164 @@ const getErrorMessage = (error: unknown): string => {
   return "请求失败，请稍后重试";
 };
 
+const parseInlineMarkdown = (text: string, keyPrefix: string) => {
+  const nodes: Array<string | JSX.Element> = [];
+  const pattern = /`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*|(\*[^*]+\*)/g;
+  let lastIndex = 0;
+  let matchIndex = 0;
+  let match = pattern.exec(text);
+  while (match) {
+    const startIndex = match.index;
+    if (startIndex > lastIndex) {
+      nodes.push(text.slice(lastIndex, startIndex));
+    }
+
+    if (match[1]) {
+      nodes.push(
+        <code
+          key={`${keyPrefix}-inline-code-${matchIndex}`}
+          className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[0.9em] text-slate-900"
+        >
+          {match[1]}
+        </code>,
+      );
+    } else if (match[2] && match[3]) {
+      nodes.push(
+        <a
+          key={`${keyPrefix}-link-${matchIndex}`}
+          href={match[3]}
+          target="_blank"
+          rel="noreferrer"
+          className="text-sky-700 underline"
+        >
+          {match[2]}
+        </a>,
+      );
+    } else if (match[4]) {
+      nodes.push(
+        <strong key={`${keyPrefix}-strong-${matchIndex}`} className="font-semibold">
+          {match[4]}
+        </strong>,
+      );
+    } else if (match[5]) {
+      nodes.push(
+        <em key={`${keyPrefix}-em-${matchIndex}`} className="italic">
+          {match[5].slice(1, -1)}
+        </em>,
+      );
+    }
+
+    lastIndex = startIndex + match[0].length;
+    matchIndex += 1;
+    match = pattern.exec(text);
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+  if (nodes.length === 0) {
+    nodes.push(text);
+  }
+  return nodes;
+};
+
+const renderBasicMarkdown = (content: string, keyPrefix: string): JSX.Element[] => {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const elements: JSX.Element[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const rawLine = lines[index] ?? "";
+    const line = rawLine.trim();
+
+    if (!line) {
+      index += 1;
+      continue;
+    }
+
+    if (line.startsWith("```")) {
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !(lines[index] ?? "").trim().startsWith("```")) {
+        codeLines.push(lines[index] ?? "");
+        index += 1;
+      }
+      index += 1;
+      elements.push(
+        <pre
+          key={`${keyPrefix}-code-block-${index}`}
+          className="overflow-x-auto rounded-md bg-slate-900 p-2 text-xs text-slate-100"
+        >
+          <code>{codeLines.join("\n")}</code>
+        </pre>,
+      );
+      continue;
+    }
+
+    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const headingText = headingMatch[2];
+      const HeadingTag = `h${level}` as keyof JSX.IntrinsicElements;
+      elements.push(
+        <HeadingTag key={`${keyPrefix}-heading-${index}`} className="font-semibold leading-snug">
+          {parseInlineMarkdown(headingText, `${keyPrefix}-heading-${index}`)}
+        </HeadingTag>,
+      );
+      index += 1;
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length) {
+        const candidate = (lines[index] ?? "").trim();
+        const itemMatch = candidate.match(/^[-*]\s+(.+)$/);
+        if (!itemMatch) {
+          break;
+        }
+        items.push(itemMatch[1]);
+        index += 1;
+      }
+      elements.push(
+        <ul key={`${keyPrefix}-list-${index}`} className="list-disc space-y-1 pl-5">
+          {items.map((item, itemIndex) => (
+            <li key={`${keyPrefix}-item-${index}-${itemIndex}`}>
+              {parseInlineMarkdown(item, `${keyPrefix}-item-${index}-${itemIndex}`)}
+            </li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+
+    const paragraphLines = [line];
+    index += 1;
+    while (index < lines.length) {
+      const nextLine = (lines[index] ?? "").trim();
+      if (!nextLine || /^#{1,6}\s+/.test(nextLine) || /^[-*]\s+/.test(nextLine) || nextLine.startsWith("```")) {
+        break;
+      }
+      paragraphLines.push(nextLine);
+      index += 1;
+    }
+    const paragraph = paragraphLines.join(" ");
+    elements.push(
+      <p key={`${keyPrefix}-paragraph-${index}`} className="whitespace-pre-wrap">
+        {parseInlineMarkdown(paragraph, `${keyPrefix}-paragraph-${index}`)}
+      </p>,
+    );
+  }
+
+  if (elements.length === 0) {
+    elements.push(
+      <p key={`${keyPrefix}-empty`} className="whitespace-pre-wrap">
+        {content}
+      </p>,
+    );
+  }
+  return elements;
+};
+
 const ChatView = ({ apiClient, projectId }: ChatViewProps) => {
   const [draft, setDraft] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -97,6 +255,9 @@ const ChatView = ({ apiClient, projectId }: ChatViewProps) => {
       }
       setSessionId(created.session_id);
       setMessages(session.messages);
+      if (created.plan_id && created.plan_id.trim().length > 0) {
+        setPlanNotice(`会话创建时已自动生成计划：${created.plan_id}`);
+      }
       setDraft("");
     } catch (requestError) {
       if (chatRequestIdRef.current !== requestId) {
@@ -163,7 +324,9 @@ const ChatView = ({ apiClient, projectId }: ChatViewProps) => {
                   <p className="mb-1 text-xs font-semibold opacity-80">
                     {roleLabel[message.role]} · {formatTime(message.time)}
                   </p>
-                  <p className="whitespace-pre-wrap">{message.content}</p>
+                  <div className="space-y-2">
+                    {renderBasicMarkdown(message.content, `${message.time}-${index}`)}
+                  </div>
                 </article>
               ))}
             </div>

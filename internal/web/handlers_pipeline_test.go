@@ -2,11 +2,13 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/user/ai-workflow/internal/core"
 )
@@ -103,4 +105,162 @@ func TestCreatePipelineThenGetPipelineByProjectAndGlobal(t *testing.T) {
 	if getByGlobalResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", getByGlobalResp.StatusCode)
 	}
+}
+
+func TestGetPipelineCheckpoints(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-pipe-checkpoint",
+		Name:     "project-pipe-checkpoint",
+		RepoPath: filepath.Join(t.TempDir(), "repo-pipe-checkpoint"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	now := time.Now()
+	pipeline := &core.Pipeline{
+		ID:              "pipe-checkpoint-1",
+		ProjectID:       project.ID,
+		Name:            "checkpoint-pipeline",
+		Template:        "quick",
+		Status:          core.StatusRunning,
+		CurrentStage:    core.StageImplement,
+		Stages:          []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
+		Artifacts:       map[string]string{},
+		Config:          map[string]any{},
+		MaxTotalRetries: 5,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := store.SavePipeline(pipeline); err != nil {
+		t.Fatalf("seed pipeline: %v", err)
+	}
+	if err := store.SaveCheckpoint(&core.Checkpoint{
+		PipelineID: pipeline.ID,
+		StageName:  core.StageImplement,
+		Status:     core.CheckpointSuccess,
+		StartedAt:  now,
+		FinishedAt: now,
+		AgentUsed:  "codex",
+	}); err != nil {
+		t.Fatalf("seed checkpoint: %v", err)
+	}
+
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-pipe-checkpoint/pipelines/pipe-checkpoint-1/checkpoints")
+	if err != nil {
+		t.Fatalf("GET checkpoints: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var checkpoints []core.Checkpoint
+	if err := json.NewDecoder(resp.Body).Decode(&checkpoints); err != nil {
+		t.Fatalf("decode checkpoints response: %v", err)
+	}
+	if len(checkpoints) != 1 {
+		t.Fatalf("expected 1 checkpoint, got %d", len(checkpoints))
+	}
+	if checkpoints[0].StageName != core.StageImplement {
+		t.Fatalf("expected stage implement, got %s", checkpoints[0].StageName)
+	}
+}
+
+func TestApplyPipelineAction(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-pipe-action",
+		Name:     "project-pipe-action",
+		RepoPath: filepath.Join(t.TempDir(), "repo-pipe-action"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	now := time.Now()
+	pipeline := &core.Pipeline{
+		ID:              "pipe-action-1",
+		ProjectID:       project.ID,
+		Name:            "action-pipeline",
+		Template:        "quick",
+		Status:          core.StatusRunning,
+		CurrentStage:    core.StageImplement,
+		Stages:          []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
+		Artifacts:       map[string]string{},
+		Config:          map[string]any{},
+		MaxTotalRetries: 5,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := store.SavePipeline(pipeline); err != nil {
+		t.Fatalf("seed pipeline: %v", err)
+	}
+
+	execCalled := false
+	executor := &testPipelineExecutor{
+		applyActionFn: func(_ context.Context, action core.PipelineAction) error {
+			execCalled = true
+			if action.Type != core.ActionAbort {
+				t.Fatalf("expected action abort, got %s", action.Type)
+			}
+			loaded, err := store.GetPipeline(action.PipelineID)
+			if err != nil {
+				return err
+			}
+			loaded.Status = core.StatusAborted
+			loaded.UpdatedAt = time.Now()
+			return store.SavePipeline(loaded)
+		},
+	}
+
+	srv := NewServer(Config{
+		Store:        store,
+		PipelineExec: executor,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-pipe-action/pipelines/pipe-action-1/action",
+		"application/json",
+		bytes.NewBufferString(`{"action":"abort","message":"manual stop"}`),
+	)
+	if err != nil {
+		t.Fatalf("POST pipeline action: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if !execCalled {
+		t.Fatal("expected pipeline action to delegate to executor")
+	}
+
+	var out struct {
+		Status       string `json:"status"`
+		CurrentStage string `json:"current_stage"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode action response: %v", err)
+	}
+	if out.Status != string(core.StatusAborted) {
+		t.Fatalf("expected status aborted, got %s", out.Status)
+	}
+}
+
+type testPipelineExecutor struct {
+	applyActionFn func(ctx context.Context, action core.PipelineAction) error
+}
+
+func (e *testPipelineExecutor) ApplyAction(ctx context.Context, action core.PipelineAction) error {
+	if e.applyActionFn == nil {
+		return nil
+	}
+	return e.applyActionFn(ctx, action)
 }

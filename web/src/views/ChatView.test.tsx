@@ -187,4 +187,55 @@ describe("ChatView", () => {
     });
     expect(screen.queryByText("已创建计划：plan-stale")).toBeNull();
   });
+
+  it("助手消息支持基础 Markdown 渲染", async () => {
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.getChat).mockResolvedValue({
+      id: "chat-1",
+      project_id: "proj-1",
+      messages: [
+        {
+          role: "assistant",
+          content: "# 计划概览\n- [文档](https://example.com)\n- `run test`",
+          time: "2026-03-01T10:01:00.000Z",
+        },
+      ],
+      created_at: "2026-03-01T10:00:00.000Z",
+      updated_at: "2026-03-01T10:01:00.000Z",
+    });
+
+    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "触发会话" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "计划概览" })).toBeTruthy();
+    });
+    const link = screen.getByRole("link", { name: "文档" }) as HTMLAnchorElement;
+    expect(link.href).toBe("https://example.com/");
+    expect(screen.getByText("run test")).toBeTruthy();
+  });
+
+  it("createChat 返回 plan_id 时会展示自动创建提示", async () => {
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.createChat).mockResolvedValue({
+      session_id: "chat-1",
+      reply: "ok",
+      plan_id: "plan-auto-1",
+    });
+
+    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "自动拆解试试" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("会话创建时已自动生成计划：plan-auto-1")).toBeTruthy();
+    });
+  });
 });

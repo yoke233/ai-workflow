@@ -13,7 +13,11 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { ApiClient } from "../lib/apiClient";
 import type { WsClient } from "../lib/wsClient";
-import type { PlanDagNode, PlanDagResponse } from "../types/api";
+import type {
+  PlanDagNode,
+  PlanDagResponse,
+  PlanRejectFeedbackCategory,
+} from "../types/api";
 import type { TaskItemStatus, TaskPlan } from "../types/workflow";
 
 interface PlanViewProps {
@@ -71,6 +75,17 @@ const STATUS_LABELS: Record<TaskItemStatus, string> = {
 
 const PAGE_LIMIT = 50;
 const FALLBACK_MINIMAP_COLOR = "#64748b";
+
+const PLAN_REJECT_CATEGORY_OPTIONS: Array<{
+  value: PlanRejectFeedbackCategory;
+  label: string;
+}> = [
+  { value: "coverage_gap", label: "coverage_gap（覆盖缺口）" },
+  { value: "missing_node", label: "missing_node（缺失节点）" },
+  { value: "bad_granularity", label: "bad_granularity（粒度不当）" },
+  { value: "cycle", label: "cycle（循环依赖）" },
+  { value: "other", label: "other（其他）" },
+];
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -137,6 +152,13 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
   const [plansLoading, setPlansLoading] = useState(false);
   const [dagLoading, setDagLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [rejectCategory, setRejectCategory] =
+    useState<PlanRejectFeedbackCategory>("coverage_gap");
+  const [rejectDetail, setRejectDetail] = useState("");
+  const [rejectExpectedDirection, setRejectExpectedDirection] = useState("");
   const plansRequestIdRef = useRef(0);
   const dagRequestIdRef = useRef(0);
 
@@ -149,6 +171,12 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
     setPlansLoading(false);
     setDagLoading(false);
     setError(null);
+    setActionLoading(false);
+    setActionMessage(null);
+    setActionError(null);
+    setRejectCategory("coverage_gap");
+    setRejectDetail("");
+    setRejectExpectedDirection("");
   }, [projectId]);
 
   const loadPlans = useCallback(async () => {
@@ -279,6 +307,96 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
     };
   }, [activePlanId, wsClient]);
 
+  const activePlan = useMemo(
+    () => plans.find((plan) => plan.id === activePlanId) ?? null,
+    [plans, activePlanId],
+  );
+
+  const canSubmitReview =
+    !!activePlan &&
+    (activePlan.status === "draft" || activePlan.status === "reviewing") &&
+    !actionLoading;
+  const canApprove =
+    !!activePlan &&
+    activePlan.status === "waiting_human" &&
+    activePlan.wait_reason === "final_approval" &&
+    !actionLoading;
+  const canReject =
+    !!activePlan &&
+    activePlan.status === "waiting_human" &&
+    (activePlan.wait_reason === "final_approval" ||
+      activePlan.wait_reason === "feedback_required") &&
+    !actionLoading;
+  const canAbandon =
+    !!activePlan && activePlan.status === "waiting_human" && !actionLoading;
+
+  const refreshActivePlan = useCallback(
+    async (targetPlanId: string) => {
+      await loadPlans();
+      await loadDag(targetPlanId);
+    },
+    [loadPlans, loadDag],
+  );
+
+  const handleSubmitReview = async () => {
+    if (!activePlanId) {
+      return;
+    }
+    setActionLoading(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const response = await apiClient.submitPlanReview(projectId, activePlanId);
+      setActionMessage(`已提交审核，状态：${response.status}`);
+      await refreshActivePlan(activePlanId);
+    } catch (requestError) {
+      setActionError(getErrorMessage(requestError));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleApplyPlanAction = async (action: "approve" | "reject" | "abort") => {
+    if (!activePlanId) {
+      return;
+    }
+
+    const detail = rejectDetail.trim();
+    const expectedDirection = rejectExpectedDirection.trim();
+    if (action === "reject" && detail.length === 0) {
+      setActionError("驳回说明不能为空。");
+      return;
+    }
+
+    setActionLoading(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const response = await apiClient.applyPlanAction(projectId, activePlanId, {
+        action,
+        feedback:
+          action === "reject"
+            ? {
+                category: rejectCategory,
+                detail,
+                expected_direction:
+                  expectedDirection.length > 0 ? expectedDirection : undefined,
+              }
+            : undefined,
+      });
+      setActionMessage(`已执行 ${action}，状态：${response.status}`);
+      if (action === "reject") {
+        setRejectDetail("");
+        setRejectExpectedDirection("");
+      }
+      await refreshActivePlan(activePlanId);
+    } catch (requestError) {
+      setActionError(getErrorMessage(requestError));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const flowNodes = useMemo(() => buildDagFlowNodes(dag?.nodes ?? []), [dag]);
   const flowEdges = useMemo(
     () => (dag ? buildDagFlowEdges(dag) : []),
@@ -338,6 +456,124 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
               </div>
             ) : null}
           </header>
+
+          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h3 className="text-sm font-semibold">审核操作区</h3>
+            {activePlan ? (
+              <p className="mt-1 text-xs text-slate-600">
+                当前计划：{activePlan.name || activePlan.id} · status={activePlan.status}
+                {activePlan.wait_reason ? ` · wait_reason=${activePlan.wait_reason}` : ""}
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-500">请选择计划后再操作。</p>
+            )}
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <button
+                type="button"
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canSubmitReview}
+                onClick={() => {
+                  void handleSubmitReview();
+                }}
+              >
+                提交审核
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-emerald-300 px-3 py-2 text-sm font-medium text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canApprove}
+                onClick={() => {
+                  void handleApplyPlanAction("approve");
+                }}
+              >
+                通过
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-rose-300 px-3 py-2 text-sm font-medium text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canReject}
+                onClick={() => {
+                  void handleApplyPlanAction("reject");
+                }}
+              >
+                驳回
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-amber-300 px-3 py-2 text-sm font-medium text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canAbandon}
+                onClick={() => {
+                  void handleApplyPlanAction("abort");
+                }}
+              >
+                放弃
+              </button>
+            </div>
+
+            <div className="mt-3 grid gap-3 lg:grid-cols-3">
+              <label className="text-xs text-slate-700" htmlFor="plan-reject-category">
+                驳回类型
+                <select
+                  id="plan-reject-category"
+                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                  value={rejectCategory}
+                  onChange={(event) => {
+                    setRejectCategory(event.target.value as PlanRejectFeedbackCategory);
+                  }}
+                  disabled={!canReject}
+                >
+                  {PLAN_REJECT_CATEGORY_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="text-xs text-slate-700 lg:col-span-2" htmlFor="plan-reject-detail">
+                驳回说明
+                <textarea
+                  id="plan-reject-detail"
+                  rows={2}
+                  className="mt-1 w-full resize-y rounded-md border border-slate-300 px-2 py-1 text-sm"
+                  placeholder="请输入驳回原因（建议至少 20 字）"
+                  value={rejectDetail}
+                  onChange={(event) => {
+                    setRejectDetail(event.target.value);
+                  }}
+                  disabled={!canReject}
+                />
+              </label>
+            </div>
+
+            <label
+              className="mt-3 block text-xs text-slate-700"
+              htmlFor="plan-reject-expected-direction"
+            >
+              期望方向（可选）
+              <input
+                id="plan-reject-expected-direction"
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={rejectExpectedDirection}
+                onChange={(event) => {
+                  setRejectExpectedDirection(event.target.value);
+                }}
+                disabled={!canReject}
+              />
+            </label>
+
+            {actionMessage ? (
+              <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                {actionMessage}
+              </p>
+            ) : null}
+            {actionError ? (
+              <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                {actionError}
+              </p>
+            ) : null}
+          </section>
 
           {error ? (
             <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">

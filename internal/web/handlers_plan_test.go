@@ -2,7 +2,9 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/user/ai-workflow/internal/core"
+	"github.com/user/ai-workflow/internal/secretary"
 )
 
 func TestCreateListGetPlanAndDAG(t *testing.T) {
@@ -33,7 +36,35 @@ func TestCreateListGetPlanAndDAG(t *testing.T) {
 		t.Fatalf("seed chat session: %v", err)
 	}
 
-	srv := NewServer(Config{Store: store})
+	createCalled := false
+	planManager := &testPlanManager{
+		createDraftFn: func(_ context.Context, input secretary.CreateDraftInput) (*core.TaskPlan, error) {
+			createCalled = true
+			planID := core.NewTaskPlanID()
+			planName := strings.TrimSpace(input.Name)
+			if planName == "" {
+				planName = planID
+			}
+			failPolicy := input.FailPolicy
+			if failPolicy == "" {
+				failPolicy = core.FailBlock
+			}
+			plan := &core.TaskPlan{
+				ID:         planID,
+				ProjectID:  input.ProjectID,
+				SessionID:  input.SessionID,
+				Name:       planName,
+				Status:     core.PlanDraft,
+				WaitReason: core.WaitNone,
+				FailPolicy: failPolicy,
+			}
+			if err := store.CreateTaskPlan(plan); err != nil {
+				return nil, err
+			}
+			return store.GetTaskPlan(plan.ID)
+		},
+	}
+	srv := NewServer(Config{Store: store, PlanManager: planManager})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -67,6 +98,9 @@ func TestCreateListGetPlanAndDAG(t *testing.T) {
 	}
 	if created.Status != core.PlanDraft {
 		t.Fatalf("expected status draft, got %s", created.Status)
+	}
+	if !createCalled {
+		t.Fatal("expected create draft to be delegated to plan manager")
 	}
 
 	task1 := core.TaskItem{
@@ -200,7 +234,23 @@ func TestSubmitPlanReviewReturnsReviewing(t *testing.T) {
 		t.Fatalf("seed plan: %v", err)
 	}
 
-	srv := NewServer(Config{Store: store})
+	submitCalled := false
+	planManager := &testPlanManager{
+		submitReviewFn: func(_ context.Context, planID string, _ secretary.ReviewInput) (*core.TaskPlan, error) {
+			submitCalled = true
+			loaded, err := store.GetTaskPlan(planID)
+			if err != nil {
+				return nil, err
+			}
+			loaded.Status = core.PlanReviewing
+			loaded.WaitReason = core.WaitNone
+			if err := store.SaveTaskPlan(loaded); err != nil {
+				return nil, err
+			}
+			return store.GetTaskPlan(planID)
+		},
+	}
+	srv := NewServer(Config{Store: store, PlanManager: planManager})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -229,6 +279,9 @@ func TestSubmitPlanReviewReturnsReviewing(t *testing.T) {
 	}
 	if out.Status != string(core.PlanReviewing) {
 		t.Fatalf("expected status reviewing, got %s", out.Status)
+	}
+	if !submitCalled {
+		t.Fatal("expected submit review to be delegated to plan manager")
 	}
 
 	updated, err := store.GetTaskPlan(plan.ID)
@@ -262,7 +315,26 @@ func TestPlanActionRejectRequiresTwoPhaseFeedback(t *testing.T) {
 		t.Fatalf("seed plan: %v", err)
 	}
 
-	srv := NewServer(Config{Store: store})
+	applyCalls := 0
+	planManager := &testPlanManager{
+		applyActionFn: func(_ context.Context, planID string, action secretary.PlanAction) (*core.TaskPlan, error) {
+			applyCalls++
+			if action.Action != secretary.PlanActionReject {
+				t.Fatalf("expected manager action reject, got %s", action.Action)
+			}
+			loaded, err := store.GetTaskPlan(planID)
+			if err != nil {
+				return nil, err
+			}
+			loaded.Status = core.PlanReviewing
+			loaded.WaitReason = core.WaitNone
+			if err := store.SaveTaskPlan(loaded); err != nil {
+				return nil, err
+			}
+			return store.GetTaskPlan(planID)
+		},
+	}
+	srv := NewServer(Config{Store: store, PlanManager: planManager})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -336,6 +408,9 @@ func TestPlanActionRejectRequiresTwoPhaseFeedback(t *testing.T) {
 	}
 	if updated.Status != core.PlanReviewing {
 		t.Fatalf("expected persisted status reviewing, got %s", updated.Status)
+	}
+	if applyCalls != 1 {
+		t.Fatalf("expected valid reject to invoke plan manager once, got %d", applyCalls)
 	}
 }
 
@@ -424,7 +499,12 @@ func TestPlanActionApproveRequiresWaitingHumanFinalApproval(t *testing.T) {
 		t.Fatalf("seed plan: %v", err)
 	}
 
-	srv := NewServer(Config{Store: store})
+	planManager := &testPlanManager{
+		applyActionFn: func(_ context.Context, _ string, _ secretary.PlanAction) (*core.TaskPlan, error) {
+			return nil, errors.New("approve requires waiting_human/final_approval, got draft/none")
+		},
+	}
+	srv := NewServer(Config{Store: store, PlanManager: planManager})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -448,4 +528,31 @@ func TestPlanActionApproveRequiresWaitingHumanFinalApproval(t *testing.T) {
 	if apiErr.Code != "PLAN_STATUS_INVALID" {
 		t.Fatalf("expected PLAN_STATUS_INVALID, got %s", apiErr.Code)
 	}
+}
+
+type testPlanManager struct {
+	createDraftFn  func(ctx context.Context, input secretary.CreateDraftInput) (*core.TaskPlan, error)
+	submitReviewFn func(ctx context.Context, planID string, input secretary.ReviewInput) (*core.TaskPlan, error)
+	applyActionFn  func(ctx context.Context, planID string, action secretary.PlanAction) (*core.TaskPlan, error)
+}
+
+func (m *testPlanManager) CreateDraft(ctx context.Context, input secretary.CreateDraftInput) (*core.TaskPlan, error) {
+	if m.createDraftFn == nil {
+		return nil, errors.New("create draft not implemented")
+	}
+	return m.createDraftFn(ctx, input)
+}
+
+func (m *testPlanManager) SubmitReview(ctx context.Context, planID string, input secretary.ReviewInput) (*core.TaskPlan, error) {
+	if m.submitReviewFn == nil {
+		return nil, errors.New("submit review not implemented")
+	}
+	return m.submitReviewFn(ctx, planID, input)
+}
+
+func (m *testPlanManager) ApplyPlanAction(ctx context.Context, planID string, action secretary.PlanAction) (*core.TaskPlan, error) {
+	if m.applyActionFn == nil {
+		return nil, errors.New("apply plan action not implemented")
+	}
+	return m.applyActionFn(ctx, planID, action)
 }

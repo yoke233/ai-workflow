@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"github.com/user/ai-workflow/internal/engine"
 	"github.com/user/ai-workflow/internal/eventbus"
 	pluginfactory "github.com/user/ai-workflow/internal/plugins/factory"
+	"github.com/user/ai-workflow/internal/secretary"
 	"github.com/user/ai-workflow/internal/web"
 )
 
@@ -39,6 +41,12 @@ type serverScheduler interface {
 	Stop(ctx context.Context) error
 }
 
+type serverPlanManager interface {
+	web.PlanManager
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
+}
+
 var (
 	newAPIServer = func(cfg web.Config) apiServer {
 		return web.NewServer(cfg)
@@ -46,17 +54,67 @@ var (
 	newServerScheduler = func(exec *engine.Executor, store core.Store) (serverScheduler, error) {
 		return buildScheduler(exec, store)
 	}
+	newServerPlanManager = func(
+		exec *engine.Executor,
+		bootstrapSet *pluginfactory.BootstrapSet,
+		bus *eventbus.Bus,
+		secretaryCfg config.SecretaryConfig,
+	) (serverPlanManager, error) {
+		if exec == nil {
+			return nil, errors.New("executor is required for plan manager")
+		}
+		if bootstrapSet == nil {
+			return nil, errors.New("bootstrap set is required for plan manager")
+		}
+		agentPlugin, err := selectSecretaryAgentPlugin(bootstrapSet.Agents)
+		if err != nil {
+			return nil, err
+		}
+		agent, err := secretary.NewAgent(agentPlugin, bootstrapSet.Runtime)
+		if err != nil {
+			return nil, err
+		}
+
+		reviewPanel := secretary.NewDefaultReviewPanel(bootstrapSet.Store)
+		if secretaryCfg.ReviewPanel.MaxRounds > 0 {
+			reviewPanel.MaxRounds = secretaryCfg.ReviewPanel.MaxRounds
+		}
+		runTaskPipeline := func(ctx context.Context, pipelineID string) error {
+			ok, err := bootstrapSet.Store.TryMarkPipelineRunning(pipelineID, core.StatusCreated)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				// Pipeline is already claimed by another scheduler loop.
+				return nil
+			}
+			return exec.RunScheduled(ctx, pipelineID)
+		}
+		depScheduler := secretary.NewDepScheduler(
+			bootstrapSet.Store,
+			bus,
+			runTaskPipeline,
+			bootstrapSet.Tracker,
+			secretaryCfg.DAGScheduler.MaxConcurrentTasks,
+		)
+
+		opts := make([]secretary.ManagerOption, 0, 1)
+		if bootstrapSet.ReviewGate != nil {
+			opts = append(opts, secretary.WithReviewGate(bootstrapSet.ReviewGate))
+		}
+		return secretary.NewManager(bootstrapSet.Store, agent, reviewPanel, depScheduler, opts...)
+	}
 )
 
 func bootstrap() (*engine.Executor, core.Store, error) {
-	exec, store, _, err := bootstrapWithEventBus()
+	exec, bootstrapSet, _, err := bootstrapWithEventBus()
 	if err != nil {
 		return nil, nil, err
 	}
-	return exec, store, nil
+	return exec, bootstrapSet.Store, nil
 }
 
-func bootstrapWithEventBus() (*engine.Executor, core.Store, *eventbus.Bus, error) {
+func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, *eventbus.Bus, error) {
 	cfg, err := loadBootstrapConfig()
 	if err != nil {
 		return nil, nil, nil, err
@@ -79,7 +137,7 @@ func bootstrapWithEventBus() (*engine.Executor, core.Store, *eventbus.Bus, error
 		}()
 	})
 
-	return exec, bootstrapSet.Store, bus, nil
+	return exec, bootstrapSet, bus, nil
 }
 
 func loadBootstrapConfig() (*config.Config, error) {
@@ -436,10 +494,11 @@ func runServer(ctx context.Context, args []string) error {
 		return err
 	}
 
-	exec, store, bus, err := bootstrapWithEventBus()
+	exec, bootstrapSet, bus, err := bootstrapWithEventBus()
 	if err != nil {
 		return err
 	}
+	store := bootstrapSet.Store
 	defer store.Close()
 	defer bus.Close()
 
@@ -457,6 +516,27 @@ func runServer(ctx context.Context, args []string) error {
 	}
 	if err := scheduler.Start(ctx); err != nil {
 		return err
+	}
+
+	planManager, err := newServerPlanManager(exec, bootstrapSet, bus, cfg.Secretary)
+	if err != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		stopErr := scheduler.Stop(stopCtx)
+		return errors.Join(err, stopErr)
+	}
+	if planManager == nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		stopErr := scheduler.Stop(stopCtx)
+		return errors.Join(errors.New("plan manager is not configured"), stopErr)
+	}
+	if err := planManager.Start(ctx); err != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		managerStopErr := planManager.Stop(stopCtx)
+		stopErr := scheduler.Stop(stopCtx)
+		return errors.Join(err, managerStopErr, stopErr)
 	}
 
 	hub := web.NewHub()
@@ -478,11 +558,13 @@ func runServer(ctx context.Context, args []string) error {
 	}()
 
 	apiServer := newAPIServer(web.Config{
-		Addr:        listenAddr,
-		AuthEnabled: cfg.Server.AuthEnabled,
-		BearerToken: cfg.Server.AuthToken,
-		Store:       store,
-		Hub:         hub,
+		Addr:         listenAddr,
+		AuthEnabled:  cfg.Server.AuthEnabled,
+		BearerToken:  cfg.Server.AuthToken,
+		Store:        store,
+		PlanManager:  planManager,
+		PipelineExec: exec,
+		Hub:          hub,
 	})
 
 	serverErrCh := make(chan error, 1)
@@ -496,10 +578,11 @@ func runServer(ctx context.Context, args []string) error {
 	case serverErr := <-serverErrCh:
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		managerStopErr := planManager.Stop(stopCtx)
 		stopErr := scheduler.Stop(stopCtx)
 		bus.Unsubscribe(sub)
 		<-bridgeDone
-		return errors.Join(serverErr, stopErr)
+		return errors.Join(serverErr, managerStopErr, stopErr)
 	case <-ctx.Done():
 	}
 
@@ -508,6 +591,9 @@ func runServer(ctx context.Context, args []string) error {
 
 	var shutdownErr error
 	if err := apiServer.Shutdown(stopCtx); err != nil {
+		shutdownErr = err
+	}
+	if err := planManager.Stop(stopCtx); err != nil && shutdownErr == nil {
 		shutdownErr = err
 	}
 	if err := scheduler.Stop(stopCtx); err != nil && shutdownErr == nil {
@@ -525,6 +611,31 @@ func runServer(ctx context.Context, args []string) error {
 	}
 
 	return shutdownErr
+}
+
+func selectSecretaryAgentPlugin(agents map[string]core.AgentPlugin) (core.AgentPlugin, error) {
+	if len(agents) == 0 {
+		return nil, errors.New("no agent plugins configured for secretary manager")
+	}
+	if agent, ok := agents["claude"]; ok && agent != nil {
+		return agent, nil
+	}
+	if agent, ok := agents["codex"]; ok && agent != nil {
+		return agent, nil
+	}
+
+	names := make([]string, 0, len(agents))
+	for name, plugin := range agents {
+		if plugin == nil {
+			continue
+		}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return nil, errors.New("no non-nil agent plugins configured for secretary manager")
+	}
+	sort.Strings(names)
+	return agents[names[0]], nil
 }
 
 func parseServerPort(args []string) (int, error) {

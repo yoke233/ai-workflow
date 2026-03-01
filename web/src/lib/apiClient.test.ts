@@ -114,4 +114,69 @@ describe("apiClient", () => {
     });
     expect(parsedBody).not.toHaveProperty("config");
   });
+
+  it("计划/任务/Pipeline 动作接口会命中正确路由并透传请求体", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      return new Response(JSON.stringify({ status: "ok" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    await client.submitPlanReview("proj-1", "plan-1");
+    await client.applyPlanAction("proj-1", "plan-1", {
+      action: "reject",
+      feedback: {
+        category: "coverage_gap",
+        detail: "补齐异常路径与失败回滚逻辑。",
+      },
+    });
+    await client.applyTaskAction("proj-1", "plan-1", "task-1", {
+      action: "retry",
+    });
+    await client.applyPipelineAction("proj-1", "pipe-1", {
+      action: "abort",
+    });
+    await client.getPipelineCheckpoints("proj-1", "pipe-1");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/plans/plan-1/review",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/plans/plan-1/action",
+    );
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/plans/plan-1/tasks/task-1/action",
+    );
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/pipelines/pipe-1/action",
+    );
+    expect(fetchMock.mock.calls[4]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/pipelines/pipe-1/checkpoints",
+    );
+
+    const reviewBody = JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit)?.body));
+    expect(reviewBody).toEqual({
+      action: "reject",
+      feedback: {
+        category: "coverage_gap",
+        detail: "补齐异常路径与失败回滚逻辑。",
+      },
+    });
+
+    const taskBody = JSON.parse(String((fetchMock.mock.calls[2]?.[1] as RequestInit)?.body));
+    expect(taskBody).toEqual({
+      action: "retry",
+    });
+
+    const pipelineBody = JSON.parse(String((fetchMock.mock.calls[3]?.[1] as RequestInit)?.body));
+    expect(pipelineBody).toEqual({
+      action: "abort",
+    });
+  });
 });

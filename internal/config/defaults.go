@@ -35,6 +35,15 @@ func Defaults() Config {
 			MaxGlobalAgents:     3,
 			MaxProjectPipelines: 2,
 		},
+		Secretary: SecretaryConfig{
+			ReviewGatePlugin: "review-ai-panel",
+			ReviewPanel: ReviewPanelConfig{
+				MaxRounds: 2,
+			},
+			DAGScheduler: DAGSchedulerConfig{
+				MaxConcurrentTasks: 2,
+			},
+		},
 		Server: ServerConfig{
 			Host: "127.0.0.1",
 			Port: 8080,

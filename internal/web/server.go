@@ -12,8 +12,21 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/user/ai-workflow/internal/core"
+	"github.com/user/ai-workflow/internal/secretary"
 	webassets "github.com/user/ai-workflow/web"
 )
+
+// PlanManager defines the task-plan orchestration APIs required by plan handlers.
+type PlanManager interface {
+	CreateDraft(ctx context.Context, input secretary.CreateDraftInput) (*core.TaskPlan, error)
+	SubmitReview(ctx context.Context, planID string, input secretary.ReviewInput) (*core.TaskPlan, error)
+	ApplyPlanAction(ctx context.Context, planID string, action secretary.PlanAction) (*core.TaskPlan, error)
+}
+
+// PipelineExecutor defines pipeline human-action entrypoints used by web handlers.
+type PipelineExecutor interface {
+	ApplyAction(ctx context.Context, action core.PipelineAction) error
+}
 
 // Config controls web server behavior.
 type Config struct {
@@ -23,6 +36,8 @@ type Config struct {
 	AllowedOrigins []string
 	Frontend       fs.FS
 	Store          core.Store
+	PlanManager    PlanManager
+	PipelineExec   PipelineExecutor
 	Hub            *Hub
 	Logger         *log.Logger
 }
@@ -71,9 +86,9 @@ func NewServer(cfg Config) *Server {
 		}
 		r.Get("/stats", handleStats)
 		registerProjectRoutes(r, cfg.Store)
-		registerPipelineRoutes(r, cfg.Store)
-		registerChatRoutes(r, cfg.Store)
-		registerPlanRoutes(r, cfg.Store)
+		registerPipelineRoutes(r, cfg.Store, cfg.PipelineExec)
+		registerChatRoutes(r, cfg.Store, cfg.PlanManager)
+		registerPlanRoutes(r, cfg.Store, cfg.PlanManager)
 		registerTaskRoutes(r, cfg.Store)
 		r.Get("/ws", hub.HandleWS)
 	})

@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import PipelineView from "./PipelineView";
 import type { ApiClient } from "../lib/apiClient";
@@ -45,6 +45,28 @@ const createMockApiClient = (): ApiClient => {
     createChat: vi.fn(),
     getChat: vi.fn(),
     createPlan: vi.fn(),
+    submitPlanReview: vi.fn(),
+    applyPlanAction: vi.fn(),
+    applyTaskAction: vi.fn(),
+    getPipeline: vi.fn().mockResolvedValue(buildPipeline("pipe-1")),
+    getPipelineCheckpoints: vi.fn().mockResolvedValue([
+      {
+        pipeline_id: "pipe-1",
+        stage_name: "requirements",
+        status: "success",
+        artifacts: { summary: "ok" },
+        started_at: "2026-03-01T10:00:00.000Z",
+        finished_at: "2026-03-01T10:01:00.000Z",
+        agent_used: "claude",
+        tokens_used: 12,
+        retry_count: 0,
+        error: "",
+      },
+    ]),
+    applyPipelineAction: vi.fn().mockResolvedValue({
+      status: "aborted",
+      current_stage: "requirements",
+    }),
     listPlans: vi.fn(),
     getPlanDag: vi.fn(),
   } as unknown as ApiClient;
@@ -78,6 +100,24 @@ describe("PipelineView", () => {
     expect(screen.getByText("Pipeline pipe-1")).toBeTruthy();
     expect(screen.getByText("running")).toBeTruthy();
     expect(screen.getAllByTestId("pipeline-row")).toHaveLength(1);
+  });
+
+  it("会加载并显示 checkpoint 区，且人工动作按钮可调用 API", async () => {
+    const apiClient = createMockApiClient();
+    render(<PipelineView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    await waitFor(() => {
+      expect(apiClient.getPipelineCheckpoints).toHaveBeenCalledWith("proj-1", "pipe-1");
+    });
+    expect(screen.getByText("requirements")).toBeTruthy();
+    expect(screen.getByText("success")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Abort" }));
+    await waitFor(() => {
+      expect(apiClient.applyPipelineAction).toHaveBeenCalledWith("proj-1", "pipe-1", {
+        action: "abort",
+      });
+    });
   });
 
   it("会循环拉取分页数据直到拉全量", async () => {

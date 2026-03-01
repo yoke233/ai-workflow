@@ -7,6 +7,7 @@ type Config struct {
 	Runtime   RuntimeConfig   `yaml:"runtime"`
 	Pipeline  PipelineConfig  `yaml:"pipeline"`
 	Scheduler SchedulerConfig `yaml:"scheduler"`
+	Secretary SecretaryConfig `yaml:"secretary"`
 	Server    ServerConfig    `yaml:"server"`
 	GitHub    GitHubConfig    `yaml:"github"`
 	Store     StoreConfig     `yaml:"store"`
@@ -46,6 +47,20 @@ type SchedulerConfig struct {
 	MaxProjectPipelines int `yaml:"max_project_pipelines"`
 }
 
+type SecretaryConfig struct {
+	ReviewGatePlugin string             `yaml:"review_gate_plugin"`
+	ReviewPanel      ReviewPanelConfig  `yaml:"review_panel"`
+	DAGScheduler     DAGSchedulerConfig `yaml:"dag_scheduler"`
+}
+
+type ReviewPanelConfig struct {
+	MaxRounds int `yaml:"max_rounds"`
+}
+
+type DAGSchedulerConfig struct {
+	MaxConcurrentTasks int `yaml:"max_concurrent_tasks"`
+}
+
 type ServerConfig struct {
 	Host        string `yaml:"host"`
 	Port        int    `yaml:"port"`
@@ -80,6 +95,7 @@ type ConfigLayer struct {
 	Runtime   *RuntimeLayer   `yaml:"runtime"`
 	Pipeline  *PipelineLayer  `yaml:"pipeline"`
 	Scheduler *SchedulerLayer `yaml:"scheduler"`
+	Secretary *SecretaryLayer `yaml:"secretary"`
 	Server    *ServerLayer    `yaml:"server"`
 	GitHub    *GitHubLayer    `yaml:"github"`
 	Store     *StoreLayer     `yaml:"store"`
@@ -106,6 +122,20 @@ type RuntimeLayer struct {
 type SchedulerLayer struct {
 	MaxGlobalAgents     *int `yaml:"max_global_agents"`
 	MaxProjectPipelines *int `yaml:"max_project_pipelines"`
+}
+
+type SecretaryLayer struct {
+	ReviewGatePlugin *string            `yaml:"review_gate_plugin"`
+	ReviewPanel      *ReviewPanelLayer  `yaml:"review_panel"`
+	DAGScheduler     *DAGSchedulerLayer `yaml:"dag_scheduler"`
+}
+
+type ReviewPanelLayer struct {
+	MaxRounds *int `yaml:"max_rounds"`
+}
+
+type DAGSchedulerLayer struct {
+	MaxConcurrentTasks *int `yaml:"max_concurrent_tasks"`
 }
 
 type ServerLayer struct {

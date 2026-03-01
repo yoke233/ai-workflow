@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/user/ai-workflow/internal/core"
+	"github.com/user/ai-workflow/internal/secretary"
 )
 
 func TestCreateChatSessionThenGetChatSession(t *testing.T) {
@@ -184,5 +186,97 @@ func TestDeleteChatSession(t *testing.T) {
 	defer getResp.Body.Close()
 	if getResp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404 for deleted session, got %d", getResp.StatusCode)
+	}
+}
+
+func TestCreateChatSessionTriggersSecretaryDraftWhenPlanManagerConfigured(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-plan-draft",
+		Name:     "chat-plan-draft",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-plan-draft"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	createDraftCalled := false
+	planManager := &testPlanManager{
+		createDraftFn: func(_ context.Context, input secretary.CreateDraftInput) (*core.TaskPlan, error) {
+			createDraftCalled = true
+			plan := &core.TaskPlan{
+				ID:         core.NewTaskPlanID(),
+				ProjectID:  input.ProjectID,
+				SessionID:  input.SessionID,
+				Name:       "auto-created-from-chat",
+				Status:     core.PlanDraft,
+				WaitReason: core.WaitNone,
+				FailPolicy: core.FailBlock,
+				Tasks: []core.TaskItem{
+					{
+						ID:          "task-auto-chat-1",
+						PlanID:      "",
+						Title:       "拆解任务",
+						Description: "由 chat 自动触发拆解",
+						Template:    "standard",
+						Status:      core.ItemPending,
+					},
+				},
+			}
+			if err := store.CreateTaskPlan(plan); err != nil {
+				return nil, err
+			}
+			return store.GetTaskPlan(plan.ID)
+		},
+	}
+
+	srv := NewServer(Config{Store: store, PlanManager: planManager})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, err := json.Marshal(map[string]any{
+		"message": "请拆分一个认证系统改造计划",
+	})
+	if err != nil {
+		t.Fatalf("marshal request body: %v", err)
+	}
+
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-chat-plan-draft/chat",
+		"application/json",
+		bytes.NewReader(rawBody),
+	)
+	if err != nil {
+		t.Fatalf("POST /api/v1/projects/{pid}/chat: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var created struct {
+		SessionID string `json:"session_id"`
+		Reply     string `json:"reply"`
+		PlanID    string `json:"plan_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create chat response: %v", err)
+	}
+	if created.SessionID == "" {
+		t.Fatal("expected non-empty session_id")
+	}
+	if created.PlanID == "" {
+		t.Fatal("expected non-empty plan_id when plan manager is configured")
+	}
+	if !createDraftCalled {
+		t.Fatal("expected chat create to delegate decomposition to plan manager")
+	}
+
+	plan, err := store.GetTaskPlan(created.PlanID)
+	if err != nil {
+		t.Fatalf("load created plan: %v", err)
+	}
+	if plan.SessionID != created.SessionID {
+		t.Fatalf("plan session id = %s, want %s", plan.SessionID, created.SessionID)
 	}
 }

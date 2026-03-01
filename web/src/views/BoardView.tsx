@@ -19,6 +19,14 @@ export interface BoardTask {
   pipeline_id: string;
 }
 
+type TaskActionType = "retry" | "skip" | "abort";
+
+interface ContextMenuState {
+  taskId: string;
+  x: number;
+  y: number;
+}
+
 export const BOARD_COLUMNS: BoardStatus[] = [
   "pending",
   "ready",
@@ -34,6 +42,16 @@ const BOARD_STATUS_LABELS: Record<BoardStatus, string> = {
   done: "Done",
   failed: "Failed",
 };
+
+const DROP_ACTION_MAP: Record<BoardStatus, TaskActionType | null> = {
+  pending: null,
+  ready: "retry",
+  running: "retry",
+  done: "skip",
+  failed: "abort",
+};
+
+const TASK_ACTIONS: TaskActionType[] = ["retry", "skip", "abort"];
 
 export const toBoardStatus = (status: TaskItemStatus): BoardStatus => {
   switch (status) {
@@ -54,6 +72,22 @@ export const toBoardStatus = (status: TaskItemStatus): BoardStatus => {
     default:
       return "pending";
   }
+};
+
+const toBoardStatusFromUnknown = (status: string, fallback: BoardStatus): BoardStatus => {
+  const known: TaskItemStatus[] = [
+    "pending",
+    "ready",
+    "running",
+    "done",
+    "failed",
+    "skipped",
+    "blocked_by_failure",
+  ];
+  if (!known.includes(status as TaskItemStatus)) {
+    return fallback;
+  }
+  return toBoardStatus(status as TaskItemStatus);
 };
 
 export const groupBoardTasks = (
@@ -87,6 +121,11 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [actionLoadingTaskId, setActionLoadingTaskId] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,10 +199,65 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
     };
   }, [apiClient, projectId, refreshToken]);
 
+  useEffect(() => {
+    const closeMenu = () => {
+      setContextMenu(null);
+    };
+    window.addEventListener("click", closeMenu);
+    return () => {
+      window.removeEventListener("click", closeMenu);
+    };
+  }, []);
+
   const groupedTasks = useMemo(() => groupBoardTasks(tasks), [tasks]);
   const selectedTask = selectedTaskId
     ? tasks.find((task) => task.id === selectedTaskId) ?? null
     : null;
+
+  const runTaskAction = async (task: BoardTask, action: TaskActionType) => {
+    setActionLoadingTaskId(task.id);
+    setActionError(null);
+    setActionNotice(null);
+    try {
+      const response = await apiClient.applyTaskAction(projectId, task.plan_id, task.id, {
+        action,
+      });
+      const nextStatus = toBoardStatusFromUnknown(String(response.status), task.status);
+      setTasks((current) =>
+        current.map((item) =>
+          item.id === task.id
+            ? {
+                ...item,
+                status: nextStatus,
+              }
+            : item,
+        ),
+      );
+      setSelectedTaskId(task.id);
+      setActionNotice(`任务 ${task.title} 已执行 ${action}，当前状态：${nextStatus}`);
+    } catch (requestError) {
+      setActionError(getErrorMessage(requestError));
+    } finally {
+      setActionLoadingTaskId(null);
+    }
+  };
+
+  const handleColumnDrop = (column: BoardStatus) => {
+    if (!draggingTaskId) {
+      return;
+    }
+    const task = tasks.find((item) => item.id === draggingTaskId);
+    setDraggingTaskId(null);
+    if (!task) {
+      return;
+    }
+    const action = DROP_ACTION_MAP[column];
+    if (!action) {
+      setActionNotice("拖拽仅支持到 Ready/Running（retry）、Done（skip）、Failed（abort）。");
+      return;
+    }
+    void runTaskAction(task, action);
+  };
 
   return (
     <section className="flex flex-col gap-4">
@@ -195,13 +289,35 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
         ) : (
           <p className="text-sm text-slate-500">点击任务卡片查看详情。</p>
         )}
+        {actionNotice ? (
+          <p className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700">
+            {actionNotice}
+          </p>
+        ) : null}
+        {actionError ? (
+          <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700">
+            {actionError}
+          </p>
+        ) : null}
       </section>
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         {BOARD_COLUMNS.map((column) => (
           <article
             key={column}
-            className="flex min-h-72 flex-col rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
+            data-testid={`board-column-${column}`}
+            className={`flex min-h-72 flex-col rounded-xl border bg-white p-3 shadow-sm ${
+              draggingTaskId ? "border-slate-400" : "border-slate-200"
+            }`}
+            onDragOver={(event) => {
+              if (DROP_ACTION_MAP[column]) {
+                event.preventDefault();
+              }
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              handleColumnDrop(column);
+            }}
           >
             <header className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold">{BOARD_STATUS_LABELS[column]}</h2>
@@ -220,15 +336,32 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
                     key={task.id}
                     type="button"
                     data-testid="board-task"
+                    draggable
                     className={`rounded-lg border px-2 py-2 text-left text-xs transition ${
                       selectedTaskId === task.id
                         ? "border-slate-900 bg-slate-900 text-white"
                         : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
-                    }`}
+                    } ${actionLoadingTaskId === task.id ? "opacity-60" : ""}`}
                     onClick={() => {
                       setSelectedTaskId((current) =>
                         current === task.id ? null : task.id,
                       );
+                    }}
+                    onDragStart={() => {
+                      setDraggingTaskId(task.id);
+                      setSelectedTaskId(task.id);
+                    }}
+                    onDragEnd={() => {
+                      setDraggingTaskId(null);
+                    }}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      setSelectedTaskId(task.id);
+                      setContextMenu({
+                        taskId: task.id,
+                        x: event.clientX,
+                        y: event.clientY,
+                      });
                     }}
                   >
                     <p className="font-semibold">{task.title}</p>
@@ -243,6 +376,40 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
           </article>
         ))}
       </section>
+
+      {contextMenu ? (
+        <div
+          role="menu"
+          className="fixed z-50 min-w-28 rounded-md border border-slate-300 bg-white p-1 shadow-lg"
+          style={{
+            left: contextMenu.x,
+            top: contextMenu.y,
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+          }}
+        >
+          {TASK_ACTIONS.map((action) => {
+            const task = tasks.find((item) => item.id === contextMenu.taskId);
+            return (
+              <button
+                key={action}
+                type="button"
+                className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-slate-100"
+                onClick={() => {
+                  setContextMenu(null);
+                  if (!task) {
+                    return;
+                  }
+                  void runTaskAction(task, action);
+                }}
+              >
+                {action}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
     </section>
   );
 };

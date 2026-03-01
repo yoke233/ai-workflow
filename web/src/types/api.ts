@@ -1,9 +1,11 @@
 import type {
   ChatSession,
   Pipeline,
+  PipelineStatus,
   Project,
   TaskItemStatus,
   TaskPlan,
+  TaskPlanStatus,
 } from "./workflow";
 
 export interface CreateProjectRequest {
@@ -31,6 +33,76 @@ export interface CreatePlanRequest {
   name?: string;
   fail_policy?: "block" | "skip" | "human";
 }
+
+export interface SubmitPlanReviewResponse {
+  status: TaskPlanStatus | string;
+}
+
+export type PlanRejectFeedbackCategory =
+  | "cycle"
+  | "missing_node"
+  | "bad_granularity"
+  | "coverage_gap"
+  | "other";
+
+export interface PlanRejectFeedback {
+  category: PlanRejectFeedbackCategory;
+  detail: string;
+  expected_direction?: string;
+}
+
+export interface PlanActionRequest {
+  action: "approve" | "reject" | "abort" | "abandon";
+  feedback?: PlanRejectFeedback;
+}
+
+export interface PlanActionResponse {
+  status: TaskPlanStatus | string;
+}
+
+export interface TaskActionRequest {
+  action: "retry" | "skip" | "abort";
+}
+
+export interface TaskActionResponse {
+  status: TaskItemStatus | string;
+}
+
+export interface PipelineActionRequest {
+  action:
+    | "approve"
+    | "reject"
+    | "modify"
+    | "skip"
+    | "rerun"
+    | "change_agent"
+    | "abort"
+    | "pause"
+    | "resume";
+  stage?: string;
+  message?: string;
+  agent?: string;
+}
+
+export interface PipelineActionResponse {
+  status: PipelineStatus | string;
+  current_stage?: string;
+}
+
+export interface PipelineCheckpoint {
+  pipeline_id: string;
+  stage_name: string;
+  status: "in_progress" | "success" | "failed" | "skipped" | "invalidated" | string;
+  artifacts: Record<string, string>;
+  started_at: string;
+  finished_at: string;
+  agent_used: string;
+  tokens_used: number;
+  retry_count: number;
+  error?: string;
+}
+
+export type GetPipelineCheckpointsResponse = PipelineCheckpoint[];
 
 export type ListProjectsResponse = Project[];
 
@@ -84,6 +156,7 @@ export interface ApiStatsResponse {
 export interface CreateChatResponse {
   session_id: string;
   reply: string;
+  plan_id?: string;
 }
 
 export type GetChatResponse = ChatSession;

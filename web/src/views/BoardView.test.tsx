@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import BoardView, { groupBoardTasks, toBoardStatus, type BoardTask } from "./BoardView";
 import type { ApiClient } from "../lib/apiClient";
@@ -35,6 +35,14 @@ const createMockApiClient = (): ApiClient => {
     createChat: vi.fn(),
     getChat: vi.fn(),
     createPlan: vi.fn(),
+    submitPlanReview: vi.fn(),
+    applyPlanAction: vi.fn(),
+    applyTaskAction: vi.fn().mockImplementation(async () => ({
+      status: "ready",
+    })),
+    getPipeline: vi.fn(),
+    getPipelineCheckpoints: vi.fn(),
+    applyPipelineAction: vi.fn(),
     listPlans: vi.fn().mockResolvedValue({
       items: [
         buildPlan([
@@ -305,5 +313,62 @@ describe("BoardView", () => {
     await vi.advanceTimersByTimeAsync(10_000);
 
     expect(apiClient.listPlans).toHaveBeenCalledTimes(2);
+  });
+
+  it("任务右键菜单包含 retry/skip/abort，并调用 task action API", async () => {
+    const apiClient = createMockApiClient();
+    render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Task pending")).toBeTruthy();
+    });
+
+    const taskCard = screen.getByText("Task pending").closest("button");
+    if (!taskCard) {
+      throw new Error("task card not found");
+    }
+
+    fireEvent.contextMenu(taskCard);
+    expect(screen.getByRole("button", { name: "retry" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "skip" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "abort" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "skip" }));
+
+    await waitFor(() => {
+      expect(apiClient.applyTaskAction).toHaveBeenCalledWith(
+        "proj-1",
+        "plan-1",
+        "task-1",
+        { action: "skip" },
+      );
+    });
+  });
+
+  it("拖拽到目标列会触发对应 task action API", async () => {
+    const apiClient = createMockApiClient();
+    render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Task pending")).toBeTruthy();
+    });
+
+    const taskCard = screen.getByText("Task pending").closest("button");
+    if (!taskCard) {
+      throw new Error("task card not found");
+    }
+
+    fireEvent.dragStart(taskCard);
+    fireEvent.dragOver(screen.getByTestId("board-column-ready"));
+    fireEvent.drop(screen.getByTestId("board-column-ready"));
+
+    await waitFor(() => {
+      expect(apiClient.applyTaskAction).toHaveBeenCalledWith(
+        "proj-1",
+        "plan-1",
+        "task-1",
+        { action: "retry" },
+      );
+    });
   });
 });
