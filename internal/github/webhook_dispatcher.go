@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/user/ai-workflow/internal/core"
+	"github.com/user/ai-workflow/internal/observability"
 )
 
 const (
@@ -205,7 +206,8 @@ func (d *WebhookDispatcher) dispatch(ctx context.Context, req WebhookDispatchReq
 	req.EventType = strings.TrimSpace(req.EventType)
 	req.Action = strings.TrimSpace(req.Action)
 	req.DeliveryID = strings.TrimSpace(req.DeliveryID)
-	req.TraceID = strings.TrimSpace(req.TraceID)
+	req.TraceID = observability.TraceIDFromWebhook(strings.TrimSpace(req.TraceID), req.DeliveryID)
+	ctx = observability.WithTraceID(ctx, req.TraceID)
 
 	if !ignoreDeliveryDedupe && req.DeliveryID != "" && d.markDuplicateDelivery(req.DeliveryID) {
 		return WebhookDispatchResult{Duplicate: true}, nil

@@ -9,12 +9,15 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/user/ai-workflow/internal/core"
 	"github.com/user/ai-workflow/internal/eventbus"
 	gitops "github.com/user/ai-workflow/internal/git"
+	"github.com/user/ai-workflow/internal/observability"
 )
 
 type Executor struct {
@@ -96,6 +99,19 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 		return err
 	}
 
+	logger := e.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	ctx, traceID := observability.EnsureTraceID(ctx, p.ID)
+	issueNumber := issueNumberFromPipeline(p)
+	if p.Config == nil {
+		p.Config = map[string]any{}
+	}
+	if existingTraceID, _ := p.Config["trace_id"].(string); strings.TrimSpace(existingTraceID) == "" {
+		p.Config["trace_id"] = traceID
+	}
+
 	if allowAlreadyRunning && p.Status == core.StatusRunning {
 		if p.StartedAt.IsZero() {
 			p.StartedAt = time.Now()
@@ -121,14 +137,24 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 		if err := e.store.SavePipeline(p); err != nil {
 			return err
 		}
+		stageStartedAt := time.Now()
 
 		e.bus.Publish(core.Event{
 			Type:       core.EventStageStart,
 			PipelineID: p.ID,
 			ProjectID:  p.ProjectID,
 			Stage:      stage.Name,
+			Data:       pipelineEventData(traceID, issueNumber, "stage_start", nil),
 			Timestamp:  time.Now(),
 		})
+		logger.Info("pipeline stage started", observability.StructuredLogArgs(observability.StructuredLogInput{
+			TraceID:     traceID,
+			ProjectID:   p.ProjectID,
+			PipelineID:  p.ID,
+			IssueNumber: issueNumber,
+			Operation:   "stage_start",
+			Latency:     0,
+		})...)
 
 		maxRetries := stage.MaxRetries
 		if maxRetries < 0 {
@@ -160,9 +186,19 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 				e.bus.Publish(core.Event{
 					Type:       core.EventStageComplete,
 					PipelineID: p.ID,
+					ProjectID:  p.ProjectID,
 					Stage:      stage.Name,
+					Data:       pipelineEventData(traceID, issueNumber, "stage_complete", nil),
 					Timestamp:  time.Now(),
 				})
+				logger.Info("pipeline stage completed", observability.StructuredLogArgs(observability.StructuredLogInput{
+					TraceID:     traceID,
+					ProjectID:   p.ProjectID,
+					PipelineID:  p.ID,
+					IssueNumber: issueNumber,
+					Operation:   "stage_complete",
+					Latency:     time.Since(stageStartedAt),
+				})...)
 				stageSucceeded = true
 				break
 			}
@@ -184,10 +220,20 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 			e.bus.Publish(core.Event{
 				Type:       core.EventStageFailed,
 				PipelineID: p.ID,
+				ProjectID:  p.ProjectID,
 				Stage:      stage.Name,
+				Data:       pipelineEventData(traceID, issueNumber, "stage_failed", nil),
 				Error:      err.Error(),
 				Timestamp:  time.Now(),
 			})
+			logger.Error("pipeline stage failed", observability.StructuredLogArgs(observability.StructuredLogInput{
+				TraceID:     traceID,
+				ProjectID:   p.ProjectID,
+				PipelineID:  p.ID,
+				IssueNumber: issueNumber,
+				Operation:   "stage_failed",
+				Latency:     time.Since(stageStartedAt),
+			})...)
 
 			p.TotalRetries++
 			if saveErr := e.store.SavePipeline(p); saveErr != nil {
@@ -237,7 +283,9 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 				e.bus.Publish(core.Event{
 					Type:       core.EventHumanRequired,
 					PipelineID: p.ID,
+					ProjectID:  p.ProjectID,
 					Stage:      stage.Name,
+					Data:       pipelineEventData(traceID, issueNumber, "human_required", nil),
 					Error:      err.Error(),
 					Timestamp:  time.Now(),
 				})
@@ -266,7 +314,9 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 			e.bus.Publish(core.Event{
 				Type:       core.EventHumanRequired,
 				PipelineID: p.ID,
+				ProjectID:  p.ProjectID,
 				Stage:      stage.Name,
+				Data:       pipelineEventData(traceID, issueNumber, "human_required", nil),
 				Timestamp:  time.Now(),
 			})
 			return nil
@@ -282,8 +332,18 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 	e.bus.Publish(core.Event{
 		Type:       core.EventPipelineDone,
 		PipelineID: p.ID,
+		ProjectID:  p.ProjectID,
+		Data:       pipelineEventData(traceID, issueNumber, "pipeline_done", nil),
 		Timestamp:  time.Now(),
 	})
+	logger.Info("pipeline done", observability.StructuredLogArgs(observability.StructuredLogInput{
+		TraceID:     traceID,
+		ProjectID:   p.ProjectID,
+		PipelineID:  p.ID,
+		IssueNumber: issueNumber,
+		Operation:   "pipeline_done",
+		Latency:     0,
+	})...)
 	return nil
 }
 
@@ -374,12 +434,28 @@ func (e *Executor) failPipeline(p *core.Pipeline, message string, cause error) e
 	if err := e.store.SavePipeline(p); err != nil {
 		return err
 	}
+	traceID := pipelineTraceID(p)
+	issueNumber := issueNumberFromPipeline(p)
 	e.bus.Publish(core.Event{
 		Type:       core.EventPipelineFailed,
 		PipelineID: p.ID,
+		ProjectID:  p.ProjectID,
+		Data:       pipelineEventData(traceID, issueNumber, "pipeline_failed", nil),
 		Error:      message,
 		Timestamp:  time.Now(),
 	})
+	logger := e.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Error("pipeline failed", observability.StructuredLogArgs(observability.StructuredLogInput{
+		TraceID:     traceID,
+		ProjectID:   p.ProjectID,
+		PipelineID:  p.ID,
+		IssueNumber: issueNumber,
+		Operation:   "pipeline_failed",
+		Latency:     0,
+	})...)
 	if cause == nil {
 		return errors.New(message)
 	}
@@ -587,4 +663,74 @@ func defaultStageConfig(id core.StageID) core.StageConfig {
 	}
 	cfg.PromptTemplate = string(id)
 	return cfg
+}
+
+func pipelineEventData(traceID string, issueNumber int, op string, extra map[string]string) map[string]string {
+	data := make(map[string]string, len(extra)+2)
+	for k, v := range extra {
+		data[k] = v
+	}
+	if issueNumber > 0 {
+		data["issue_number"] = strconv.Itoa(issueNumber)
+	}
+	if strings.TrimSpace(op) != "" {
+		data["op"] = strings.TrimSpace(op)
+	}
+	return observability.EventDataWithTrace(data, traceID)
+}
+
+func issueNumberFromPipeline(p *core.Pipeline) int {
+	if p == nil {
+		return 0
+	}
+	if p.Config != nil {
+		for _, key := range []string{"issue_number", "github_issue_number"} {
+			if n := parseIssueNumberConfigValue(p.Config[key]); n > 0 {
+				return n
+			}
+		}
+	}
+	if p.Artifacts != nil {
+		for _, key := range []string{"issue_number", "github_issue_number"} {
+			if n := parseIssueNumberConfigValue(p.Artifacts[key]); n > 0 {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+func parseIssueNumberConfigValue(raw any) int {
+	switch v := raw.(type) {
+	case int:
+		if v > 0 {
+			return v
+		}
+	case int32:
+		if v > 0 {
+			return int(v)
+		}
+	case int64:
+		if v > 0 {
+			return int(v)
+		}
+	case float64:
+		if v > 0 {
+			return int(v)
+		}
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+func pipelineTraceID(p *core.Pipeline) string {
+	if p == nil || p.Config == nil {
+		return ""
+	}
+	traceID, _ := p.Config["trace_id"].(string)
+	return strings.TrimSpace(traceID)
 }

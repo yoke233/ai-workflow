@@ -14,6 +14,7 @@ import (
 	"github.com/user/ai-workflow/internal/core"
 	"github.com/user/ai-workflow/internal/eventbus"
 	ghwebhook "github.com/user/ai-workflow/internal/github"
+	"github.com/user/ai-workflow/internal/observability"
 )
 
 type webhookHandlers struct {
@@ -100,16 +101,15 @@ func (h *webhookHandlers) handleWebhook(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if h.dispatcher != nil {
-		traceID := strings.TrimSpace(r.Header.Get("X-Trace-ID"))
-		if traceID == "" {
-			traceID = strings.TrimSpace(r.Header.Get("X-GitHub-Delivery"))
-		}
+		deliveryID := strings.TrimSpace(r.Header.Get("X-GitHub-Delivery"))
+		traceID := observability.TraceIDFromWebhook(strings.TrimSpace(r.Header.Get("X-Trace-ID")), deliveryID)
+		dispatchCtx := observability.WithTraceID(r.Context(), traceID)
 
-		result, err := h.dispatcher.Dispatch(r.Context(), ghwebhook.WebhookDispatchRequest{
+		result, err := h.dispatcher.Dispatch(dispatchCtx, ghwebhook.WebhookDispatchRequest{
 			ProjectID:  project.ID,
 			EventType:  eventType,
 			Action:     strings.TrimSpace(envelope.Action),
-			DeliveryID: strings.TrimSpace(r.Header.Get("X-GitHub-Delivery")),
+			DeliveryID: deliveryID,
 			TraceID:    traceID,
 			Payload:    payload,
 			ReceivedAt: time.Now(),
