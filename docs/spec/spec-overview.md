@@ -92,7 +92,7 @@
 | Agent | AI 编码工具封装 | claude-code, codex | aider, opencode |
 | Runtime | Agent 执行环境 | process（直接子进程） | tmux, docker, k8s |
 | Workspace | 代码隔离方式 | worktree | clone |
-| Spec | 规格文档生命周期 | openspec | 自定义 spec 工具 |
+| Spec | 项目规格上下文（供 Secretary Agent 使用） | openspec | 自定义 spec 源（Notion, Confluence 等） |
 | SCM | 代码托管操作 | local-git（本地分支/commit/push） | github（PR/Issue 同步） |
 | Notifier | 人工通知渠道 | desktop | slack, webhook |
 | Store | 状态持久化 | sqlite | postgres（远程） |
@@ -246,11 +246,10 @@ ai-workflow/
 │   ├── defaults.yaml           # 全局默认配置
 │   └── prompts/                # Prompt 模板
 │       ├── requirements.tmpl
-│       ├── spec_gen.tmpl
-│       ├── spec_review.tmpl
 │       ├── implement.tmpl
 │       ├── code_review.tmpl
 │       ├── fixup.tmpl
+│       ├── e2e_test.tmpl
 │       ├── secretary.tmpl      # Secretary Agent 任务拆解
 │       ├── review_completeness.tmpl
 │       ├── review_dependency.tmpl
@@ -296,7 +295,7 @@ ai-workflow/
 7. 产出
    ├── Git: 每个子任务一个 worktree + 分支 + 合并
    ├── GitHub: PR + Issue 状态同步（可选）
-   ├── OpenSpec: spec 文件归档
+   ├── Spec: Secretary 读取项目规格上下文（可选）
    └── Store: 完整执行记录 + 对话历史 + 审核记录
 
 直接模式（跳过 Secretary Layer，兼容 P0 行为）：

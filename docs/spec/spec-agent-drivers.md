@@ -165,11 +165,10 @@ claude -p "{prompt}"
 | 阶段 | AllowedTools | 原因 |
 |---|---|---|
 | requirements | Read(*) | 需要读取项目结构和现有代码来理解上下文 |
-| spec_gen | Bash(ls *), Bash(openspec *), Read(*), Write(*) | 需要读代码、调用 openspec CLI、写 spec 文件 |
-| spec_review | Read(*), Edit(*) | 读取 + 修改 spec |
 | code_review | Read(*), Bash(git diff *), Bash(git log *), Bash(git show *) | 只读 + git 信息 |
 | implement | Bash(npm *), Bash(go *), Bash(make *), Bash(git *), Bash(cat *), Bash(ls *), Bash(mkdir *), Bash(cp *), Bash(cd *), Bash(find *), Read(*), Write(*), Edit(*) | 构建/测试/git 操作，按项目语言栈配置 |
 | fixup | 同 implement | 同 implement |
+| e2e_test | Bash(npm test *), Bash(go test *), Bash(make test *), Read(*) | 运行测试 + 读结果 |
 
 安全规则：
 - **永远不给 `Bash(*)`** — 这等于无限制 shell 访问，违背安全原则
@@ -261,62 +260,66 @@ Codex `--json` 输出的事件类型到统一 StreamEvent 的映射：
 - Codex 有自己的 AGENTS.md 和 prompts 目录机制，如果项目中有这些文件会自动加载
 - OpenSpec 初始化时如果选了 codex 工具，会在 `~/.codex/prompts/` 生成 prompt 文件，Codex 会自动识别
 
-## 五、OpenSpec Driver
+## 五、Spec 插件层
 
-### 设计决策
+### 设计变更
 
-OpenSpec CLI 本身只是一个脚手架工具（init、update、instructions 等），真正的 spec 生成需要 AI 参与（/opsx:ff 命令在 AI 对话中执行）。因此：
+> **重要**：spec 生成和审核已从 Pipeline 阶段上提到 Secretary Layer（TaskPlan 级）。
+> Pipeline 不再包含 `spec_gen` / `spec_review` 阶段。"做什么"由 TaskPlan 决定，
+> Pipeline 通过 `task_item_id` 关联 TaskItem 后进入 requirements → implement 流程。
+>
+> Spec 插件不再驱动 Pipeline 阶段，而是作为 Secretary Agent 构造 prompt 时的**可选上下文增强**。
 
-**OpenSpec Driver 不直接调用 openspec CLI，而是通过 Claude Driver 间接驱动。**
+### Spec 插件统一契约
 
-### 执行流程
+Spec 插件负责提供项目级规格文档的读取和管理能力，供 Secretary Agent 在任务拆解时作为上下文输入：
 
+```go
+type SpecPlugin interface {
+    Plugin
+    // 检查项目是否已初始化 spec 系统
+    IsInitialized(repoPath string) bool
+    // 获取与当前需求相关的 spec 上下文（供 Secretary Agent prompt 注入）
+    GetContext(ctx context.Context, repoPath string, requirement string) (*SpecContext, error)
+}
+
+type SpecContext struct {
+    ProjectOverview string   // 项目级 spec 摘要
+    RelevantSpecs   []string // 与需求相关的 spec 文件内容
+    TechStack       string   // 从 spec 中提取的技术栈信息
+}
 ```
-OpenSpecDriver.GenerateSpec(changeName)
-  │
-  ├── 1. 调用 openspec instructions --change {name} --json
-  │      获取当前阶段应该生成什么 artifact
-  │
-  ├── 2. 构造 prompt，包含：
-  │      - OpenSpec 的 AGENTS.md 内容（如果存在）
-  │      - 当前 change 目录的已有文件
-  │      - 用户的需求描述
-  │      - 明确指令：生成 proposal → specs → design → tasks
-  │
-  └── 3. 通过 Claude Driver 执行
-         claude -p "{构造好的 prompt}" --allowedTools "Bash(openspec *),Bash(ls *),Read(*),Write(*)"
+
+### OpenSpec 实现（默认 Spec 插件）
+
+OpenSpec CLI 是 Spec 插件的默认实现。它通过读取 `openspec/` 目录下的已有文件提供项目上下文：
+
+```go
+type OpenSpecPlugin struct {
+    binary string // openspec CLI 路径
+}
+
+func (o *OpenSpecPlugin) IsInitialized(repoPath string) bool {
+    // 检查 openspec/ 目录是否存在
+}
+
+func (o *OpenSpecPlugin) GetContext(ctx, repoPath, requirement string) (*SpecContext, error) {
+    // 1. 读取 openspec/overview.md 作为 ProjectOverview
+    // 2. 搜索 openspec/specs/ 下与 requirement 关键词相关的文件
+    // 3. 从 openspec/config.yaml 提取 TechStack
+}
 ```
 
-### 可直接调用 openspec CLI 的场景
-
-以下操作不需要 AI，可以直接调用：
+可直接调用 openspec CLI 的场景（不需要 AI）：
 
 | 命令 | 场景 |
 |---|---|
-| `openspec instructions --change {name} --json` | 获取下一步指引 |
 | `openspec templates --json` | 获取模板路径 |
 | `openspec init --tools claude,codex --force` | 初始化新项目 |
 
-### Spec 审核的 Prompt 构造规则
-
-审核阶段让 Claude 检查以下文件，prompt 应包含明确的检查清单：
-
-```
-审核 openspec/changes/{name}/ 下的所有文件：
-1. proposal.md — 需求描述是否清晰、边界是否明确
-2. specs/ — 技术规格是否覆盖所有需求点、是否有遗漏
-3. design.md — 技术方案是否合理、是否考虑了边界情况
-4. tasks.md — 任务拆分是否合理、颗粒度是否适中、顺序是否正确
-
-检查项：
-- 各文件之间是否一致（proposal 说的和 tasks 做的是否对应）
-- 是否有遗漏的需求点
-- 技术方案是否可行
-- 任务是否可以被 AI 独立执行（描述是否足够清晰）
-
-如有问题直接修复文件。最后输出 JSON：
-{"status": "approved" | "fixed", "issues_found": [...], "fixes_applied": [...]}
-```
+> spec 归档不属于 Pipeline 责任域；如需归档，由 TaskPlan 完成后的独立后处理流程执行（可选，且不阻塞主链路）。
+> **扩展**：用户可以实现自定义 Spec 插件（如基于 Notion、Confluence 的 spec 源），只需实现 `SpecPlugin` 接口。
+> Secretary Agent 在构造 prompt 时调用 `SpecPlugin.GetContext()` 获取上下文，不感知具体实现。
 
 ## 六、流式输出解析器
 
@@ -523,11 +526,10 @@ Pipeline Stage 和 Secretary Layer 各有对应的 prompt 模板文件：
 configs/prompts/
   ├── # Pipeline Stage 模板
   ├── requirements.tmpl
-  ├── spec_gen.tmpl
-  ├── spec_review.tmpl
   ├── implement.tmpl
   ├── code_review.tmpl
   ├── fixup.tmpl
+  ├── e2e_test.tmpl
   │
   ├── # Secretary Layer 模板（P2a/P2b 新增）
   ├── secretary.tmpl              # Secretary Agent 任务拆解
@@ -543,12 +545,13 @@ configs/prompts/
 
 ```
 {{.ProjectName}}      — 项目名
-{{.ChangeName}}       — 变更名
 {{.RepoPath}}         — 仓库路径
 {{.WorktreePath}}     — Worktree 路径
-{{.Requirements}}     — 需求描述
-{{.SpecPath}}         — Spec 文件目录
-{{.TasksMD}}          — tasks.md 内容
+{{.Requirements}}     — 需求描述（来自 TaskItem.Description 或用户输入）
+{{.Inputs}}           — 前置输入（来自 TaskItem.Inputs）
+{{.Outputs}}          — 交付产物（来自 TaskItem.Outputs）
+{{.SpecContext}}      — Spec 插件提供的项目上下文（如有）
+{{.Acceptance}}       — 验收标准（来自 TaskItem.Acceptance）
 {{.PreviousReview}}   — 上次 review 结果
 {{.HumanFeedback}}    — 人工反馈
 {{.RetryError}}       — 上次失败的错误信息

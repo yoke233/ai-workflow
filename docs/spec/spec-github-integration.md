@@ -126,7 +126,7 @@ github:
 Pipeline 已创建：`pipeline-20260228-abc123`
 模板：`standard`（由标签 `type: bug` 推断）
 
-阶段：requirements → worktree → implement → review → fixup → merge
+阶段：requirements → worktree_setup → implement → code_review → fixup → merge → cleanup
 
 使用斜杠命令控制流程：
 - `/approve` — 审批当前阶段
@@ -146,7 +146,7 @@ Pipeline 已创建：`pipeline-20260228-abc123`
 |---|---|---|
 | `/run [template]` | 创建 Pipeline | `/run full`、`/run`（自动推断） |
 | `/approve` | 审批当前等待中的阶段 | `/approve` |
-| `/reject <stage> [reason]` | 回退到指定阶段 | `/reject spec_gen 数据模型需要重新设计` |
+| `/reject <stage> [reason]` | 回退到指定阶段 | `/reject implement 数据模型需要重新设计` |
 | `/status` | 查看当前状态 | `/status` |
 | `/abort` | 终止 Pipeline | `/abort` |
 
@@ -205,12 +205,14 @@ github:
 标签命名规范：`status: {stage_name}`
 
 ```
-status: generating-spec
-status: awaiting-review
-status: implementing
-status: code-review
-status: fixing
-status: ready-to-merge
+status: requirements
+status: worktree_setup
+status: implement
+status: code_review
+status: fixup
+status: e2e_test
+status: merge
+status: cleanup
 pipeline: active        ← Pipeline 运行中始终保留
 pipeline: done          ← 完成后替换 active
 pipeline: failed        ← 失败后替换 active
@@ -222,7 +224,6 @@ pipeline: failed        ← 失败后替换 active
 
 | 时机 | 评论内容 |
 |---|---|
-| Spec 生成完成 | spec 摘要（proposal 主要内容 + 任务列表） |
 | 等待人工审批 | 提示需要 `/approve` 或 `/reject`，列出审核结果 |
 | PR 创建 | 链接到 PR |
 | Review 完成 | review 结果摘要（通过/问题列表） |
@@ -234,23 +235,16 @@ pipeline: failed        ← 失败后替换 active
 统一使用折叠块避免过长：
 
 ```markdown
-🤖 **Spec 生成完成** — `spec_gen` ✅
+🤖 **Implementation 完成** — `implement` ✅
 
 <details>
-<summary>📋 Proposal 摘要</summary>
+<summary>📋 变更摘要</summary>
 
-{proposal 的前 500 字}
+{implement_summary 的前 500 字}
 
 </details>
 
-<details>
-<summary>✅ 任务列表（{n} 项）</summary>
-
-{tasks.md 内容}
-
-</details>
-
-⏳ 下一步：`spec_review`（Claude 审核中...）
+⏳ 下一步：`code_review`（Claude 审查中...）
 ```
 
 ## 五、自动 PR 创建

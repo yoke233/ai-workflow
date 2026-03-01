@@ -56,7 +56,7 @@ POST   /api/v1/projects/:pid/pipelines
 GET    /api/v1/projects/:pid/pipelines/:id
   → 200: {
     id, name, project_id, template, status,
-    current_stage, stages: [...], artifacts: {...},
+    task_item_id, current_stage, stages: [...], artifacts: {...},
     checkpoints: [...], created_at, updated_at
   }
 
@@ -67,7 +67,7 @@ POST   /api/v1/projects/:pid/pipelines/:id/action
   Body: {
     action: "approve" | "reject" | "modify" | "skip" | "rerun"
             | "change_agent" | "abort" | "pause" | "resume",
-    stage: "spec_gen",          // reject 时必填
+    stage: "implement",         // reject 时必填
     message: "...",             // modify/reject 时的反馈
     agent: "claude"             // change_agent 时必填
   }
@@ -172,6 +172,7 @@ POST   /api/v1/projects/:pid/plans/:id/tasks/:tid/action
 - Pipeline 的 action 端点是唯一的 Pipeline 级人工操作入口，TUI/Web/GitHub 最终都调用它
 - TaskPlan 的 action 端点是 TaskPlan 级操作入口
 - TaskItem 的 action 端点用于单个子任务的 retry/skip/abort
+- `task_item_id` 是 Pipeline 的内部关联字段：仅由 DAG Scheduler 在自动创建 Pipeline 时设置，手动创建接口不接受
 - Logs 端点返回的是结构化日志，不是原始 stdout
 - 分页用 limit + offset，默认 limit=20
 - 列表接口支持 status 过滤
@@ -299,6 +300,11 @@ agents:
     sandbox: workspace-write         # 通过 --sandbox 传递
     approval: never                  # 通过 -a 传递
 
+# Spec 插件配置（仅 Secretary Layer 使用，Pipeline 不读取）
+spec:
+  provider: openspec                 # openspec | none | custom
+  enabled: true
+  on_failure: warn                   # warn | fail
   openspec:
     binary: openspec
     profile: core
@@ -322,29 +328,29 @@ secretary:
   refine_timeout: 2m             # 单个 TaskItem 细化超时
   execution_files_enabled: true  # 执行期三文件沉淀（task_plan.md/progress.md/findings.md）
 
-# Multi-Agent 审核配置（P2b 新增）
-review_panel:
-  enabled: true
-  max_rounds: 2                  # 审核-修正最大循环次数（超限进入 waiting_human）
-  min_score: 70                  # 通过最低分
-  reviewers:
-    - name: completeness
-      prompt_template: review_completeness
-    - name: dependency
-      prompt_template: review_dependency
-    - name: feasibility
-      prompt_template: review_feasibility
-  aggregator:
-    prompt_template: review_aggregator
-  timeout_per_reviewer: 5m       # 每个 Reviewer 的超时
+  # Multi-Agent 审核配置（P2b 新增）
+  review_panel:
+    enabled: true
+    max_rounds: 2                  # 审核-修正最大循环次数（超限进入 waiting_human）
+    min_score: 70                  # 通过最低分
+    reviewers:
+      - name: completeness
+        prompt_template: review_completeness
+      - name: dependency
+        prompt_template: review_dependency
+      - name: feasibility
+        prompt_template: review_feasibility
+    aggregator:
+      prompt_template: review_aggregator
+    timeout_per_reviewer: 5m       # 每个 Reviewer 的超时
 
-# DAG 调度配置（P2a 新增）
-dag_scheduler:
-  fail_policy: block             # 默认失败策略: block / skip / human
-  max_concurrent_tasks: 0        # 0 = 不额外限制，使用全局 max_global_agents
-  dispatch_interval: 1s          # 调度检查间隔
-  stale_check_interval: 5m       # 停滞检测间隔
-  stale_threshold: 30m           # 超过此时间无进展视为停滞
+  # DAG 调度配置（P2a 新增）
+  dag_scheduler:
+    fail_policy: block             # 默认失败策略: block / skip / human
+    max_concurrent_tasks: 0        # 0 = 不额外限制，使用全局 max_global_agents
+    dispatch_interval: 1s          # 调度检查间隔
+    stale_check_interval: 5m       # 停滞检测间隔
+    stale_threshold: 30m           # 超过此时间无进展视为停滞
 
 # GitHub 全局配置（P3，可选）
 github:
@@ -395,9 +401,15 @@ agents:
 # 覆盖 Pipeline 行为
 pipeline:
   default_template: full           # 这个项目默认用 full 流程
-  spec_review_human: true          # Spec 审核需要人工
   code_review_human: true          # Code Review 需要人工
   merge_human: true                # 合并需要人工
+
+# 覆盖 Spec 插件配置（仅影响 Secretary 上下文增强）
+spec:
+  provider: openspec
+  enabled: true
+  openspec:
+    profile: app-a
 
 # 自定义模板
 custom_templates:
@@ -517,6 +529,7 @@ CREATE TABLE pipelines (
     project_id  TEXT NOT NULL REFERENCES projects(id),
     name        TEXT NOT NULL,
     description TEXT,
+    task_item_id TEXT,              -- 逻辑外键: task_items.id（DAG 创建时设置；手动创建为 NULL）
     template    TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'created',
     -- created / running / waiting_human / paused / done / failed / aborted
@@ -537,6 +550,8 @@ CREATE TABLE pipelines (
 
 CREATE INDEX idx_pipelines_project ON pipelines(project_id);
 CREATE INDEX idx_pipelines_status ON pipelines(status);
+CREATE INDEX idx_pipelines_task_item ON pipelines(task_item_id)
+  WHERE task_item_id IS NOT NULL;
 CREATE UNIQUE INDEX idx_pipelines_project_issue ON pipelines(project_id, issue_number)
   WHERE issue_number IS NOT NULL;  -- 部分唯一索引：同一项目下 Issue 不重复关联（幂等），无 Issue 的 Pipeline 不受约束
 ```
@@ -643,6 +658,9 @@ CREATE TABLE task_items (
     plan_id     TEXT NOT NULL REFERENCES task_plans(id),
     title       TEXT NOT NULL,
     description TEXT NOT NULL,
+    inputs      TEXT DEFAULT '[]',            -- JSON array: 前置输入（文件/接口/数据）
+    outputs     TEXT DEFAULT '[]',            -- JSON array: 交付产物（文件/接口）
+    acceptance  TEXT DEFAULT '[]',            -- JSON array: 可验证的验收标准
     labels      TEXT DEFAULT '[]',            -- JSON array
     depends_on  TEXT DEFAULT '[]',            -- JSON array of task_item IDs
     template    TEXT NOT NULL DEFAULT 'standard',
