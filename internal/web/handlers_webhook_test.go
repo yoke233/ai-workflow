@@ -352,6 +352,122 @@ func TestWebhook_IssueCommentSlashRun_CreatesPipeline(t *testing.T) {
 	}
 }
 
+func TestWebhook_PullRequestClosedMerged_MarksPipelineDone(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:          "proj-webhook-pr-closed-merged",
+		Name:        "webhook-pr-closed-merged",
+		RepoPath:    filepath.Join(t.TempDir(), "repo-pr-closed-merged"),
+		GitHubOwner: "acme",
+		GitHubRepo:  "ai-workflow",
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	pipeline := &core.Pipeline{
+		ID:              "pipe-webhook-pr-closed-merged",
+		ProjectID:       project.ID,
+		Name:            "pr merged",
+		Description:     "pr merged",
+		Template:        "standard",
+		Status:          core.StatusRunning,
+		CurrentStage:    core.StageCodeReview,
+		Stages:          []core.StageConfig{{Name: core.StageCodeReview, Agent: "claude"}},
+		Artifacts:       map[string]string{},
+		Config:          map[string]any{"pr_number": 555},
+		MaxTotalRetries: 5,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+	if err := store.SavePipeline(pipeline); err != nil {
+		t.Fatalf("seed pipeline: %v", err)
+	}
+
+	srv := NewServer(Config{
+		Store:         store,
+		WebhookSecret: "webhook-secret",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	payload := readWebhookFixture(t, "github_issues_opened.json")
+	payload = withPullRequestClosed(t, payload, 555, true)
+
+	resp := doWebhookRequest(t, ts, payload, "pull_request", signWebhookPayload("webhook-secret", payload))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 202, got %d, body=%s", resp.StatusCode, string(body))
+	}
+
+	updated, err := store.GetPipeline(pipeline.ID)
+	if err != nil {
+		t.Fatalf("GetPipeline() error = %v", err)
+	}
+	if updated.Status != core.StatusDone {
+		t.Fatalf("expected status done, got %s", updated.Status)
+	}
+}
+
+func TestWebhook_PullRequestClosedNotMerged_MarksPipelineFailed(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:          "proj-webhook-pr-closed-failed",
+		Name:        "webhook-pr-closed-failed",
+		RepoPath:    filepath.Join(t.TempDir(), "repo-pr-closed-failed"),
+		GitHubOwner: "acme",
+		GitHubRepo:  "ai-workflow",
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	pipeline := &core.Pipeline{
+		ID:              "pipe-webhook-pr-closed-failed",
+		ProjectID:       project.ID,
+		Name:            "pr failed",
+		Description:     "pr failed",
+		Template:        "standard",
+		Status:          core.StatusRunning,
+		CurrentStage:    core.StageCodeReview,
+		Stages:          []core.StageConfig{{Name: core.StageCodeReview, Agent: "claude"}},
+		Artifacts:       map[string]string{},
+		Config:          map[string]any{"pr_number": 556},
+		MaxTotalRetries: 5,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+	if err := store.SavePipeline(pipeline); err != nil {
+		t.Fatalf("seed pipeline: %v", err)
+	}
+
+	srv := NewServer(Config{
+		Store:         store,
+		WebhookSecret: "webhook-secret",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	payload := readWebhookFixture(t, "github_issues_opened.json")
+	payload = withPullRequestClosed(t, payload, 556, false)
+
+	resp := doWebhookRequest(t, ts, payload, "pull_request", signWebhookPayload("webhook-secret", payload))
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 202, got %d, body=%s", resp.StatusCode, string(body))
+	}
+
+	updated, err := store.GetPipeline(pipeline.ID)
+	if err != nil {
+		t.Fatalf("GetPipeline() error = %v", err)
+	}
+	if updated.Status != core.StatusFailed {
+		t.Fatalf("expected status failed, got %s", updated.Status)
+	}
+}
+
 func doWebhookRequest(t *testing.T, ts *httptest.Server, payload []byte, event, signature string) *http.Response {
 	t.Helper()
 
@@ -467,6 +583,27 @@ func withIssueNumber(t *testing.T, payload []byte, issueNumber int) []byte {
 	}
 
 	issue["number"] = issueNumber
+
+	updated, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal updated payload: %v", err)
+	}
+	return updated
+}
+
+func withPullRequestClosed(t *testing.T, payload []byte, prNumber int, merged bool) []byte {
+	t.Helper()
+
+	var body map[string]any
+	if err := json.Unmarshal(payload, &body); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+
+	body["action"] = "closed"
+	body["pull_request"] = map[string]any{
+		"number": prNumber,
+		"merged": merged,
+	}
 
 	updated, err := json.Marshal(body)
 	if err != nil {

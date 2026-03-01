@@ -21,10 +21,11 @@ import (
 )
 
 type webhookHandlers struct {
-	store      core.Store
-	secret     string
-	executor   PipelineExecutor
-	dispatcher *ghwebhook.WebhookDispatcher
+	store       core.Store
+	secret      string
+	executor    PipelineExecutor
+	dispatcher  *ghwebhook.WebhookDispatcher
+	prLifecycle *ghwebhook.PRLifecycle
 }
 
 type githubWebhookEnvelope struct {
@@ -47,6 +48,10 @@ type githubWebhookEnvelope struct {
 		Body              string `json:"body"`
 		AuthorAssociation string `json:"author_association"`
 	} `json:"comment"`
+	PullRequest struct {
+		Number int  `json:"number"`
+		Merged bool `json:"merged"`
+	} `json:"pull_request"`
 	Sender struct {
 		Login string `json:"login"`
 	} `json:"sender"`
@@ -59,9 +64,10 @@ func registerWebhookRoutes(r chi.Router, store core.Store, executor PipelineExec
 	}
 
 	h := &webhookHandlers{
-		store:    store,
-		secret:   strings.TrimSpace(secret),
-		executor: executor,
+		store:       store,
+		secret:      strings.TrimSpace(secret),
+		executor:    executor,
+		prLifecycle: ghwebhook.NewPRLifecycle(store, nil),
 	}
 	h.dispatcher = ghwebhook.NewWebhookDispatcher(ghwebhook.WebhookDispatcherOptions{
 		Handler: ghwebhook.WebhookDispatchHandlerFunc(func(ctx context.Context, req ghwebhook.WebhookDispatchRequest) error {
@@ -85,6 +91,8 @@ func (h *webhookHandlers) handleDispatchedWebhook(ctx context.Context, req ghweb
 		return h.handleIssuesEvent(ctx, req, envelope)
 	case "issue_comment":
 		return h.handleIssueCommentEvent(ctx, req, envelope)
+	case "pull_request":
+		return h.handlePullRequestEvent(ctx, req, envelope)
 	default:
 		return nil
 	}
@@ -172,6 +180,20 @@ func (h *webhookHandlers) handleIssueCommentEvent(
 	default:
 		return nil
 	}
+}
+
+func (h *webhookHandlers) handlePullRequestEvent(
+	ctx context.Context,
+	req ghwebhook.WebhookDispatchRequest,
+	envelope githubWebhookEnvelope,
+) error {
+	if strings.TrimSpace(envelope.Action) != "closed" {
+		return nil
+	}
+	if h.prLifecycle == nil {
+		return nil
+	}
+	return h.prLifecycle.OnPullRequestClosed(ctx, req.ProjectID, envelope.PullRequest.Number, envelope.PullRequest.Merged)
 }
 
 func (h *webhookHandlers) applySlashPipelineAction(
@@ -385,7 +407,7 @@ func findProjectByOwnerRepo(store core.Store, owner, repo string) (*core.Project
 
 func isSupportedWebhookEvent(eventType string) bool {
 	switch strings.TrimSpace(eventType) {
-	case "issues", "issue_comment":
+	case "issues", "issue_comment", "pull_request":
 		return true
 	default:
 		return false

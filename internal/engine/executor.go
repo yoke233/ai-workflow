@@ -105,6 +105,11 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 	}
 	ctx, traceID := observability.EnsureTraceID(ctx, p.ID)
 	issueNumber := issueNumberFromPipeline(p)
+	prNumber := prNumberFromPipelineData(p)
+	baseEventData := make(map[string]string, 1)
+	if prNumber > 0 {
+		baseEventData["pr_number"] = strconv.Itoa(prNumber)
+	}
 	if p.Config == nil {
 		p.Config = map[string]any{}
 	}
@@ -144,7 +149,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 			PipelineID: p.ID,
 			ProjectID:  p.ProjectID,
 			Stage:      stage.Name,
-			Data:       pipelineEventData(traceID, issueNumber, "stage_start", nil),
+			Data:       pipelineEventData(traceID, issueNumber, "stage_start", baseEventData),
 			Timestamp:  time.Now(),
 		})
 		logger.Info("pipeline stage started", observability.StructuredLogArgs(observability.StructuredLogInput{
@@ -188,7 +193,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 					PipelineID: p.ID,
 					ProjectID:  p.ProjectID,
 					Stage:      stage.Name,
-					Data:       pipelineEventData(traceID, issueNumber, "stage_complete", nil),
+					Data:       pipelineEventData(traceID, issueNumber, "stage_complete", baseEventData),
 					Timestamp:  time.Now(),
 				})
 				logger.Info("pipeline stage completed", observability.StructuredLogArgs(observability.StructuredLogInput{
@@ -222,7 +227,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 				PipelineID: p.ID,
 				ProjectID:  p.ProjectID,
 				Stage:      stage.Name,
-				Data:       pipelineEventData(traceID, issueNumber, "stage_failed", nil),
+				Data:       pipelineEventData(traceID, issueNumber, "stage_failed", baseEventData),
 				Error:      err.Error(),
 				Timestamp:  time.Now(),
 			})
@@ -285,7 +290,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 					PipelineID: p.ID,
 					ProjectID:  p.ProjectID,
 					Stage:      stage.Name,
-					Data:       pipelineEventData(traceID, issueNumber, "human_required", nil),
+					Data:       pipelineEventData(traceID, issueNumber, "human_required", baseEventData),
 					Error:      err.Error(),
 					Timestamp:  time.Now(),
 				})
@@ -316,7 +321,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 				PipelineID: p.ID,
 				ProjectID:  p.ProjectID,
 				Stage:      stage.Name,
-				Data:       pipelineEventData(traceID, issueNumber, "human_required", nil),
+				Data:       pipelineEventData(traceID, issueNumber, "human_required", baseEventData),
 				Timestamp:  time.Now(),
 			})
 			return nil
@@ -333,7 +338,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 		Type:       core.EventPipelineDone,
 		PipelineID: p.ID,
 		ProjectID:  p.ProjectID,
-		Data:       pipelineEventData(traceID, issueNumber, "pipeline_done", nil),
+		Data:       pipelineEventData(traceID, issueNumber, "pipeline_done", baseEventData),
 		Timestamp:  time.Now(),
 	})
 	logger.Info("pipeline done", observability.StructuredLogArgs(observability.StructuredLogInput{
@@ -436,11 +441,15 @@ func (e *Executor) failPipeline(p *core.Pipeline, message string, cause error) e
 	}
 	traceID := pipelineTraceID(p)
 	issueNumber := issueNumberFromPipeline(p)
+	extra := map[string]string{}
+	if prNumber := prNumberFromPipelineData(p); prNumber > 0 {
+		extra["pr_number"] = strconv.Itoa(prNumber)
+	}
 	e.bus.Publish(core.Event{
 		Type:       core.EventPipelineFailed,
 		PipelineID: p.ID,
 		ProjectID:  p.ProjectID,
-		Data:       pipelineEventData(traceID, issueNumber, "pipeline_failed", nil),
+		Data:       pipelineEventData(traceID, issueNumber, "pipeline_failed", extra),
 		Error:      message,
 		Timestamp:  time.Now(),
 	})
@@ -692,6 +701,27 @@ func issueNumberFromPipeline(p *core.Pipeline) int {
 	}
 	if p.Artifacts != nil {
 		for _, key := range []string{"issue_number", "github_issue_number"} {
+			if n := parseIssueNumberConfigValue(p.Artifacts[key]); n > 0 {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+func prNumberFromPipelineData(p *core.Pipeline) int {
+	if p == nil {
+		return 0
+	}
+	if p.Config != nil {
+		for _, key := range []string{"pr_number", "github_pr_number"} {
+			if n := parseIssueNumberConfigValue(p.Config[key]); n > 0 {
+				return n
+			}
+		}
+	}
+	if p.Artifacts != nil {
+		for _, key := range []string{"pr_number", "github_pr_number"} {
 			if n := parseIssueNumberConfigValue(p.Artifacts[key]); n > 0 {
 				return n
 			}
