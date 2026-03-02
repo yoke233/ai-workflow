@@ -17,6 +17,10 @@ Invoke-Step -Name "Backend full test" -Command {
     & (Join-Path $PSScriptRoot "backend-all.ps1")
 }
 
+Invoke-Step -Name "P3.5 terminology gate" -Command {
+    & (Join-Path $PSScriptRoot "p35-terminology-gate.ps1")
+}
+
 Invoke-Step -Name "Backend GitHub integration suite" -Command {
     & (Join-Path $PSScriptRoot "backend-github.ps1")
 }
@@ -31,4 +35,3 @@ Invoke-Step -Name "Frontend production build" -Command {
 
 Write-Host ""
 Write-Host "P3 integration test suite completed." -ForegroundColor Green
-

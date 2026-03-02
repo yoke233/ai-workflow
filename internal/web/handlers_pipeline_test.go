@@ -254,6 +254,166 @@ func TestApplyPipelineAction(t *testing.T) {
 	}
 }
 
+func TestApplyPipelineActionChangeRoleUsesRoleField(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-pipe-change-role",
+		Name:     "project-pipe-change-role",
+		RepoPath: filepath.Join(t.TempDir(), "repo-pipe-change-role"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	now := time.Now()
+	pipeline := &core.Pipeline{
+		ID:           "pipe-change-role-1",
+		ProjectID:    project.ID,
+		Name:         "change-role-pipeline",
+		Template:     "quick",
+		Status:       core.StatusRunning,
+		CurrentStage: core.StageImplement,
+		Stages: []core.StageConfig{
+			{Name: core.StageImplement, Agent: "codex"},
+			{Name: core.StageCodeReview, Agent: "claude"},
+		},
+		Artifacts:       map[string]string{},
+		Config:          map[string]any{},
+		MaxTotalRetries: 5,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := store.SavePipeline(pipeline); err != nil {
+		t.Fatalf("seed pipeline: %v", err)
+	}
+
+	execCalled := false
+	executor := &testPipelineExecutor{
+		applyActionFn: func(_ context.Context, action core.PipelineAction) error {
+			execCalled = true
+			if action.Type != core.ActionChangeRole {
+				t.Fatalf("expected action change_role, got %s", action.Type)
+			}
+			if action.Role != "reviewer" {
+				t.Fatalf("expected role reviewer, got %q", action.Role)
+			}
+			if action.Stage != core.StageImplement {
+				t.Fatalf("expected stage implement, got %s", action.Stage)
+			}
+			loaded, err := store.GetPipeline(action.PipelineID)
+			if err != nil {
+				return err
+			}
+			loaded.Stages[0].Agent = action.Role
+			loaded.UpdatedAt = time.Now()
+			return store.SavePipeline(loaded)
+		},
+	}
+
+	srv := NewServer(Config{
+		Store:        store,
+		PipelineExec: executor,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-pipe-change-role/pipelines/pipe-change-role-1/action",
+		"application/json",
+		bytes.NewBufferString(`{"action":"change_role","stage":"implement","role":"reviewer","message":"switch role"}`),
+	)
+	if err != nil {
+		t.Fatalf("POST pipeline action change_role: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if !execCalled {
+		t.Fatal("expected pipeline action to delegate to executor")
+	}
+
+	updated, err := store.GetPipeline("pipe-change-role-1")
+	if err != nil {
+		t.Fatalf("reload pipeline: %v", err)
+	}
+	if updated.Stages[0].Agent != "reviewer" {
+		t.Fatalf("expected stage role to be updated to reviewer, got %q", updated.Stages[0].Agent)
+	}
+}
+
+func TestApplyPipelineActionRejectsLegacyAgentField(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-pipe-legacy-agent",
+		Name:     "project-pipe-legacy-agent",
+		RepoPath: filepath.Join(t.TempDir(), "repo-pipe-legacy-agent"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	now := time.Now()
+	pipeline := &core.Pipeline{
+		ID:              "pipe-legacy-agent-1",
+		ProjectID:       project.ID,
+		Name:            "legacy-agent-pipeline",
+		Template:        "quick",
+		Status:          core.StatusRunning,
+		CurrentStage:    core.StageImplement,
+		Stages:          []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
+		Artifacts:       map[string]string{},
+		Config:          map[string]any{},
+		MaxTotalRetries: 5,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := store.SavePipeline(pipeline); err != nil {
+		t.Fatalf("seed pipeline: %v", err)
+	}
+
+	execCalled := false
+	executor := &testPipelineExecutor{
+		applyActionFn: func(_ context.Context, _ core.PipelineAction) error {
+			execCalled = true
+			return nil
+		},
+	}
+
+	srv := NewServer(Config{
+		Store:        store,
+		PipelineExec: executor,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-pipe-legacy-agent/pipelines/pipe-legacy-agent-1/action",
+		"application/json",
+		bytes.NewBufferString(`{"action":"change_role","stage":"implement","agent":"reviewer"}`),
+	)
+	if err != nil {
+		t.Fatalf("POST pipeline action with legacy agent field: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+	if execCalled {
+		t.Fatal("expected executor not to be called when request json is invalid")
+	}
+
+	var out apiError
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if out.Code != "INVALID_JSON" {
+		t.Fatalf("expected INVALID_JSON, got %q", out.Code)
+	}
+}
+
 func TestDefaultPipelineStageConfig_DefaultAgentAndE2E(t *testing.T) {
 	for _, stageID := range []core.StageID{
 		core.StageRequirements,

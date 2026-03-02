@@ -15,6 +15,7 @@ This folder stores reusable one-shot test scripts for P3 frontend/backend integr
 
 - `backend-all.ps1`: run backend full suite (`go test ./...`).
 - `backend-github.ps1`: run GitHub-focused backend suites (plugins, dispatcher/e2e, webhook).
+- `p35-terminology-gate.ps1`: enforce P3.5 terminology gate (fail on `review_panel|change_agent|implement_agent`, require role-driven terms).
 - `frontend-unit.ps1`: run frontend unit tests.
 - `frontend-build.ps1`: run frontend production build.
 - `p3-integration.ps1`: run all suites above in sequence.
@@ -33,6 +34,7 @@ Run individually:
 ```powershell
 pwsh -NoProfile -File .\scripts\test\backend-all.ps1
 pwsh -NoProfile -File .\scripts\test\backend-github.ps1
+pwsh -NoProfile -File .\scripts\test\p35-terminology-gate.ps1
 pwsh -NoProfile -File .\scripts\test\frontend-unit.ps1
 pwsh -NoProfile -File .\scripts\test\frontend-build.ps1
 ```
