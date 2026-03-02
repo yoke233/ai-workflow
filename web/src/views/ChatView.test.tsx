@@ -47,6 +47,7 @@ const createMockApiClient = (): ApiClient => {
     updated_at: "2026-03-01T10:01:00.000Z",
   });
   const createPlan = vi.fn().mockResolvedValue(buildPlan("plan-1"));
+  const createPlanFromFiles = vi.fn().mockResolvedValue(buildPlan("plan-files-1"));
 
   return {
     request: vi.fn(),
@@ -62,6 +63,7 @@ const createMockApiClient = (): ApiClient => {
     createChat,
     getChat,
     createPlan,
+    createPlanFromFiles,
     listPlans: vi.fn(),
     getPlanDag: vi.fn(),
   } as unknown as ApiClient;
@@ -220,6 +222,34 @@ describe("ChatView", () => {
       expect(screen.getByText("Session ID: 未创建")).toBeTruthy();
     });
     expect(screen.queryByText("已创建计划：plan-stale")).toBeNull();
+  });
+
+  it("输入文件路径后可调用 createPlanFromFiles", async () => {
+    const apiClient = createMockApiClient();
+
+    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "请拆分任务" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+
+    await waitFor(() => {
+      expect(apiClient.getChat).toHaveBeenCalledWith("proj-1", "chat-1");
+    });
+
+    fireEvent.change(screen.getByLabelText("文件路径（逗号分隔）"), {
+      target: { value: "cmd/app/main.go, internal/core/task.go,  ,web/src/App.tsx" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "从文件创建计划" }));
+
+    await waitFor(() => {
+      expect(apiClient.createPlanFromFiles).toHaveBeenCalledWith("proj-1", {
+        session_id: "chat-1",
+        file_paths: ["cmd/app/main.go", "internal/core/task.go", "web/src/App.tsx"],
+      });
+    });
+    expect(screen.getByText("已从文件创建计划：plan-files-1")).toBeTruthy();
   });
 
   it("助手消息支持基础 Markdown 渲染", async () => {

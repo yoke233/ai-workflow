@@ -19,6 +19,7 @@ import (
 // PlanManager defines the task-plan orchestration APIs required by plan handlers.
 type PlanManager interface {
 	CreateDraft(ctx context.Context, input secretary.CreateDraftInput) (*core.TaskPlan, error)
+	CreateDraftFromFiles(ctx context.Context, input secretary.CreateDraftInput) (*core.TaskPlan, error)
 	SubmitReview(ctx context.Context, planID string, input secretary.ReviewInput) (*core.TaskPlan, error)
 	ApplyPlanAction(ctx context.Context, planID string, action secretary.PlanAction) (*core.TaskPlan, error)
 }

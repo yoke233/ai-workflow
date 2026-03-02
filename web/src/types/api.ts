@@ -61,6 +61,13 @@ export interface CreatePlanRequest {
   fail_policy?: "block" | "skip" | "human";
 }
 
+export interface CreatePlanFromFilesRequest {
+  session_id: string;
+  name?: string;
+  fail_policy?: "block" | "skip" | "human";
+  file_paths: string[];
+}
+
 export interface SubmitPlanReviewResponse {
   status: TaskPlanStatus | string;
 }

@@ -198,30 +198,44 @@ const renderBasicMarkdown = (content: string, keyPrefix: string): JSX.Element[] 
 
 const ChatView = ({ apiClient, projectId }: ChatViewProps) => {
   const [draft, setDraft] = useState("");
+  const [filePathsDraft, setFilePathsDraft] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [planLoading, setPlanLoading] = useState(false);
+  const [planFromFilesLoading, setPlanFromFilesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [planNotice, setPlanNotice] = useState<string | null>(null);
   const chatRequestIdRef = useRef(0);
   const planRequestIdRef = useRef(0);
+  const planFromFilesRequestIdRef = useRef(0);
 
   useEffect(() => {
     chatRequestIdRef.current += 1;
     planRequestIdRef.current += 1;
+    planFromFilesRequestIdRef.current += 1;
     setDraft("");
+    setFilePathsDraft("");
     setSessionId(null);
     setMessages([]);
     setError(null);
     setPlanNotice(null);
     setChatLoading(false);
     setPlanLoading(false);
+    setPlanFromFilesLoading(false);
   }, [projectId]);
 
   const hasMessages = messages.length > 0;
   const canSubmit = draft.trim().length > 0 && !chatLoading;
   const canCreatePlan = !!sessionId && !planLoading;
+  const filePaths = useMemo(() => {
+    return filePathsDraft
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  }, [filePathsDraft]);
+  const canCreatePlanFromFiles =
+    !!sessionId && filePaths.length > 0 && !planFromFilesLoading;
 
   const sortedMessages = useMemo(
     () =>
@@ -299,6 +313,39 @@ const ChatView = ({ apiClient, projectId }: ChatViewProps) => {
     } finally {
       if (planRequestIdRef.current === requestId) {
         setPlanLoading(false);
+      }
+    }
+  };
+
+  const handleCreatePlanFromFiles = async () => {
+    if (!sessionId || filePaths.length === 0) {
+      return;
+    }
+
+    setPlanFromFilesLoading(true);
+    setError(null);
+    setPlanNotice(null);
+    const requestId = planFromFilesRequestIdRef.current + 1;
+    planFromFilesRequestIdRef.current = requestId;
+    const targetProjectId = projectId;
+    const targetSessionId = sessionId;
+    try {
+      const createdPlan = await apiClient.createPlanFromFiles(targetProjectId, {
+        session_id: targetSessionId,
+        file_paths: filePaths,
+      });
+      if (planFromFilesRequestIdRef.current !== requestId) {
+        return;
+      }
+      setPlanNotice(`已从文件创建计划：${createdPlan.id}`);
+    } catch (requestError) {
+      if (planFromFilesRequestIdRef.current !== requestId) {
+        return;
+      }
+      setError(getErrorMessage(requestError));
+    } finally {
+      if (planFromFilesRequestIdRef.current === requestId) {
+        setPlanFromFilesLoading(false);
       }
     }
   };
@@ -383,6 +430,29 @@ const ChatView = ({ apiClient, projectId }: ChatViewProps) => {
           }}
         >
           {planLoading ? "创建计划中..." : "基于当前会话创建计划"}
+        </button>
+
+        <label className="mt-3 block text-xs text-slate-700" htmlFor="plan-file-paths">
+          文件路径（逗号分隔）
+          <input
+            id="plan-file-paths"
+            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+            placeholder="例如：cmd/app/main.go, internal/core/task.go"
+            value={filePathsDraft}
+            onChange={(event) => {
+              setFilePathsDraft(event.target.value);
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          className="mt-2 w-full rounded-md border border-sky-700 px-3 py-2 text-sm font-semibold text-sky-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+          disabled={!canCreatePlanFromFiles}
+          onClick={() => {
+            void handleCreatePlanFromFiles();
+          }}
+        >
+          {planFromFilesLoading ? "从文件创建中..." : "从文件创建计划"}
         </button>
 
         {planNotice ? (

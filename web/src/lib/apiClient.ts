@@ -5,6 +5,7 @@ import type {
   ApiStatsResponse,
   CreateChatResponse,
   CreateChatRequest,
+  CreatePlanFromFilesRequest,
   CreatePlanResponse,
   CreatePipelineRequest,
   CreateProjectCreateRequest,
@@ -274,6 +275,10 @@ export interface ApiClient {
   createChat(projectId: string, body: CreateChatRequest): Promise<CreateChatResponse>;
   getChat(projectId: string, sessionId: string): Promise<GetChatResponse>;
   createPlan(projectId: string, body: CreatePlanRequest): Promise<CreatePlanResponse>;
+  createPlanFromFiles(
+    projectId: string,
+    body: CreatePlanFromFilesRequest,
+  ): Promise<CreatePlanResponse>;
   submitPlanReview(projectId: string, planId: string): Promise<SubmitPlanReviewResponse>;
   applyPlanAction(
     projectId: string,
@@ -428,6 +433,14 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
     createPlan: async (projectId, body) => {
       const response = await request<CreatePlanResponse, CreatePlanRequest>({
         path: `/projects/${projectId}/plans`,
+        method: "POST",
+        body,
+      });
+      return normalizeApiTaskPlan(response);
+    },
+    createPlanFromFiles: async (projectId, body) => {
+      const response = await request<CreatePlanResponse, CreatePlanFromFilesRequest>({
+        path: `/projects/${projectId}/plans/from-files`,
         method: "POST",
         body,
       });
