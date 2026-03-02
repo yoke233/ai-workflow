@@ -5,8 +5,11 @@ import type {
   CreateChatRequest,
   CreatePlanResponse,
   CreatePipelineRequest,
+  CreateProjectCreateRequest,
+  CreateProjectCreateRequestResponse,
   CreatePlanRequest,
   CreateProjectRequest,
+  GetProjectCreateRequestResponse,
   GetPipelineCheckpointsResponse,
   GetChatResponse,
   ListPipelinesResponse,
@@ -158,6 +161,10 @@ export interface ApiClient {
   getStats(): Promise<ApiStatsResponse>;
   listProjects(): Promise<ListProjectsResponse>;
   createProject(body: CreateProjectRequest): Promise<Project>;
+  createProjectCreateRequest(
+    body: CreateProjectCreateRequest,
+  ): Promise<CreateProjectCreateRequestResponse>;
+  getProjectCreateRequest(requestId: string): Promise<GetProjectCreateRequestResponse>;
   listPipelines(projectId: string, pagination?: PaginationParams): Promise<ListPipelinesResponse>;
   createPipeline(projectId: string, body: CreatePipelineRequest): Promise<ApiPipeline>;
   createChat(projectId: string, body: CreateChatRequest): Promise<CreateChatResponse>;
@@ -275,6 +282,16 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         path: "/projects",
         method: "POST",
         body,
+      }),
+    createProjectCreateRequest: (body) =>
+      request<CreateProjectCreateRequestResponse, CreateProjectCreateRequest>({
+        path: "/projects/create-requests",
+        method: "POST",
+        body,
+      }),
+    getProjectCreateRequest: (requestId) =>
+      request<GetProjectCreateRequestResponse>({
+        path: `/projects/create-requests/${requestId}`,
       }),
     listPipelines: (projectId, pagination) =>
       request<ListPipelinesResponse>({

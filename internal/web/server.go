@@ -30,17 +30,20 @@ type PipelineExecutor interface {
 
 // Config controls web server behavior.
 type Config struct {
-	Addr           string
-	AuthEnabled    bool
-	BearerToken    string
-	WebhookSecret  string
-	AllowedOrigins []string
-	Frontend       fs.FS
-	Store          core.Store
-	PlanManager    PlanManager
-	PipelineExec   PipelineExecutor
-	Hub            *Hub
-	Logger         *log.Logger
+	Addr                   string
+	AuthEnabled            bool
+	BearerToken            string
+	WebhookSecret          string
+	AllowedOrigins         []string
+	Frontend               fs.FS
+	Store                  core.Store
+	PlanManager            PlanManager
+	ChatAssistant          ChatAssistant
+	PipelineExec           PipelineExecutor
+	Hub                    *Hub
+	ProjectRepoProvisioner ProjectRepoProvisioner
+	ProjectReposRoot       string
+	Logger                 *log.Logger
 }
 
 // Server wraps the HTTP server and router for API serving.
@@ -63,6 +66,10 @@ func NewServer(cfg Config) *Server {
 	hub := cfg.Hub
 	if hub == nil {
 		hub = NewHub()
+	}
+	projectRepoProvisioner := cfg.ProjectRepoProvisioner
+	if projectRepoProvisioner == nil {
+		projectRepoProvisioner = NewProjectRepoProvisioner(cfg.ProjectReposRoot)
 	}
 	frontendFS := cfg.Frontend
 	if frontendFS == nil {
@@ -87,9 +94,9 @@ func NewServer(cfg Config) *Server {
 			r.Use(BearerAuthMiddleware(cfg.BearerToken))
 		}
 		r.Get("/stats", handleStats)
-		registerProjectRoutes(r, cfg.Store)
+		registerProjectRoutes(r, cfg.Store, hub, projectRepoProvisioner)
 		registerPipelineRoutes(r, cfg.Store, cfg.PipelineExec)
-		registerChatRoutes(r, cfg.Store, cfg.PlanManager)
+		registerChatRoutes(r, cfg.Store, cfg.PlanManager, cfg.ChatAssistant)
 		registerPlanRoutes(r, cfg.Store, cfg.PlanManager)
 		registerTaskRoutes(r, cfg.Store)
 		r.Get("/ws", hub.HandleWS)
