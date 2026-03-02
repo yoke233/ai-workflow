@@ -104,6 +104,19 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_project ON chat_sessions(project_id);
 
+CREATE TABLE IF NOT EXISTS chat_run_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    event_type      TEXT NOT NULL,
+    update_type     TEXT NOT NULL DEFAULT '',
+    payload_json    TEXT NOT NULL DEFAULT '{}',
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_run_events_session_created
+ON chat_run_events(chat_session_id, created_at, id);
+
 CREATE TABLE IF NOT EXISTS task_plans (
     id                TEXT PRIMARY KEY,
     project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

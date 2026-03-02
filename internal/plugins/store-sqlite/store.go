@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/core"
 	_ "modernc.org/sqlite"
 )
 
@@ -587,6 +587,86 @@ func (s *SQLiteStore) ListChatSessions(projectID string) ([]core.ChatSession, er
 			return nil, err
 		}
 		out = append(out, session)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) AppendChatRunEvent(event core.ChatRunEvent) error {
+	trimmedSessionID := strings.TrimSpace(event.SessionID)
+	if trimmedSessionID == "" {
+		return errors.New("chat run event session_id is required")
+	}
+	trimmedProjectID := strings.TrimSpace(event.ProjectID)
+	if trimmedProjectID == "" {
+		return errors.New("chat run event project_id is required")
+	}
+	trimmedEventType := strings.TrimSpace(event.EventType)
+	if trimmedEventType == "" {
+		return errors.New("chat run event event_type is required")
+	}
+
+	payload := event.Payload
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	payloadJSON, err := marshalJSON(payload)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(
+		`INSERT INTO chat_run_events (
+			chat_session_id, project_id, event_type, update_type, payload_json, created_at
+		) VALUES (?,?,?,?,?,COALESCE(?, CURRENT_TIMESTAMP))`,
+		trimmedSessionID,
+		trimmedProjectID,
+		trimmedEventType,
+		strings.TrimSpace(event.UpdateType),
+		payloadJSON,
+		nullableTime(event.CreatedAt),
+	)
+	return err
+}
+
+func (s *SQLiteStore) ListChatRunEvents(sessionID string) ([]core.ChatRunEvent, error) {
+	trimmedSessionID := strings.TrimSpace(sessionID)
+	if trimmedSessionID == "" {
+		return nil, errors.New("chat run event session_id is required")
+	}
+
+	rows, err := s.db.Query(
+		`SELECT id, chat_session_id, project_id, event_type, update_type, payload_json, created_at
+		 FROM chat_run_events
+		 WHERE chat_session_id=?
+		 ORDER BY id ASC`,
+		trimmedSessionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]core.ChatRunEvent, 0)
+	for rows.Next() {
+		var (
+			event       core.ChatRunEvent
+			payloadJSON string
+		)
+		if err := rows.Scan(
+			&event.ID,
+			&event.SessionID,
+			&event.ProjectID,
+			&event.EventType,
+			&event.UpdateType,
+			&payloadJSON,
+			&event.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if err := unmarshalJSONObject(payloadJSON, &event.Payload); err != nil {
+			return nil, err
+		}
+		out = append(out, event)
 	}
 	return out, rows.Err()
 }

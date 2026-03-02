@@ -412,6 +412,122 @@ describe("apiClient", () => {
     expect(plan.tasks[0]?.constraints).toEqual([]);
   });
 
+  it("listChats 命中 chat 列表路由并返回会话数组", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            id: "chat-1",
+            project_id: "proj-1",
+            messages: [
+              {
+                role: "user",
+                content: "hello",
+                time: "2026-03-02T00:00:00Z",
+              },
+            ],
+            created_at: "2026-03-02T00:00:00Z",
+            updated_at: "2026-03-02T00:00:00Z",
+          },
+        ]),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    const sessions = await client.listChats("proj-1");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/chat",
+    );
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(requestInit.method).toBe("GET");
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.id).toBe("chat-1");
+  });
+
+  it("listChatRunEvents 命中会话事件路由并返回事件数组", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            id: 1,
+            session_id: "chat-1",
+            project_id: "proj-1",
+            event_type: "chat_run_update",
+            update_type: "tool_call",
+            payload: {
+              session_id: "chat-1",
+              acp: {
+                sessionUpdate: "tool_call",
+                title: "Terminal",
+              },
+            },
+            created_at: "2026-03-03T00:00:00Z",
+          },
+        ]),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    const events = await client.listChatRunEvents("proj-1", "chat-1");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/chat/chat-1/events",
+    );
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(requestInit.method).toBe("GET");
+    expect(events).toHaveLength(1);
+    expect(events[0]?.update_type).toBe("tool_call");
+  });
+
+  it("cancelChat 命中 cancel 路由并返回 session/status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          session_id: "chat-9",
+          status: "cancelling",
+        }),
+        {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    const response = await client.cancelChat("proj-1", "chat-9");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/chat/chat-9/cancel",
+    );
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(requestInit.method).toBe("POST");
+    expect(response).toEqual({
+      session_id: "chat-9",
+      status: "cancelling",
+    });
+  });
+
   it("仓库树/状态/diff 接口命中正确路由并透传查询参数", async () => {
     const fetchMock = vi
       .fn()

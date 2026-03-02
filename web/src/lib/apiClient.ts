@@ -3,6 +3,7 @@ import type {
   ApiTaskPlan,
   ApiPipeline,
   ApiStatsResponse,
+  CancelChatResponse,
   CreateChatResponse,
   CreateChatRequest,
   CreatePlanFromFilesRequest,
@@ -15,6 +16,8 @@ import type {
   GetProjectCreateRequestResponse,
   GetPipelineCheckpointsResponse,
   GetChatResponse,
+  ListChatRunEventsResponse,
+  ListChatsResponse,
   ListPipelinesResponse,
   ListPlansResponse,
   ListProjectsResponse,
@@ -275,7 +278,10 @@ export interface ApiClient {
   getProjectCreateRequest(requestId: string): Promise<GetProjectCreateRequestResponse>;
   listPipelines(projectId: string, pagination?: PaginationParams): Promise<ListPipelinesResponse>;
   createPipeline(projectId: string, body: CreatePipelineRequest): Promise<ApiPipeline>;
+  listChats(projectId: string): Promise<ListChatsResponse>;
+  listChatRunEvents(projectId: string, sessionId: string): Promise<ListChatRunEventsResponse>;
   createChat(projectId: string, body: CreateChatRequest): Promise<CreateChatResponse>;
+  cancelChat(projectId: string, sessionId: string): Promise<CancelChatResponse>;
   getChat(projectId: string, sessionId: string): Promise<GetChatResponse>;
   createPlan(projectId: string, body: CreatePlanRequest): Promise<CreatePlanResponse>;
   createPlanFromFiles(
@@ -426,11 +432,24 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       });
       return normalizeApiPipeline(response);
     },
+    listChats: (projectId) =>
+      request<ListChatsResponse>({
+        path: `/projects/${projectId}/chat`,
+      }),
+    listChatRunEvents: (projectId, sessionId) =>
+      request<ListChatRunEventsResponse>({
+        path: `/projects/${projectId}/chat/${sessionId}/events`,
+      }),
     createChat: (projectId, body) =>
       request<CreateChatResponse, CreateChatRequest>({
         path: `/projects/${projectId}/chat`,
         method: "POST",
         body,
+      }),
+    cancelChat: (projectId, sessionId) =>
+      request<CancelChatResponse>({
+        path: `/projects/${projectId}/chat/${sessionId}/cancel`,
+        method: "POST",
       }),
     getChat: (projectId, sessionId) =>
       request<GetChatResponse>({

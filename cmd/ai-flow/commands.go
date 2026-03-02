@@ -560,10 +560,15 @@ func runServer(ctx context.Context, args []string) error {
 	if bootstrapSet.RoleResolver == nil {
 		return errors.New("chat assistant requires role resolver")
 	}
+	var runEventRecorder secretary.ChatRunEventRecorder
+	if recorder, ok := store.(secretary.ChatRunEventRecorder); ok {
+		runEventRecorder = recorder
+	}
 	chatAssistant := web.NewACPChatAssistantWithDeps(web.ACPChatAssistantDeps{
-		DefaultRoleID:  strings.TrimSpace(cfg.RoleBinds.Secretary.Role),
-		RoleResolver:   bootstrapSet.RoleResolver,
-		EventPublisher: bus,
+		DefaultRoleID:    strings.TrimSpace(cfg.RoleBinds.Secretary.Role),
+		RoleResolver:     bootstrapSet.RoleResolver,
+		EventPublisher:   bus,
+		RunEventRecorder: runEventRecorder,
 	})
 	sub := bus.Subscribe()
 	bridgeDone := make(chan struct{})

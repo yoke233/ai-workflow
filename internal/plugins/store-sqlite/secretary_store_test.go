@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/core"
 )
 
 func TestChatSessionCRUD(t *testing.T) {
@@ -21,8 +21,8 @@ func TestChatSessionCRUD(t *testing.T) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	session := &core.ChatSession{
-		ID:        "chat-20260301-aaaabbbb",
-		ProjectID: project.ID,
+		ID:             "chat-20260301-aaaabbbb",
+		ProjectID:      project.ID,
 		AgentSessionID: "claude-session-initial",
 		Messages: []core.ChatMessage{
 			{Role: "user", Content: "需要新增 OAuth 登录", Time: now},
@@ -80,6 +80,75 @@ func TestChatSessionCRUD(t *testing.T) {
 	}
 	if _, err := s.GetChatSession(session.ID); err == nil {
 		t.Fatalf("expected deleted chat session %s to be not found", session.ID)
+	}
+}
+
+func TestChatRunEventCRUD(t *testing.T) {
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	project := &core.Project{ID: "proj-chat-event", Name: "chat-event", RepoPath: t.TempDir()}
+	if err := s.CreateProject(project); err != nil {
+		t.Fatal(err)
+	}
+
+	session := &core.ChatSession{
+		ID:        "chat-20260303-run-events",
+		ProjectID: project.ID,
+		Messages: []core.ChatMessage{
+			{Role: "user", Content: "run event test", Time: time.Now().UTC().Truncate(time.Second)},
+		},
+	}
+	if err := s.CreateChatSession(session); err != nil {
+		t.Fatal(err)
+	}
+
+	eventTime := time.Now().UTC().Truncate(time.Second)
+	if err := s.AppendChatRunEvent(core.ChatRunEvent{
+		SessionID:  session.ID,
+		ProjectID:  project.ID,
+		EventType:  "chat_run_update",
+		UpdateType: "tool_call",
+		Payload: map[string]any{
+			"session_id": session.ID,
+			"acp": map[string]any{
+				"sessionUpdate": "tool_call",
+				"title":         "Terminal",
+				"status":        "pending",
+			},
+		},
+		CreatedAt: eventTime,
+	}); err != nil {
+		t.Fatalf("append chat run event: %v", err)
+	}
+
+	events, err := s.ListChatRunEvents(session.ID)
+	if err != nil {
+		t.Fatalf("list chat run events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 run event, got %d", len(events))
+	}
+	if events[0].SessionID != session.ID {
+		t.Fatalf("event session_id mismatch: got=%q want=%q", events[0].SessionID, session.ID)
+	}
+	if events[0].ProjectID != project.ID {
+		t.Fatalf("event project_id mismatch: got=%q want=%q", events[0].ProjectID, project.ID)
+	}
+	if events[0].EventType != "chat_run_update" || events[0].UpdateType != "tool_call" {
+		t.Fatalf("unexpected event type payload: %#v", events[0])
+	}
+	if events[0].CreatedAt.IsZero() {
+		t.Fatalf("expected created_at to be persisted")
+	}
+	if events[0].Payload == nil {
+		t.Fatalf("expected non-nil payload")
+	}
+	if gotSessionID, ok := events[0].Payload["session_id"].(string); !ok || gotSessionID != session.ID {
+		t.Fatalf("payload session_id mismatch: %#v", events[0].Payload)
 	}
 }
 

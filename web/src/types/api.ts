@@ -55,6 +55,26 @@ export interface CreateChatRequest {
   session_id?: string;
 }
 
+export interface CreateChatResponse {
+  session_id: string;
+  status: "accepted" | "running" | "queued" | string;
+}
+
+export interface CancelChatResponse {
+  session_id: string;
+  status: "cancelling" | "cancelled" | string;
+}
+
+export interface ChatRunEvent {
+  id: number;
+  session_id: string;
+  project_id: string;
+  event_type: string;
+  update_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface CreatePlanRequest {
   session_id: string;
   name?: string;
@@ -237,10 +257,7 @@ export interface ApiStatsResponse {
   };
 }
 
-export interface CreateChatResponse {
-  session_id: string;
-  reply: string;
-}
-
+export type ListChatsResponse = ChatSession[];
+export type ListChatRunEventsResponse = ChatRunEvent[];
 export type GetChatResponse = ChatSession;
 export type CreatePlanResponse = ApiTaskPlan;

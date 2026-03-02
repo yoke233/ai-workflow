@@ -5,11 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/user/ai-workflow/internal/acpclient"
-	"github.com/user/ai-workflow/internal/core"
-	"github.com/user/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/acpclient"
+	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/secretary"
 )
 
 const (
@@ -27,6 +28,7 @@ type ChatACPClient interface {
 	LoadSession(ctx context.Context, req acpclient.LoadSessionRequest) (acpclient.SessionInfo, error)
 	NewSession(ctx context.Context, req acpclient.NewSessionRequest) (acpclient.SessionInfo, error)
 	Prompt(ctx context.Context, req acpclient.PromptRequest) (*acpclient.PromptResult, error)
+	Cancel(ctx context.Context, req acpclient.CancelRequest) error
 	Close(ctx context.Context) error
 }
 
@@ -42,16 +44,26 @@ type ChatEventPublisher interface {
 
 // ACPChatAssistantDeps contains injectable dependencies for ACP chat assistant.
 type ACPChatAssistantDeps struct {
-	DefaultRoleID  string
-	Timeout        time.Duration
-	RoleResolver   ChatRoleResolver
-	ClientFactory  ChatACPClientFactory
-	EventPublisher ChatEventPublisher
+	DefaultRoleID    string
+	Timeout          time.Duration
+	RoleResolver     ChatRoleResolver
+	ClientFactory    ChatACPClientFactory
+	EventPublisher   ChatEventPublisher
+	RunEventRecorder secretary.ChatRunEventRecorder
 }
 
 // ACPChatAssistant runs one-turn chat on ACP protocol.
 type ACPChatAssistant struct {
 	deps ACPChatAssistantDeps
+
+	activeMu   sync.Mutex
+	activeRuns map[string]*activeChatRun
+}
+
+type activeChatRun struct {
+	client         ChatACPClient
+	agentSessionID string
+	cancel         context.CancelFunc
 }
 
 // NewACPChatAssistantWithDeps builds a ChatAssistant backed by ACP protocol with injectable dependencies.
@@ -69,7 +81,10 @@ func newACPChatAssistant(deps ACPChatAssistantDeps) *ACPChatAssistant {
 	if deps.ClientFactory == nil {
 		deps.ClientFactory = defaultACPClientFactory{}
 	}
-	return &ACPChatAssistant{deps: deps}
+	return &ACPChatAssistant{
+		deps:       deps,
+		activeRuns: make(map[string]*activeChatRun),
+	}
 }
 
 func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) (ChatAssistantResponse, error) {
@@ -112,6 +127,9 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 	defer cancel()
 
 	handler := secretary.NewACPHandler(launchCfg.WorkDir, strings.TrimSpace(req.AgentSessionID), a.deps.EventPublisher)
+	handler.SetProjectID(strings.TrimSpace(req.ProjectID))
+	handler.SetChatSessionID(strings.TrimSpace(req.ChatSessionID))
+	handler.SetRunEventRecorder(a.deps.RunEventRecorder)
 	client, err := a.deps.ClientFactory.New(runCtx, launchCfg, handler, role.Capabilities)
 	if err != nil {
 		return ChatAssistantResponse{}, fmt.Errorf("create acp client: %w", err)
@@ -130,6 +148,18 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 		return ChatAssistantResponse{}, err
 	}
 	handler.SetSessionID(session.SessionID)
+	if chatSessionID := strings.TrimSpace(req.ChatSessionID); chatSessionID != "" {
+		agentSessionID := strings.TrimSpace(session.SessionID)
+		if agentSessionID == "" {
+			agentSessionID = strings.TrimSpace(req.AgentSessionID)
+		}
+		a.setActiveRun(chatSessionID, &activeChatRun{
+			client:         client,
+			agentSessionID: agentSessionID,
+			cancel:         cancel,
+		})
+		defer a.clearActiveRun(chatSessionID)
+	}
 
 	result, err := client.Prompt(runCtx, acpclient.PromptRequest{
 		SessionID: session.SessionID,
@@ -161,6 +191,35 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 	}, nil
 }
 
+func (a *ACPChatAssistant) CancelChat(chatSessionID string) error {
+	if a == nil {
+		return errors.New("chat assistant is nil")
+	}
+	trimmedSessionID := strings.TrimSpace(chatSessionID)
+	if trimmedSessionID == "" {
+		return errors.New("chat session id is required")
+	}
+
+	run := a.getActiveRun(trimmedSessionID)
+	if run == nil {
+		return errors.New("chat session is not running")
+	}
+
+	if run.cancel != nil {
+		run.cancel()
+	}
+	agentSessionID := strings.TrimSpace(run.agentSessionID)
+	if run.client == nil || agentSessionID == "" {
+		return nil
+	}
+
+	cancelCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return run.client.Cancel(cancelCtx, acpclient.CancelRequest{
+		SessionID: agentSessionID,
+	})
+}
+
 func startWebChatSession(
 	ctx context.Context,
 	client ChatACPClient,
@@ -177,11 +236,13 @@ func startWebChatSession(
 		"role_id": roleID,
 	}
 	trimmedCWD := strings.TrimSpace(cwd)
+	effectiveMCPServers := secretary.MCPToolsFromRoleConfig(role)
 	if sessionID := strings.TrimSpace(persistedSessionID); shouldLoadPersistedChatSession(role.SessionPolicy, sessionID) {
 		loaded, err := client.LoadSession(ctx, acpclient.LoadSessionRequest{
-			SessionID: sessionID,
-			CWD:       trimmedCWD,
-			Metadata:  metadata,
+			SessionID:  sessionID,
+			CWD:        trimmedCWD,
+			MCPServers: effectiveMCPServers,
+			Metadata:   metadata,
 		})
 		if err == nil && strings.TrimSpace(loaded.SessionID) != "" {
 			return loaded, nil
@@ -190,7 +251,7 @@ func startWebChatSession(
 
 	session, err := client.NewSession(ctx, acpclient.NewSessionRequest{
 		CWD:        trimmedCWD,
-		MCPServers: secretary.MCPToolsFromRoleConfig(role),
+		MCPServers: effectiveMCPServers,
 		Metadata:   metadata,
 	})
 	if err != nil {
@@ -220,7 +281,11 @@ func (f defaultACPClientFactory) New(
 	handler acpclient.Handler,
 	capabilities acpclient.ClientCapabilities,
 ) (ChatACPClient, error) {
-	client, err := acpclient.New(cfg, handler)
+	opts := make([]acpclient.Option, 0, 1)
+	if eventHandler, ok := handler.(acpclient.EventHandler); ok {
+		opts = append(opts, acpclient.WithEventHandler(eventHandler))
+	}
+	client, err := acpclient.New(cfg, handler, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +315,33 @@ func withDefaultTimeout(ctx context.Context, timeout time.Duration) (context.Con
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, timeout)
+}
+
+func (a *ACPChatAssistant) setActiveRun(chatSessionID string, run *activeChatRun) {
+	if a == nil || strings.TrimSpace(chatSessionID) == "" {
+		return
+	}
+	a.activeMu.Lock()
+	defer a.activeMu.Unlock()
+	a.activeRuns[strings.TrimSpace(chatSessionID)] = run
+}
+
+func (a *ACPChatAssistant) getActiveRun(chatSessionID string) *activeChatRun {
+	if a == nil || strings.TrimSpace(chatSessionID) == "" {
+		return nil
+	}
+	a.activeMu.Lock()
+	defer a.activeMu.Unlock()
+	return a.activeRuns[strings.TrimSpace(chatSessionID)]
+}
+
+func (a *ACPChatAssistant) clearActiveRun(chatSessionID string) {
+	if a == nil || strings.TrimSpace(chatSessionID) == "" {
+		return
+	}
+	a.activeMu.Lock()
+	defer a.activeMu.Unlock()
+	delete(a.activeRuns, strings.TrimSpace(chatSessionID))
 }
 
 func newLegacyProviderRoleResolver(

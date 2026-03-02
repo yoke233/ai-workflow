@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/ai-workflow/internal/core"
-	"github.com/user/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/secretary"
 )
 
 func TestCreateChatSessionThenGetChatSession(t *testing.T) {
@@ -27,7 +27,15 @@ func TestCreateChatSessionThenGetChatSession(t *testing.T) {
 		t.Fatalf("seed project: %v", err)
 	}
 
-	srv := NewServer(Config{Store: store})
+	assistant := &stubChatAssistant{
+		response: ChatAssistantResponse{
+			Reply: "收到，开始处理。",
+		},
+	}
+	srv := NewServer(Config{
+		Store:         store,
+		ChatAssistant: assistant,
+	})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -47,22 +55,34 @@ func TestCreateChatSessionThenGetChatSession(t *testing.T) {
 		t.Fatalf("POST /api/v1/projects/{pid}/chat: %v", err)
 	}
 	defer createResp.Body.Close()
-	if createResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", createResp.StatusCode)
+	if createResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", createResp.StatusCode)
 	}
 
-	var created struct {
-		SessionID string `json:"session_id"`
-		Reply     string `json:"reply"`
-	}
+	var created createChatSessionResponse
 	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
 		t.Fatalf("decode create chat response: %v", err)
 	}
 	if created.SessionID == "" {
 		t.Fatal("expected non-empty session_id")
 	}
-	if created.Reply == "" {
-		t.Fatal("expected non-empty reply")
+	if created.Status != "accepted" {
+		t.Fatalf("expected status accepted, got %q", created.Status)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		session, err := store.GetChatSession(created.SessionID)
+		if err != nil {
+			t.Fatalf("reload chat session: %v", err)
+		}
+		if len(session.Messages) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("chat session did not complete in time, messages=%d", len(session.Messages))
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	getResp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-api/chat/" + created.SessionID)
@@ -92,6 +112,194 @@ func TestCreateChatSessionThenGetChatSession(t *testing.T) {
 	}
 	if session.Messages[1].Role != "assistant" {
 		t.Fatalf("expected second message role=assistant, got %s", session.Messages[1].Role)
+	}
+}
+
+func TestListChatSessions(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-list",
+		Name:     "chat-list",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-list"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	otherProject := core.Project{
+		ID:       "proj-chat-list-other",
+		Name:     "chat-list-other",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-list-other"),
+	}
+	if err := store.CreateProject(&otherProject); err != nil {
+		t.Fatalf("seed other project: %v", err)
+	}
+
+	mainSessionA := &core.ChatSession{
+		ID:        "chat-20260302-list01",
+		ProjectID: project.ID,
+		Messages: []core.ChatMessage{
+			{Role: "user", Content: "list-a"},
+		},
+	}
+	if err := store.CreateChatSession(mainSessionA); err != nil {
+		t.Fatalf("seed main session A: %v", err)
+	}
+	mainSessionB := &core.ChatSession{
+		ID:        "chat-20260302-list02",
+		ProjectID: project.ID,
+		Messages: []core.ChatMessage{
+			{Role: "user", Content: "list-b"},
+			{Role: "assistant", Content: "ok"},
+		},
+	}
+	if err := store.CreateChatSession(mainSessionB); err != nil {
+		t.Fatalf("seed main session B: %v", err)
+	}
+	otherSession := &core.ChatSession{
+		ID:        "chat-20260302-list03",
+		ProjectID: otherProject.ID,
+		Messages: []core.ChatMessage{
+			{Role: "user", Content: "should-not-appear"},
+		},
+	}
+	if err := store.CreateChatSession(otherSession); err != nil {
+		t.Fatalf("seed other project session: %v", err)
+	}
+
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-list/chat")
+	if err != nil {
+		t.Fatalf("GET /api/v1/projects/{pid}/chat: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var sessions []core.ChatSession
+	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
+		t.Fatalf("decode chat session list response: %v", err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(sessions))
+	}
+
+	wantByID := map[string]bool{
+		mainSessionA.ID: false,
+		mainSessionB.ID: false,
+	}
+	for _, session := range sessions {
+		if session.ProjectID != project.ID {
+			t.Fatalf("expected project id %s, got %s", project.ID, session.ProjectID)
+		}
+		if _, ok := wantByID[session.ID]; !ok {
+			t.Fatalf("unexpected session id in list: %s", session.ID)
+		}
+		wantByID[session.ID] = true
+	}
+	for id, hit := range wantByID {
+		if !hit {
+			t.Fatalf("expected session %s in list response", id)
+		}
+	}
+}
+
+func TestListChatSessionsProjectNotFound(t *testing.T) {
+	store := newTestStore(t)
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-list-missing/chat")
+	if err != nil {
+		t.Fatalf("GET /api/v1/projects/{pid}/chat: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+
+	var apiErr apiError
+	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if apiErr.Code != "PROJECT_NOT_FOUND" {
+		t.Fatalf("expected code PROJECT_NOT_FOUND, got %s", apiErr.Code)
+	}
+}
+
+func TestListChatSessionEvents(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-events",
+		Name:     "chat-events",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-events"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	session := &core.ChatSession{
+		ID:        "chat-20260303-events",
+		ProjectID: project.ID,
+		Messages: []core.ChatMessage{
+			{Role: "user", Content: "执行任务"},
+		},
+	}
+	if err := store.CreateChatSession(session); err != nil {
+		t.Fatalf("seed chat session: %v", err)
+	}
+	runEventRecorder, ok := store.(interface {
+		AppendChatRunEvent(event core.ChatRunEvent) error
+	})
+	if !ok {
+		t.Fatal("store does not support AppendChatRunEvent")
+	}
+	if err := runEventRecorder.AppendChatRunEvent(core.ChatRunEvent{
+		SessionID:  session.ID,
+		ProjectID:  project.ID,
+		EventType:  "chat_run_update",
+		UpdateType: "tool_call",
+		Payload: map[string]any{
+			"session_id": session.ID,
+			"acp": map[string]any{
+				"sessionUpdate": "tool_call",
+				"title":         "Terminal",
+				"status":        "pending",
+			},
+		},
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed chat run event: %v", err)
+	}
+
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-events/chat/" + session.ID + "/events")
+	if err != nil {
+		t.Fatalf("GET /api/v1/projects/{pid}/chat/{sid}/events: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var events []core.ChatRunEvent
+	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+		t.Fatalf("decode events response: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].SessionID != session.ID || events[0].ProjectID != project.ID {
+		t.Fatalf("unexpected event identity: %#v", events[0])
+	}
+	if events[0].UpdateType != "tool_call" {
+		t.Fatalf("unexpected update type: %q", events[0].UpdateType)
 	}
 }
 
@@ -259,7 +467,16 @@ func TestCreateChatSessionDoesNotAutoCreatePlanByDefault(t *testing.T) {
 		},
 	}
 
-	srv := NewServer(Config{Store: store, PlanManager: planManager})
+	assistant := &stubChatAssistant{
+		response: ChatAssistantResponse{
+			Reply: "已记录你的消息。",
+		},
+	}
+	srv := NewServer(Config{
+		Store:         store,
+		PlanManager:   planManager,
+		ChatAssistant: assistant,
+	})
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -279,8 +496,8 @@ func TestCreateChatSessionDoesNotAutoCreatePlanByDefault(t *testing.T) {
 		t.Fatalf("POST /api/v1/projects/{pid}/chat: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
 
 	var created createChatSessionResponse
@@ -331,8 +548,8 @@ func TestChatSessionCreateWithRole(t *testing.T) {
 		t.Fatalf("POST chat: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
 
 	var created createChatSessionResponse
@@ -343,9 +560,17 @@ func TestChatSessionCreateWithRole(t *testing.T) {
 		t.Fatal("expected non-empty session id")
 	}
 
-	calls := assistant.Calls()
-	if len(calls) != 1 {
-		t.Fatalf("expected one assistant call, got %d", len(calls))
+	var calls []ChatAssistantRequest
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		calls = assistant.Calls()
+		if len(calls) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected one assistant call, got %d", len(calls))
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	if calls[0].Role != "reviewer" {
 		t.Fatalf("expected assistant request role reviewer, got %q", calls[0].Role)
@@ -467,8 +692,8 @@ func TestCreateChatSessionContinuesExistingSessionWithAssistant(t *testing.T) {
 		t.Fatalf("POST continue chat: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
 
 	var out createChatSessionResponse
@@ -478,22 +703,26 @@ func TestCreateChatSessionContinuesExistingSessionWithAssistant(t *testing.T) {
 	if out.SessionID != existing.ID {
 		t.Fatalf("expected same session id %q, got %q", existing.ID, out.SessionID)
 	}
-	if out.Reply != "第二轮回复" {
-		t.Fatalf("expected assistant reply %q, got %q", "第二轮回复", out.Reply)
+	if out.Status != "accepted" {
+		t.Fatalf("expected status accepted, got %q", out.Status)
 	}
 
-	updated, err := store.GetChatSession(existing.ID)
-	if err != nil {
-		t.Fatalf("reload chat session: %v", err)
-	}
-	if updated.AgentSessionID != "claude-sid-new" {
-		t.Fatalf("expected updated agent_session_id %q, got %q", "claude-sid-new", updated.AgentSessionID)
-	}
-	if len(updated.Messages) != 4 {
-		t.Fatalf("expected 4 total messages after continuation, got %d", len(updated.Messages))
-	}
-	if updated.Messages[2].Content != "第二轮问题" || updated.Messages[3].Content != "第二轮回复" {
-		t.Fatalf("unexpected continuation message pair: %#v", updated.Messages[2:])
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		updated, err := store.GetChatSession(existing.ID)
+		if err != nil {
+			t.Fatalf("reload chat session: %v", err)
+		}
+		if updated.AgentSessionID == "claude-sid-new" && len(updated.Messages) == 4 {
+			if updated.Messages[2].Content != "第二轮问题" || updated.Messages[3].Content != "第二轮回复" {
+				t.Fatalf("unexpected continuation message pair: %#v", updated.Messages[2:])
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("chat continuation did not complete in time, got agent_session_id=%q messages=%d", updated.AgentSessionID, len(updated.Messages))
+		}
+		time.Sleep(30 * time.Millisecond)
 	}
 
 	calls := assistant.Calls()
@@ -547,15 +776,51 @@ func TestCreateChatSessionAssistantFailureReturnsBadGateway(t *testing.T) {
 		t.Fatalf("POST chat: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("expected 502, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", resp.StatusCode)
 	}
+}
+
+func TestCreateChatSessionAssistantUnavailableReturnsServiceUnavailable(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-assistant-missing",
+		Name:     "chat-assistant-missing",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-assistant-missing"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, err := json.Marshal(map[string]any{
+		"message": "请回复",
+	})
+	if err != nil {
+		t.Fatalf("marshal request body: %v", err)
+	}
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-chat-assistant-missing/chat",
+		"application/json",
+		bytes.NewReader(rawBody),
+	)
+	if err != nil {
+		t.Fatalf("POST chat: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", resp.StatusCode)
+	}
+
 	var apiErr apiError
 	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
 		t.Fatalf("decode api error: %v", err)
 	}
-	if apiErr.Code != "CHAT_ASSISTANT_FAILED" {
-		t.Fatalf("expected CHAT_ASSISTANT_FAILED, got %s", apiErr.Code)
+	if apiErr.Code != "CHAT_ASSISTANT_UNAVAILABLE" {
+		t.Fatalf("expected CHAT_ASSISTANT_UNAVAILABLE, got %s", apiErr.Code)
 	}
 }
 

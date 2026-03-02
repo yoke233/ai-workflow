@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/user/ai-workflow/internal/acpclient"
-	"github.com/user/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/acpclient"
+	"github.com/yoke233/ai-workflow/internal/core"
 )
 
 type recordingACPEventPublisher struct {
@@ -27,6 +27,26 @@ func (r *recordingACPEventPublisher) Events() []core.Event {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	out := make([]core.Event, len(r.events))
+	copy(out, r.events)
+	return out
+}
+
+type recordingChatRunEventRecorder struct {
+	mu     sync.Mutex
+	events []core.ChatRunEvent
+}
+
+func (r *recordingChatRunEventRecorder) AppendChatRunEvent(event core.ChatRunEvent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+	return nil
+}
+
+func (r *recordingChatRunEventRecorder) Events() []core.ChatRunEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]core.ChatRunEvent, len(r.events))
 	copy(out, r.events)
 	return out
 }
@@ -94,5 +114,111 @@ func TestHandleWriteFileRejectsPathOutsideScope(t *testing.T) {
 
 	if len(pub.Events()) != 0 {
 		t.Fatalf("no event should be published when write fails")
+	}
+}
+
+func TestHandleSessionUpdatePublishesMinimalData(t *testing.T) {
+	pub := &recordingACPEventPublisher{}
+	handler := NewACPHandler(t.TempDir(), "agent-session-1", pub)
+	handler.SetProjectID("proj-1")
+	handler.SetChatSessionID("chat-session-1")
+
+	rawUpdate := `{"type":"agent_message","content":[{"type":"text","text":"hello"}]}`
+	err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
+		SessionID:      "acp-session-fallback",
+		Type:           "agent_message",
+		Text:           "hello",
+		Status:         "running",
+		RawUpdateJSON:  rawUpdate,
+		RawContentJSON: `{"text":"ignore-me"}`,
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionUpdate() error = %v", err)
+	}
+
+	events := pub.Events()
+	if len(events) != 1 {
+		t.Fatalf("published events = %d, want 1", len(events))
+	}
+	if events[0].Type != core.EventChatRunUpdate {
+		t.Fatalf("event type = %q, want %q", events[0].Type, core.EventChatRunUpdate)
+	}
+
+	wantData := map[string]string{
+		"session_id":       "chat-session-1",
+		"agent_session_id": "agent-session-1",
+		"acp_update_json":  rawUpdate,
+	}
+	if len(events[0].Data) != len(wantData) {
+		t.Fatalf("event data size = %d, want %d, data=%#v", len(events[0].Data), len(wantData), events[0].Data)
+	}
+	for key, wantValue := range wantData {
+		if got := events[0].Data[key]; got != wantValue {
+			t.Fatalf("event data[%q] = %q, want %q", key, got, wantValue)
+		}
+	}
+
+	unexpectedKeys := []string{"update_type", "text", "status", "acp_content_json"}
+	for _, key := range unexpectedKeys {
+		if _, ok := events[0].Data[key]; ok {
+			t.Fatalf("event data should not contain %q, data=%#v", key, events[0].Data)
+		}
+	}
+}
+
+func TestHandleSessionUpdatePersistsNonChunkEvent(t *testing.T) {
+	pub := &recordingACPEventPublisher{}
+	recorder := &recordingChatRunEventRecorder{}
+	handler := NewACPHandler(t.TempDir(), "agent-session-1", pub)
+	handler.SetProjectID("proj-1")
+	handler.SetChatSessionID("chat-session-1")
+	handler.SetRunEventRecorder(recorder)
+
+	if err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
+		SessionID:     "acp-session-fallback",
+		Type:          "tool_call",
+		Status:        "pending",
+		RawUpdateJSON: `{"sessionUpdate":"tool_call","title":"Terminal","status":"pending"}`,
+	}); err != nil {
+		t.Fatalf("HandleSessionUpdate() error = %v", err)
+	}
+
+	events := recorder.Events()
+	if len(events) != 1 {
+		t.Fatalf("persisted events = %d, want 1", len(events))
+	}
+	if events[0].SessionID != "chat-session-1" || events[0].ProjectID != "proj-1" {
+		t.Fatalf("unexpected persisted event identity: %#v", events[0])
+	}
+	if events[0].EventType != "chat_run_update" || events[0].UpdateType != "tool_call" {
+		t.Fatalf("unexpected persisted event type fields: %#v", events[0])
+	}
+	if events[0].Payload == nil {
+		t.Fatalf("expected persisted payload")
+	}
+	if _, ok := events[0].Payload["acp"]; !ok {
+		t.Fatalf("expected payload.acp to exist, got=%#v", events[0].Payload)
+	}
+}
+
+func TestHandleSessionUpdateSkipsChunkPersistence(t *testing.T) {
+	pub := &recordingACPEventPublisher{}
+	recorder := &recordingChatRunEventRecorder{}
+	handler := NewACPHandler(t.TempDir(), "agent-session-1", pub)
+	handler.SetProjectID("proj-1")
+	handler.SetChatSessionID("chat-session-1")
+	handler.SetRunEventRecorder(recorder)
+
+	if err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
+		SessionID:     "acp-session-fallback",
+		Type:          "agent_message_chunk",
+		Text:          "hello",
+		RawUpdateJSON: `{"sessionUpdate":"agent_message_chunk","content":{"text":"hello"}}`,
+	}); err != nil {
+		t.Fatalf("HandleSessionUpdate() error = %v", err)
+	}
+
+	if got := len(recorder.Events()); got != 0 {
+		t.Fatalf("persisted chunk events = %d, want 0", got)
 	}
 }

@@ -24,6 +24,17 @@ type ChatMessage struct {
 	Time    time.Time `json:"time"`
 }
 
+// ChatRunEvent stores one persisted non-message runtime update for a chat session.
+type ChatRunEvent struct {
+	ID         int64          `json:"id"`
+	SessionID  string         `json:"session_id"`
+	ProjectID  string         `json:"project_id"`
+	EventType  string         `json:"event_type"`
+	UpdateType string         `json:"update_type"`
+	Payload    map[string]any `json:"payload"`
+	CreatedAt  time.Time      `json:"created_at"`
+}
+
 // NewChatSessionID generates an ID in format: chat-YYYYMMDD-xxxxxxxx.
 func NewChatSessionID() string {
 	return fmt.Sprintf("chat-%s-%s", time.Now().Format("20060102"), randomHex(4))

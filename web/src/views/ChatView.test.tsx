@@ -4,7 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ChatView from "./ChatView";
 import type { ApiClient } from "../lib/apiClient";
-import type { ApiTaskPlan, CreateChatResponse } from "../types/api";
+import type { WsClient } from "../lib/wsClient";
+import type { ApiTaskPlan } from "../types/api";
+import type { WsEnvelope } from "../types/ws";
 
 vi.mock("../components/FileTree", () => ({
   default: ({
@@ -66,31 +68,57 @@ const buildPlan = (id: string): ApiTaskPlan => ({
   updated_at: "2026-03-01T10:00:00.000Z",
 });
 
+const buildChatSession = (overrides?: {
+  id?: string;
+  userContent?: string;
+  assistantContent?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}) => ({
+  id: overrides?.id ?? "chat-1",
+  project_id: "proj-1",
+  messages: [
+    {
+      role: "user" as const,
+      content: overrides?.userContent ?? "请拆分任务",
+      time: overrides?.createdAt ?? "2026-03-01T10:00:00.000Z",
+    },
+    {
+      role: "assistant" as const,
+      content: overrides?.assistantContent ?? "已完成拆分",
+      time: overrides?.updatedAt ?? "2026-03-01T10:01:00.000Z",
+    },
+  ],
+  created_at: overrides?.createdAt ?? "2026-03-01T10:00:00.000Z",
+  updated_at: overrides?.updatedAt ?? "2026-03-01T10:01:00.000Z",
+});
+
 const createMockApiClient = (): ApiClient => {
   const createChat = vi.fn().mockResolvedValue({
     session_id: "chat-1",
-    reply: "ok",
+    status: "accepted",
   });
-  const getChat = vi.fn().mockResolvedValue({
-    id: "chat-1",
-    project_id: "proj-1",
-    messages: [
-      {
-        role: "user",
-        content: "请拆分任务",
-        time: "2026-03-01T10:00:00.000Z",
-      },
-      {
-        role: "assistant",
-        content: "已完成拆分",
-        time: "2026-03-01T10:01:00.000Z",
-      },
-    ],
-    created_at: "2026-03-01T10:00:00.000Z",
-    updated_at: "2026-03-01T10:01:00.000Z",
+  const cancelChat = vi.fn().mockResolvedValue({
+    session_id: "chat-1",
+    status: "cancelling",
   });
+  const getChat = vi.fn().mockResolvedValue(buildChatSession());
   const createPlan = vi.fn().mockResolvedValue(buildPlan("plan-1"));
   const createPlanFromFiles = vi.fn().mockResolvedValue(buildPlan("plan-files-1"));
+  const listChatRunEvents = vi.fn().mockResolvedValue([]);
+  const listChats = vi.fn().mockResolvedValue([
+    buildChatSession({
+      id: "chat-1",
+      updatedAt: "2026-03-01T10:01:00.000Z",
+    }),
+    buildChatSession({
+      id: "chat-2",
+      userContent: "第二个会话提问",
+      assistantContent: "第二个会话回复",
+      createdAt: "2026-03-01T11:00:00.000Z",
+      updatedAt: "2026-03-01T11:02:00.000Z",
+    }),
+  ]);
   const getRepoTree = vi.fn().mockResolvedValue({ dir: "", items: [] });
   const getRepoStatus = vi.fn().mockResolvedValue({ items: [] });
   const getRepoDiff = vi.fn().mockResolvedValue({ file_path: "", diff: "" });
@@ -107,7 +135,10 @@ const createMockApiClient = (): ApiClient => {
     listPipelines: vi.fn(),
     createPipeline: vi.fn(),
     createChat,
+    cancelChat,
     getChat,
+    listChats,
+    listChatRunEvents,
     createPlan,
     createPlanFromFiles,
     getRepoTree,
@@ -118,12 +149,38 @@ const createMockApiClient = (): ApiClient => {
   } as unknown as ApiClient;
 };
 
-const createDeferred = <T,>() => {
-  let resolve: (value: T | PromiseLike<T>) => void = () => {};
-  const promise = new Promise<T>((r) => {
-    resolve = r;
-  });
-  return { promise, resolve };
+const createMockWsHarness = (): {
+  wsClient: WsClient;
+  emit: (envelope: WsEnvelope<Record<string, unknown>>) => void;
+} => {
+  let wildcardHandler:
+    | ((payload: WsEnvelope<Record<string, unknown>>) => void)
+    | null = null;
+
+  const wsClient = {
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    send: vi.fn(),
+    subscribe: vi.fn().mockImplementation((type, handler) => {
+      if (type === "*") {
+        wildcardHandler = handler as (payload: WsEnvelope<Record<string, unknown>>) => void;
+      }
+      return () => {
+        if (wildcardHandler === handler) {
+          wildcardHandler = null;
+        }
+      };
+    }),
+    onStatusChange: vi.fn().mockReturnValue(() => {}),
+    getStatus: vi.fn().mockReturnValue("open"),
+  } as unknown as WsClient;
+
+  return {
+    wsClient,
+    emit: (envelope) => {
+      wildcardHandler?.(envelope);
+    },
+  };
 };
 
 describe("ChatView", () => {
@@ -131,10 +188,11 @@ describe("ChatView", () => {
     cleanup();
   });
 
-  it("发送消息后调用 createChat + getChat 并渲染会话消息", async () => {
+  it("发送消息后使用 ACK + WS 流式渲染，并在 completed 后 refreshSession", async () => {
     const apiClient = createMockApiClient();
+    const wsHarness = createMockWsHarness();
 
-    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
+    render(<ChatView apiClient={apiClient} wsClient={wsHarness.wsClient} projectId="proj-1" />);
 
     fireEvent.change(screen.getByLabelText("新消息"), {
       target: { value: "请拆分任务" },
@@ -145,17 +203,223 @@ describe("ChatView", () => {
       expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
         message: "请拆分任务",
       });
-      expect(apiClient.getChat).toHaveBeenCalledWith("proj-1", "chat-1");
+    });
+    expect(apiClient.getChat).not.toHaveBeenCalled();
+
+    wsHarness.emit({
+      type: "chat_run_started",
+      project_id: "proj-1",
+      data: { session_id: "chat-1" },
+    });
+    wsHarness.emit({
+      type: "chat_run_update",
+      project_id: "proj-1",
+      data: {
+        session_id: "chat-1",
+        acp: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            text: "第一段",
+          },
+        },
+      },
     });
 
-    expect(screen.getByText(/助手/)).toBeTruthy();
-    expect(screen.getByText("已完成拆分")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByText("助手 · 输入中...")).toBeTruthy();
+      expect(screen.getByText("第一段")).toBeTruthy();
+    });
+
+    wsHarness.emit({
+      type: "chat_run_update",
+      project_id: "proj-1",
+      data: {
+        session_id: "chat-1",
+        acp: {
+          sessionUpdate: "unknown_update_type",
+          content: {
+            text: "ignored",
+          },
+        },
+      },
+    });
+
+    wsHarness.emit({
+      type: "chat_run_completed",
+      project_id: "proj-1",
+      data: {
+        session_id: "chat-1",
+        reply: "这条会被 refreshSession 覆盖",
+      },
+    });
+
+    await waitFor(() => {
+      expect(apiClient.getChat).toHaveBeenCalledWith("proj-1", "chat-1");
+      expect(screen.getAllByText("已完成拆分").length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText("助手 · 输入中...")).toBeNull();
+    expect(screen.getByRole("button", { name: "发送" })).toBeTruthy();
   });
 
-  it("已有会话时发送消息会携带 session_id 继续对话", async () => {
+  it("运行中点击停止会调用 cancelChat，并在 cancelled 后退出运行态", async () => {
     const apiClient = createMockApiClient();
+    const wsHarness = createMockWsHarness();
 
-    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
+    render(<ChatView apiClient={apiClient} wsClient={wsHarness.wsClient} projectId="proj-1" />);
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "请开始执行" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+
+    await waitFor(() => {
+      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
+        message: "请开始执行",
+      });
+    });
+
+    wsHarness.emit({
+      type: "chat_run_started",
+      project_id: "proj-1",
+      data: { session_id: "chat-1" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "停止" }));
+
+    await waitFor(() => {
+      expect(apiClient.cancelChat).toHaveBeenCalledWith("proj-1", "chat-1");
+    });
+
+    wsHarness.emit({
+      type: "chat_run_cancelled",
+      project_id: "proj-1",
+      data: { session_id: "chat-1" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("当前请求已取消")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "发送" })).toBeTruthy();
+    });
+  });
+
+  it("WS 事件会按 session_id 过滤，非当前会话更新会被忽略", async () => {
+    const apiClient = createMockApiClient();
+    const wsHarness = createMockWsHarness();
+
+    render(<ChatView apiClient={apiClient} wsClient={wsHarness.wsClient} projectId="proj-1" />);
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "请拆分任务" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Session ID: chat-1")).toBeTruthy();
+    });
+
+    wsHarness.emit({
+      type: "chat_run_started",
+      project_id: "proj-1",
+      data: { session_id: "chat-1" },
+    });
+    wsHarness.emit({
+      type: "chat_run_update",
+      project_id: "proj-1",
+      data: {
+        session_id: "chat-2",
+        acp: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            text: "不应出现",
+          },
+        },
+      },
+    });
+    wsHarness.emit({
+      type: "chat_run_update",
+      project_id: "proj-1",
+      data: {
+        session_id: "chat-1",
+        acp: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            text: "应出现",
+          },
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("应出现")).toBeTruthy();
+    });
+    expect(screen.queryByText("不应出现")).toBeNull();
+  });
+
+  it("忽略 started 之前或早于 started 时间戳的增量，避免串入上一轮内容", async () => {
+    const apiClient = createMockApiClient();
+    const wsHarness = createMockWsHarness();
+
+    render(<ChatView apiClient={apiClient} wsClient={wsHarness.wsClient} projectId="proj-1" />);
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "第二轮开始" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Session ID: chat-1")).toBeTruthy();
+    });
+
+    wsHarness.emit({
+      type: "chat_run_update",
+      project_id: "proj-1",
+      data: {
+        session_id: "chat-1",
+        timestamp: "2026-03-03T01:39:59.000Z",
+        acp: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            text: "旧轮残留",
+          },
+        },
+      },
+    });
+
+    wsHarness.emit({
+      type: "chat_run_started",
+      project_id: "proj-1",
+      data: {
+        session_id: "chat-1",
+        timestamp: "2026-03-03T01:40:00.000Z",
+      },
+    });
+
+    wsHarness.emit({
+      type: "chat_run_update",
+      project_id: "proj-1",
+      data: {
+        session_id: "chat-1",
+        timestamp: "2026-03-03T01:40:01.000Z",
+        acp: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            text: "当前轮内容",
+          },
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("当前轮内容")).toBeTruthy();
+    });
+    expect(screen.queryByText("旧轮残留")).toBeNull();
+  });
+
+  it("已有 session 后按钮显示发送，并携带 session_id 继续对话", async () => {
+    const apiClient = createMockApiClient();
+    const wsHarness = createMockWsHarness();
+
+    render(<ChatView apiClient={apiClient} wsClient={wsHarness.wsClient} projectId="proj-1" />);
 
     fireEvent.change(screen.getByLabelText("新消息"), {
       target: { value: "第一轮" },
@@ -163,18 +427,31 @@ describe("ChatView", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
 
     await waitFor(() => {
-      expect(apiClient.createChat).toHaveBeenNthCalledWith(1, "proj-1", {
+      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
         message: "第一轮",
       });
-    });
-    await waitFor(() => {
       expect(screen.getByText("Session ID: chat-1")).toBeTruthy();
+    });
+
+    wsHarness.emit({
+      type: "chat_run_started",
+      project_id: "proj-1",
+      data: { session_id: "chat-1" },
+    });
+    wsHarness.emit({
+      type: "chat_run_completed",
+      project_id: "proj-1",
+      data: { session_id: "chat-1", reply: "第一轮完成" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "发送" })).toBeTruthy();
     });
 
     fireEvent.change(screen.getByLabelText("新消息"), {
       target: { value: "第二轮" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     await waitFor(() => {
       expect(apiClient.createChat).toHaveBeenNthCalledWith(2, "proj-1", {
@@ -184,108 +461,47 @@ describe("ChatView", () => {
     });
   });
 
-  it("会话创建后可触发 createPlan", async () => {
+  it("会话完成后可触发 createPlan 与 createPlanFromFiles", async () => {
     const apiClient = createMockApiClient();
+    const wsHarness = createMockWsHarness();
 
-    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
+    render(<ChatView apiClient={apiClient} wsClient={wsHarness.wsClient} projectId="proj-1" />);
 
     fireEvent.change(screen.getByLabelText("新消息"), {
       target: { value: "请拆分任务" },
     });
     fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
-
-    await waitFor(() => {
-      expect(apiClient.getChat).toHaveBeenCalled();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "基于当前会话创建计划" }));
-
-    await waitFor(() => {
-      expect(apiClient.createPlan).toHaveBeenCalledWith("proj-1", {
-        session_id: "chat-1",
-      });
-    });
-
-    expect(screen.getByText("已创建计划：plan-1")).toBeTruthy();
-  });
-
-  it("项目切换后会忽略旧会话请求，避免回写到新项目", async () => {
-    const deferredChat = createDeferred<CreateChatResponse>();
-    const apiClient = createMockApiClient();
-    vi.mocked(apiClient.createChat).mockImplementation(() => deferredChat.promise);
-
-    const { rerender } = render(<ChatView apiClient={apiClient} projectId="proj-1" />);
-
-    fireEvent.change(screen.getByLabelText("新消息"), {
-      target: { value: "旧项目请求" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
-
-    rerender(<ChatView apiClient={apiClient} projectId="proj-2" />);
-    deferredChat.resolve({
-      session_id: "chat-stale",
-      reply: "stale",
-    });
 
     await waitFor(() => {
       expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
-        message: "旧项目请求",
+        message: "请拆分任务",
       });
-    });
-    await waitFor(() => {
-      expect(apiClient.getChat).not.toHaveBeenCalled();
+      expect(screen.getByText("Session ID: chat-1")).toBeTruthy();
     });
 
-    expect(screen.getByText("Session ID: 未创建")).toBeTruthy();
-    expect(screen.queryByText("已完成拆分")).toBeNull();
-  });
-
-  it("createPlan 请求在项目切换后晚到时不会回写新项目状态", async () => {
-    const deferredPlan = createDeferred<ApiTaskPlan>();
-    const apiClient = createMockApiClient();
-    vi.mocked(apiClient.createPlan).mockImplementation(() => deferredPlan.promise);
-
-    const { rerender } = render(<ChatView apiClient={apiClient} projectId="proj-1" />);
-
-    fireEvent.change(screen.getByLabelText("新消息"), {
-      target: { value: "请拆分任务" },
+    wsHarness.emit({
+      type: "chat_run_started",
+      project_id: "proj-1",
+      data: { session_id: "chat-1" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+    wsHarness.emit({
+      type: "chat_run_completed",
+      project_id: "proj-1",
+      data: { session_id: "chat-1", reply: "done" },
+    });
 
     await waitFor(() => {
-      expect(apiClient.getChat).toHaveBeenCalledWith("proj-1", "chat-1");
+      expect(screen.getByRole("button", { name: "基于当前会话创建计划" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "从文件创建计划" })).toBeTruthy();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "基于当前会话创建计划" }));
-
     await waitFor(() => {
       expect(apiClient.createPlan).toHaveBeenCalledWith("proj-1", {
         session_id: "chat-1",
       });
     });
-
-    rerender(<ChatView apiClient={apiClient} projectId="proj-2" />);
-    deferredPlan.resolve(buildPlan("plan-stale"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Session ID: 未创建")).toBeTruthy();
-    });
-    expect(screen.queryByText("已创建计划：plan-stale")).toBeNull();
-  });
-
-  it("输入文件路径后可调用 createPlanFromFiles", async () => {
-    const apiClient = createMockApiClient();
-
-    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
-
-    fireEvent.change(screen.getByLabelText("新消息"), {
-      target: { value: "请拆分任务" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
-
-    await waitFor(() => {
-      expect(apiClient.getChat).toHaveBeenCalledWith("proj-1", "chat-1");
-    });
+    expect(screen.getByText("已创建计划：plan-1")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("文件路径（逗号分隔）"), {
       target: { value: "cmd/app/main.go, internal/core/task.go,  ,web/src/App.tsx" },
@@ -301,28 +517,154 @@ describe("ChatView", () => {
     expect(screen.getByText("已从文件创建计划：plan-files-1")).toBeTruthy();
   });
 
-  it("助手消息支持基础 Markdown 渲染", async () => {
+  it("支持展示会话列表并切换会话", async () => {
     const apiClient = createMockApiClient();
-    vi.mocked(apiClient.getChat).mockResolvedValue({
-      id: "chat-1",
-      project_id: "proj-1",
-      messages: [
-        {
-          role: "assistant",
-          content: "# 计划概览\n- [文档](https://example.com)\n- `run test`",
-          time: "2026-03-01T10:01:00.000Z",
-        },
-      ],
-      created_at: "2026-03-01T10:00:00.000Z",
-      updated_at: "2026-03-01T10:01:00.000Z",
+    const wsHarness = createMockWsHarness();
+
+    vi.mocked(apiClient.getChat).mockImplementation(async (_projectID: string, sessionID: string) => {
+      if (sessionID === "chat-2") {
+        return buildChatSession({
+          id: "chat-2",
+          userContent: "第二个会话提问",
+          assistantContent: "第二个会话回复",
+          createdAt: "2026-03-01T11:00:00.000Z",
+          updatedAt: "2026-03-01T11:02:00.000Z",
+        });
+      }
+      return buildChatSession({
+        id: "chat-1",
+        assistantContent: "第一个会话回复",
+      });
+    });
+    vi.mocked(apiClient.listChatRunEvents).mockImplementation(async (_projectID: string, sessionID: string) => {
+      if (sessionID === "chat-2") {
+        return [
+          {
+            id: 2,
+            session_id: "chat-2",
+            project_id: "proj-1",
+            event_type: "chat_run_update",
+            update_type: "tool_call",
+            payload: {
+              session_id: "chat-2",
+              acp: {
+                sessionUpdate: "tool_call",
+                title: "Terminal",
+              },
+            },
+            created_at: "2026-03-01T11:01:00.000Z",
+          },
+        ];
+      }
+      return [];
     });
 
-    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
+    render(<ChatView apiClient={apiClient} wsClient={wsHarness.wsClient} projectId="proj-1" />);
+
+    await waitFor(() => {
+      expect((apiClient as unknown as { listChats: ReturnType<typeof vi.fn> }).listChats).toHaveBeenCalledWith("proj-1");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "chat-2" }));
+
+    await waitFor(() => {
+      expect(apiClient.getChat).toHaveBeenCalledWith("proj-1", "chat-2");
+      expect(apiClient.listChatRunEvents).toHaveBeenCalledWith("proj-1", "chat-2");
+      expect(screen.getAllByText("第二个会话回复").length).toBeGreaterThan(0);
+      expect(screen.getByText(/Terminal/)).toBeTruthy();
+    });
+    expect(screen.getByText("Session ID: chat-2")).toBeTruthy();
+  });
+
+  it("可展示 tool_call/plan 等非文本运行事件", async () => {
+    const apiClient = createMockApiClient();
+    const wsHarness = createMockWsHarness();
+
+    render(<ChatView apiClient={apiClient} wsClient={wsHarness.wsClient} projectId="proj-1" />);
+
+    fireEvent.change(screen.getByLabelText("新消息"), {
+      target: { value: "执行任务" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+
+    await waitFor(() => {
+      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
+        message: "执行任务",
+      });
+    });
+
+    wsHarness.emit({
+      type: "chat_run_started",
+      project_id: "proj-1",
+      data: { session_id: "chat-1" },
+    });
+    wsHarness.emit({
+      type: "chat_run_update",
+      project_id: "proj-1",
+      data: {
+        session_id: "chat-1",
+        acp: {
+          sessionUpdate: "tool_call",
+          title: "读取文件",
+          kind: "shell",
+          status: "running",
+        },
+      },
+    });
+    wsHarness.emit({
+      type: "chat_run_update",
+      project_id: "proj-1",
+      data: {
+        session_id: "chat-1",
+        acp: {
+          sessionUpdate: "plan",
+          entries: [{ content: "步骤 1", status: "pending" }],
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("运行事件")).toBeTruthy();
+      expect(screen.getByText(/tool_call/)).toBeTruthy();
+      expect(screen.getByText(/读取文件/)).toBeTruthy();
+      expect(screen.getByText(/plan/)).toBeTruthy();
+      expect(screen.getByText(/步骤 1/)).toBeTruthy();
+    });
+  });
+
+  it("助手消息支持基础 Markdown 渲染", async () => {
+    const apiClient = createMockApiClient();
+    const wsHarness = createMockWsHarness();
+    vi.mocked(apiClient.getChat).mockResolvedValue(
+      buildChatSession({
+        assistantContent: "# 计划概览\n- [文档](https://example.com)\n- `run test`",
+      }),
+    );
+
+    render(<ChatView apiClient={apiClient} wsClient={wsHarness.wsClient} projectId="proj-1" />);
 
     fireEvent.change(screen.getByLabelText("新消息"), {
       target: { value: "触发会话" },
     });
     fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
+
+    await waitFor(() => {
+      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
+        message: "触发会话",
+      });
+      expect(screen.getByText("Session ID: chat-1")).toBeTruthy();
+    });
+
+    wsHarness.emit({
+      type: "chat_run_started",
+      project_id: "proj-1",
+      data: { session_id: "chat-1" },
+    });
+    wsHarness.emit({
+      type: "chat_run_completed",
+      project_id: "proj-1",
+      data: { session_id: "chat-1", reply: "最终回复" },
+    });
 
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "计划概览" })).toBeTruthy();
@@ -334,7 +676,8 @@ describe("ChatView", () => {
 
   it("文件树选择会自动同步到文件路径输入框", () => {
     const apiClient = createMockApiClient();
-    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
+    const wsHarness = createMockWsHarness();
+    render(<ChatView apiClient={apiClient} wsClient={wsHarness.wsClient} projectId="proj-1" />);
 
     const input = screen.getByLabelText("文件路径（逗号分隔）") as HTMLInputElement;
     expect(input.value).toBe("");
@@ -351,7 +694,8 @@ describe("ChatView", () => {
 
   it("左侧面板支持在文件树与 Git Status 之间切换", () => {
     const apiClient = createMockApiClient();
-    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
+    const wsHarness = createMockWsHarness();
+    render(<ChatView apiClient={apiClient} wsClient={wsHarness.wsClient} projectId="proj-1" />);
 
     expect(screen.getByText("FileTreeMock")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Git Status" }));
