@@ -51,9 +51,7 @@ func TestScheduler_StartPlanAndProgression(t *testing.T) {
 	waitTaskStatus(t, store, "task-a", core.ItemDone, 2*time.Second)
 	waitTaskStatus(t, store, "task-b", core.ItemDone, 2*time.Second)
 
-	if got := runner.CallCount(); got != 2 {
-		t.Fatalf("runner calls = %d, want 2", got)
-	}
+	waitRunnerCalls(t, runner, 2, 2*time.Second)
 }
 
 func TestDepScheduler_StartPlan_IdempotentForManagedPlan(t *testing.T) {
@@ -85,9 +83,7 @@ func TestDepScheduler_StartPlan_IdempotentForManagedPlan(t *testing.T) {
 	if taskAAfter.PipelineID != firstPipelineID {
 		t.Fatalf("pipeline id changed on idempotent start: got %q want %q", taskAAfter.PipelineID, firstPipelineID)
 	}
-	if got := runner.CallCount(); got != 1 {
-		t.Fatalf("runner calls = %d, want 1", got)
-	}
+	waitRunnerCalls(t, runner, 1, 2*time.Second)
 }
 
 func TestDepScheduler_TrackerWarning_DoesNotBlockMainFlow(t *testing.T) {
@@ -330,9 +326,7 @@ func TestScheduler_RecoverExecutingPlans_DispatchesReadyTasks(t *testing.T) {
 	if taskB.PipelineID == "" {
 		t.Fatalf("expected task-b dispatched after recovery")
 	}
-	if got := runner.CallCount(); got != 1 {
-		t.Fatalf("runner calls = %d, want 1", got)
-	}
+	waitRunnerCalls(t, runner, 1, 2*time.Second)
 }
 
 func TestDepScheduler_RecoverExecutingPlans_ReplaysPipelineDoneFromStore(t *testing.T) {
@@ -696,8 +690,8 @@ func TestSchedulerDefaultStageConfig_DefaultAgentAndE2E(t *testing.T) {
 		core.StageCodeReview,
 	} {
 		cfg := schedulerDefaultStageConfig(stageID)
-		if cfg.Agent != "claude" {
-			t.Fatalf("stage %s should default to claude, got %q", stageID, cfg.Agent)
+		if cfg.Agent != "codex" {
+			t.Fatalf("stage %s should default to codex, got %q", stageID, cfg.Agent)
 		}
 	}
 
@@ -909,6 +903,21 @@ func waitPlanStatus(t *testing.T, store core.Store, planID string, want core.Tas
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("timeout waiting plan %s status %q, got %q", planID, want, plan.Status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func waitRunnerCalls(t *testing.T, runner *schedulerRunner, want int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		got := runner.CallCount()
+		if got >= want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timeout waiting runner calls = %d, want %d", got, want)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

@@ -85,6 +85,48 @@ VALUES
 	}
 }
 
+func TestMigration_AddsQueuedAtColumnBeforeCreatingIndexes(t *testing.T) {
+	db := openLegacySQLite(t)
+	defer db.Close()
+
+	// Simulate an older local DB: pipelines exists but lacks queued_at, while applyMigrations wants
+	// to create idx_pipelines_status_queued_at. This must not fail.
+	if _, err := db.Exec(`
+CREATE TABLE pipelines (
+	id                TEXT PRIMARY KEY,
+	project_id        TEXT NOT NULL,
+	name              TEXT NOT NULL,
+	template          TEXT NOT NULL,
+	status            TEXT NOT NULL DEFAULT 'created',
+	current_stage     TEXT,
+	stages_json       TEXT NOT NULL DEFAULT '[]',
+	artifacts_json    TEXT DEFAULT '{}',
+	config_json       TEXT DEFAULT '{}',
+	branch_name       TEXT,
+	worktree_path     TEXT,
+	error_message     TEXT,
+	max_total_retries INTEGER DEFAULT 5,
+	total_retries     INTEGER DEFAULT 0,
+	run_count         INTEGER DEFAULT 0,
+	last_error_type   TEXT,
+	task_item_id      TEXT,
+	last_heartbeat_at DATETIME,
+	started_at        DATETIME,
+	finished_at       DATETIME,
+	created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+	updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+`); err != nil {
+		t.Fatalf("seed legacy pipelines table: %v", err)
+	}
+
+	if err := applyMigrations(db); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+
+	assertColumnExists(t, db, "pipelines", "queued_at")
+}
+
 func assertColumnExists(t *testing.T, db *sql.DB, table, column string) {
 	t.Helper()
 

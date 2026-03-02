@@ -476,8 +476,10 @@ Pipeline 可以从以下来源创建：
 - Pipeline.Description = TaskItem.Description
 - Pipeline.TaskItemID = TaskItem.ID
 - 模板由 TaskItem.Template 字段指定
+- TaskItem 的来源是用户选择的计划文件，经 Plan Parser（AI）解析为结构化数据
 - requirements 阶段通过 task_item_id 反查 TaskItem，并注入 Description/Inputs/Outputs/Acceptance
 - Pipeline 完成/失败事件通过 Event Bus 通知 DAG Scheduler
+- 每个 Pipeline 的创建、启动、完成、失败均记录到 audit_log
 
 ### Event Bus 新增事件
 

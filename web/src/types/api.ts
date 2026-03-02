@@ -213,7 +213,6 @@ export interface ApiStatsResponse {
 export interface CreateChatResponse {
   session_id: string;
   reply: string;
-  plan_id?: string;
 }
 
 export type GetChatResponse = ChatSession;

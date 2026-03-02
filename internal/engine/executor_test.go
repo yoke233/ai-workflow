@@ -101,14 +101,14 @@ func TestWorktreeSetupBeforeRequirements(t *testing.T) {
 }
 
 func TestDefaultStageConfig_DefaultAgentAndE2E(t *testing.T) {
-	t.Run("requirements and code_review use claude", func(t *testing.T) {
+	t.Run("requirements and code_review use codex", func(t *testing.T) {
 		for _, stageID := range []core.StageID{
 			core.StageRequirements,
 			core.StageCodeReview,
 		} {
 			cfg := defaultStageConfig(stageID)
-			if cfg.Agent != "claude" {
-				t.Fatalf("stage %s should default to claude, got %q", stageID, cfg.Agent)
+			if cfg.Agent != "codex" {
+				t.Fatalf("stage %s should default to codex, got %q", stageID, cfg.Agent)
 			}
 		}
 	})

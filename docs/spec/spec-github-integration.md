@@ -93,7 +93,7 @@ GitHub Issue 可以在两种模式下触发执行：
 外部创建的 GitHub Issue（人工创建或其他工具创建），直接映射为单个 Pipeline。适合简单任务。
 
 **模式 B — Tracker 同步的 Issue（经过 Secretary Layer）：**
-由 `tracker-github` 插件从 TaskItem 同步创建的 Issue。这类 Issue 的生命周期由 DAG Scheduler 管理，GitHub 上的状态变更会通过 Webhook 回传给 Scheduler。详见 [spec-secretary-layer.md](spec-secretary-layer.md)。
+由 `tracker-github` 插件从 TaskItem 同步创建的 Issue。TaskItem 来源于用户在 Chat 中指示 Secretary 生成计划文件后，经用户勾选、Plan Parser 解析得到的结构化任务。这类 Issue 的生命周期由 DAG Scheduler 管理，GitHub 上的状态变更会通过 Webhook 回传给 Scheduler。详见 [spec-secretary-layer.md](spec-secretary-layer.md)。
 
 ### 模式 A 的触发条件
 

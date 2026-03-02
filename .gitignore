@@ -1,3 +1,16 @@
 .worktrees/
 .runtime/
 artifacts/
+.tmp/
+.claude/
+
+# Go
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.coverprofile
+coverage.out
+bin/

@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-const schema = `
+const schemaTables = `
 PRAGMA journal_mode=WAL;
 PRAGMA busy_timeout=5000;
 PRAGMA foreign_keys=ON;
@@ -49,11 +49,6 @@ CREATE TABLE IF NOT EXISTS pipelines (
     created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS idx_pipelines_project ON pipelines(project_id);
-CREATE INDEX IF NOT EXISTS idx_pipelines_status ON pipelines(status);
-CREATE INDEX IF NOT EXISTS idx_pipelines_status_queued_at ON pipelines(status, queued_at, created_at);
-CREATE INDEX IF NOT EXISTS idx_pipelines_project_status ON pipelines(project_id, status);
 
 CREATE TABLE IF NOT EXISTS checkpoints (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -165,9 +160,16 @@ CREATE TABLE IF NOT EXISTS review_records (
 CREATE INDEX IF NOT EXISTS idx_review_records_plan ON review_records(plan_id);
 `
 
+const schemaIndexes = `
+CREATE INDEX IF NOT EXISTS idx_pipelines_project ON pipelines(project_id);
+CREATE INDEX IF NOT EXISTS idx_pipelines_status ON pipelines(status);
+CREATE INDEX IF NOT EXISTS idx_pipelines_status_queued_at ON pipelines(status, queued_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_pipelines_project_status ON pipelines(project_id, status);
+`
+
 func applyMigrations(db *sql.DB) error {
-	if _, err := db.Exec(schema); err != nil {
-		return fmt.Errorf("exec schema: %w", err)
+	if _, err := db.Exec(schemaTables); err != nil {
+		return fmt.Errorf("exec schema tables: %w", err)
 	}
 
 	// Keep older local sqlite files backward-compatible when new columns are introduced.
@@ -205,6 +207,12 @@ func applyMigrations(db *sql.DB) error {
 	}
 	if err := backfillPipelineTaskItemID(db); err != nil {
 		return err
+	}
+
+	// Create indexes after backward-compatible column adds.
+	// Otherwise, older DB files missing new columns (e.g. pipelines.queued_at) will fail when creating indexes.
+	if _, err := db.Exec(schemaIndexes); err != nil {
+		return fmt.Errorf("exec schema indexes: %w", err)
 	}
 	return nil
 }

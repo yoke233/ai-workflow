@@ -11,5 +11,5 @@ $repoRoot = Enter-RepoRoot -ScriptRoot $PSScriptRoot
 Write-Host "RepoRoot: $repoRoot"
 
 Invoke-Step -Name "Frontend unit tests (vitest run)" -CheckLastExitCode -Command {
-    npm --prefix web test -- --run
+    npm --prefix web test
 }

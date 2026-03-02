@@ -654,10 +654,10 @@ func selectSecretaryAgentPlugin(agents map[string]core.AgentPlugin) (core.AgentP
 	if len(agents) == 0 {
 		return nil, errors.New("no agent plugins configured for secretary manager")
 	}
-	if agent, ok := agents["claude"]; ok && agent != nil {
+	if agent, ok := agents["codex"]; ok && agent != nil {
 		return agent, nil
 	}
-	if agent, ok := agents["codex"]; ok && agent != nil {
+	if agent, ok := agents["claude"]; ok && agent != nil {
 		return agent, nil
 	}
 

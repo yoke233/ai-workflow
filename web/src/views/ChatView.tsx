@@ -258,9 +258,6 @@ const ChatView = ({ apiClient, projectId }: ChatViewProps) => {
       }
       setSessionId(created.session_id);
       setMessages(session.messages);
-      if (created.plan_id && created.plan_id.trim().length > 0) {
-        setPlanNotice(`会话创建时已自动生成计划：${created.plan_id}`);
-      }
       setDraft("");
     } catch (requestError) {
       if (chatRequestIdRef.current !== requestId) {

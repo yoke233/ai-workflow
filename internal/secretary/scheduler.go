@@ -1204,7 +1204,7 @@ func schedulerDefaultStageConfig(id core.StageID) core.StageConfig {
 
 	switch id {
 	case core.StageRequirements, core.StageCodeReview:
-		cfg.Agent = "claude"
+		cfg.Agent = "codex"
 	case core.StageImplement, core.StageFixup:
 		cfg.Agent = "codex"
 	case core.StageE2ETest:

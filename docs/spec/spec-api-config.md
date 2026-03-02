@@ -17,14 +17,27 @@
 
 ```
 GET    /api/v1/projects
-  → 200: [{ id, name, repo_path, github_repo, pipeline_count, active_count }]
+  → 200: [{ id, name, repo_path, source, github_repo, pipeline_count, active_count }]
 
 POST   /api/v1/projects
-  Body: { name, repo_path, github: { owner, repo } }
-  → 201: { id, name, ... }
+  Body: {
+    name,
+    source: "local" | "git",
+    repo_path: "/path/to/repo",        // source=local 时必填
+    git_url: "https://...",            // source=git 时必填
+    git_branch: "main",               // source=git 时可选，默认 main
+    github: { owner, repo }           // 可选
+  }
+  → 201: { id, name, repo_path, source, ... }
+
+  source=git 时：
+  - 系统 clone 到 ~/.ai-workflow/repos/{id}/
+  - repo_path 设为 clone 后的绝对路径
+  - git_branch 为初始 checkout 的分支
+  - clone 失败返回 400 + 错误信息
 
 GET    /api/v1/projects/:id
-  → 200: { id, name, repo_path, config, pipelines_summary }
+  → 200: { id, name, repo_path, source, git_url, config, pipelines_summary }
 
 PUT    /api/v1/projects/:id
   Body: { name?, config? }
@@ -32,7 +45,8 @@ PUT    /api/v1/projects/:id
 
 DELETE /api/v1/projects/:id
   → 204（需确认无活跃 Pipeline）
-  → 删除项目时级联删除关联的 pipelines、checkpoints、logs、human_actions、chat_sessions、task_plans、task_items、review_records（通过应用层事务实现，不依赖 SQLite CASCADE）
+  → 删除项目时级联删除关联的 pipelines、checkpoints、logs、human_actions、chat_sessions、task_plans、task_items、review_records、audit_log（通过应用层事务实现，不依赖 SQLite CASCADE）
+  → source=git 时，同时删除 clone 的目录
 ```
 
 ### Pipeline 操作
@@ -107,29 +121,83 @@ GET    /api/v1/templates
   → 200: [{ name, stages, description }]
 ```
 
-> ChatSession、TaskPlan、TaskItem、ReviewRecord 的领域模型、状态机和设计背景见 [spec-secretary-layer.md](spec-secretary-layer.md)。
-
-### ChatSession（P2c 新增）
+### Admin 管理 API（P2c 新增）
 
 ```
-POST   /api/v1/projects/:pid/chat
-  Body: { message: "需求描述..." }
-  → 200: { session_id, reply: "..." }
-  注：回复通过 WebSocket secretary_thinking 事件流式推送
+GET    /api/v1/admin/overview
+  → 200: {
+    projects: { total, active },
+    pipelines: { running, waiting, done_today, failed_today },
+    plans: { executing, reviewing },
+    agents: { active, max }
+  }
 
-GET    /api/v1/projects/:pid/chat/:sid
-  → 200: { id, project_id, messages: [...], created_at }
+GET    /api/v1/admin/pipelines
+  Query: ?project_id=&status=&limit=50&offset=0
+  → 200: { items: [...], total }
+  注：跨项目查看所有 Pipeline
 
-DELETE /api/v1/projects/:pid/chat/:sid
+GET    /api/v1/admin/plans
+  Query: ?project_id=&status=&limit=50&offset=0
+  → 200: { items: [...], total }
+  注：跨项目查看所有 TaskPlan
+
+GET    /api/v1/admin/audit-log
+  Query: ?project_id=&action=&user=&since=&until=&limit=100&offset=0
+  → 200: { items: [{ id, timestamp, project_id, action, target_type, target_id, user_id, detail }], total }
+  注：全局审计日志，支持多维过滤
+```
+
+> ChatSession、TaskPlan、TaskItem、ReviewRecord 的领域模型、状态机和设计背景见 [spec-secretary-layer.md](spec-secretary-layer.md)。
+
+### ChatSession — 持久 Agent Session（P2c 新增）
+
+```
+POST   /api/v1/projects/:pid/chat/sessions
+  Body: { agent: "claude" }            // 可选，默认使用配置中的 secretary.agent
+  → 201: { session_id, agent, status: "active" }
+  注：后端通过 ACP Client 启动 Agent session，工作目录 = 项目目录
+
+POST   /api/v1/projects/:pid/chat/sessions/:sid/messages
+  Body: { content: "需求描述..." }
+  → 200: { message_id }
+  注：消息通过 acpClient.Prompt() 发给 Agent，回复通过 WebSocket 流式推送
+  注：每条消息和回复均记录到 audit_log
+
+GET    /api/v1/projects/:pid/chat/sessions/:sid
+  → 200: { id, project_id, agent, status, messages: [...], created_at }
+
+GET    /api/v1/projects/:pid/chat/sessions
+  → 200: [{ id, agent, status, message_count, created_at, updated_at }]
+
+DELETE /api/v1/projects/:pid/chat/sessions/:sid
   → 204
+  注：调用 acpClient.Close() 终止 session，对话历史保留在 Store 中
+```
+
+### 项目文件操作（P2c 新增）
+
+```
+GET    /api/v1/projects/:pid/files
+  Query: ?path=.ai-workflow/plans/&changed_since=2026-03-01T00:00:00Z
+  → 200: { files: [{ path, size, modified_at, is_new }] }
+  注：列出项目目录下指定路径的文件，支持按修改时间过滤
+  注：path 是相对于项目根目录的路径前缀
+
+GET    /api/v1/projects/:pid/files/content
+  Query: ?paths=file1.md,file2.md
+  → 200: { files: [{ path, content, size }] }
+  注：读取指定文件内容（前端预览用），单文件上限 100KB
 ```
 
 ### TaskPlan 管理（P2a 新增）
 
 ```
-POST   /api/v1/projects/:pid/plans
-  Body: { session_id: "chat-xxx" }
-  → 201: { id, name, tasks: [...], status: "draft" }
+POST   /api/v1/projects/:pid/plans/from-files
+  Body: { session_id: "chat-xxx", file_paths: ["plan-auth.md", "plan-db.md"] }
+  → 201: { id, name, tasks: [...], source_files: [...], status: "draft" }
+  注：后端调用 AI（Plan Parser）读取选中文件内容，解析为结构化 TaskPlan + TaskItems
+  注：解析失败返回 400 + 错误详情，用户可在 Chat 中调整后重试
 
 GET    /api/v1/projects/:pid/plans
   Query: ?status=executing&limit=20&offset=0
@@ -215,8 +283,11 @@ Secretary Layer 新增事件说明：
 
 | 事件 | 用途 |
 |------|------|
-| `secretary_thinking` | 秘书 Agent 流式输出（对话回复 + 任务拆解过程） |
-| `plan_created` | 新 TaskPlan 创建 |
+| `secretary_thinking` | Secretary Agent 流式输出（对话回复） |
+| `secretary_files_changed` | Secretary 写入/修改文件（含 file_paths, session_id） |
+| `secretary_tool_call` | Secretary 调用查询工具（含 tool_name, input） |
+| `secretary_tool_result` | 查询工具返回结果（含 tool_name, output） |
+| `plan_created` | 新 TaskPlan 创建（从文件解析得到） |
 | `plan_reviewing` | 进入审核 |
 | `review_agent_done` | 单个 Reviewer 完成（含 verdict） |
 | `review_complete` | 审核流程完成（含 decision: approve/fix/escalate） |
@@ -282,23 +353,39 @@ EventBus 事件
 ```yaml
 # ~/.ai-workflow/config.yaml
 
-# Agent 配置
+# Agent 配置（ACP 协议统一通信）
 agents:
-  claude:
-    binary: claude                  # CLI 路径
-    default_max_turns: 30
-    default_tools:
-      - "Read(*)"
-      - "Write(*)"
-      - "Edit(*)"
-      - "Bash(git *)"
+  - name: claude                              # 标识符，业务层引用用
+    launch_command: "claude-agent-acp"        # npm install -g @zed-industries/claude-agent-acp
+    launch_args: []                           # 启动参数
+    env: {}                                   # 环境变量
+    capabilities:                             # ACP Capability Gate
+      fs_read: true
+      fs_write: true
+      terminal: true
+    permission_policy:                        # 自动授权规则
+      - pattern: "fs/write_text_file"
+        scope: "cwd"                          # 仅 cwd 内自动放行
+        action: "allow_always"
+      - pattern: "terminal/create"
+        action: "allow_once"                  # 终端需逐次确认
 
-  codex:
-    binary: codex
-    model: gpt-5.3-codex            # 通过 -m 标志传递
-    reasoning: high                  # 通过 -c model_reasoning_effort= 传递
-    sandbox: workspace-write         # 通过 --sandbox 传递
-    approval: never                  # 通过 -a 传递
+  - name: codex
+    launch_command: "npx"
+    launch_args: ["-y", "@zed-industries/codex-acp@latest"]
+    env: {}
+    capabilities:
+      fs_read: true
+      fs_write: true
+      terminal: true
+    permission_policy:
+      - pattern: "fs/write_text_file"
+        scope: "cwd"
+        action: "allow_always"
+      - pattern: "terminal/create"
+        action: "allow_always"
+
+# runtime: 段已删除 — ACP Client 接管进程管理
 
 # Spec 插件配置（仅 Secretary Layer 使用，Pipeline 不读取）
 spec:
@@ -327,11 +414,29 @@ scheduler:
 
 # Secretary Layer 配置（P2a 新增）
 secretary:
-  context_max_tokens: 4000       # 项目上下文 token 预算
-  session_max_messages: 100      # 对话历史最大消息数
-  refine_enabled: false          # TaskPlan 细化（补充实施级细节），V1 默认关闭
-  refine_timeout: 2m             # 单个 TaskItem 细化超时
-  execution_files_enabled: true  # 执行期三文件沉淀（task_plan.md/progress.md/findings.md）
+  agent: claude                    # Secretary 使用的 Agent（可切换: claude / codex / 其他已注册 Agent）
+  session_idle_timeout: 30m        # 空闲超时自动关闭 session
+  query_tools_enabled: true        # 启用 Secretary 查询工具（query_plans 等）
+  capabilities:                    # Secretary Agent 的 ACP 权限
+    fs_read: true
+    fs_write: true
+    terminal: true
+  permission_policy:               # Secretary 专属授权规则
+    - pattern: "fs/write_text_file"
+      scope: "cwd"
+      action: "allow_always"
+    - pattern: "terminal/create"
+      action: "allow_once"
+  mcp_tools:                       # 通过 MCP Server 注册的查询工具
+    - query_plans
+    - query_plan_detail
+    - query_pipelines
+    - query_pipeline_logs
+    - query_project_stats
+  context_max_tokens: 4000         # 项目上下文 token 预算（Plan Parser 用）
+  refine_enabled: false            # TaskPlan 细化（补充实施级细节），V1 默认关闭
+  refine_timeout: 2m               # 单个 TaskItem 细化超时
+  execution_files_enabled: true    # 执行期三文件沉淀（task_plan.md/progress.md/findings.md）
 
   # Multi-Agent 审核配置（P2b 新增）
   review_panel:
@@ -417,11 +522,14 @@ project:
   id: app-a
   name: "前端项目"
 
-# 覆盖 Agent 配置
+# 覆盖 Agent 配置（项目级，合并到全局 agents 列表中同名条目）
 agents:
-  codex:
-    model: gpt-5.3-codex           # 这个项目用特定模型
-    reasoning: xhigh               # 复杂项目用高推理
+  - name: codex
+    env:                            # 项目级环境变量覆盖
+      CODEX_MODEL: "gpt-5.3-codex"
+    permission_policy:              # 覆盖权限策略
+      - pattern: "terminal/create"
+        action: "allow_always"      # 此项目允许自动终端
 
 # 覆盖 Pipeline 行为
 pipeline:
@@ -504,7 +612,7 @@ prompts:
 AI_WORKFLOW_{SECTION}_{KEY}
 
 例如：
-AI_WORKFLOW_AGENTS_CLAUDE_BINARY=claude
+AI_WORKFLOW_AGENTS_CLAUDE_LAUNCH_COMMAND=claude-agent-acp
 AI_WORKFLOW_SERVER_PORT=9090
 AI_WORKFLOW_GITHUB_TOKEN=ghp_xxx
 ```
@@ -513,7 +621,7 @@ AI_WORKFLOW_GITHUB_TOKEN=ghp_xxx
 
 **环境变量类型限制**：
 - 字符串和数值类型直接映射
-- 数组类型用逗号分隔（如 `AI_WORKFLOW_AGENTS_CLAUDE_DEFAULT_TOOLS="Read(*),Write(*),Edit(*)"`)
+- 数组类型用逗号分隔（如 `AI_WORKFLOW_AGENTS_CLAUDE_CAPABILITIES_FS_READ=true`)
 - map 类型不支持环境变量覆盖，需通过配置文件设置
 
 ## 四、数据库 Schema
@@ -534,6 +642,9 @@ CREATE TABLE projects (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
     repo_path   TEXT NOT NULL UNIQUE,
+    source      TEXT NOT NULL DEFAULT 'local',  -- 'local' | 'git'
+    git_url     TEXT,                            -- source=git 时的 clone URL
+    git_branch  TEXT,                            -- source=git 时的初始分支
     github_owner TEXT,
     github_repo  TEXT,
     config_json TEXT,               -- 运行时状态缓存（非 source of truth）
@@ -671,6 +782,7 @@ CREATE TABLE task_plans (
     wait_reason TEXT NOT NULL DEFAULT '',         -- '' / final_approval / feedback_required
     fail_policy TEXT NOT NULL DEFAULT 'block',   -- block / skip / human
     review_round INTEGER DEFAULT 0,
+    source_files TEXT DEFAULT '[]',              -- JSON array: 计划来源文件路径列表
     created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -722,6 +834,39 @@ CREATE TABLE review_records (
 
 CREATE INDEX idx_review_records_plan ON review_records(plan_id);
 ```
+
+#### audit_log（P2c 新增）
+
+```sql
+CREATE TABLE audit_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id  TEXT,                    -- 可为空（系统级操作）
+    action      TEXT NOT NULL,           -- 操作类型（见下方枚举）
+    target_type TEXT,                    -- project / pipeline / plan / task / chat
+    target_id   TEXT,
+    user_id     TEXT DEFAULT 'system',   -- 操作者：'system' / 'user' / GitHub username
+    detail      TEXT DEFAULT '{}',       -- JSON: 操作详情
+    timestamp   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_audit_log_project ON audit_log(project_id);
+CREATE INDEX idx_audit_log_action ON audit_log(action);
+CREATE INDEX idx_audit_log_timestamp ON audit_log(timestamp);
+```
+
+操作类型枚举：
+- `project_created`, `project_deleted`
+- `chat_session_started`, `chat_session_ended`, `chat_message_sent`
+- `plan_files_generated` — Secretary 生成计划文件
+- `plan_created_from_files` — 用户提交文件创建 Plan
+- `plan_review_started`, `plan_review_completed`, `plan_approved`, `plan_rejected`
+- `task_dispatched`, `task_completed`, `task_failed`, `task_retried`, `task_skipped`
+- `pipeline_created`, `pipeline_started`, `pipeline_completed`, `pipeline_failed`
+- `human_action` — 人工操作（approve/reject/modify/skip/abort）
+- `agent_session_started`, `agent_session_ended`
+- `secretary_tool_call` — Secretary 查询工具调用
+
+> **与 logs 表的区别**：`audit_log` 记录操作级事件（谁在什么时候做了什么），`logs` 记录 Agent 的详细输出流。审计日志量远小于 Agent 输出日志。
 
 ### 数据库维护规则
 
@@ -791,6 +936,10 @@ type Store interface {
     // ReviewRecords（P2b 新增）
     SaveReviewRecord(r *ReviewRecord) error
     GetReviewRecords(planID string) ([]ReviewRecord, error)
+
+    // AuditLog（P2c 新增）
+    AppendAuditLog(entry AuditEntry) error
+    GetAuditLogs(filter AuditFilter) ([]AuditEntry, int, error)  // 返回 (entries, total, error)
 }
 ```
 

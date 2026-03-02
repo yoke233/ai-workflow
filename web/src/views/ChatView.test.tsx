@@ -253,23 +253,4 @@ describe("ChatView", () => {
     expect(screen.getByText("run test")).toBeTruthy();
   });
 
-  it("createChat 返回 plan_id 时会展示自动创建提示", async () => {
-    const apiClient = createMockApiClient();
-    vi.mocked(apiClient.createChat).mockResolvedValue({
-      session_id: "chat-1",
-      reply: "ok",
-      plan_id: "plan-auto-1",
-    });
-
-    render(<ChatView apiClient={apiClient} projectId="proj-1" />);
-
-    fireEvent.change(screen.getByLabelText("新消息"), {
-      target: { value: "自动拆解试试" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("会话创建时已自动生成计划：plan-auto-1")).toBeTruthy();
-    });
-  });
 });

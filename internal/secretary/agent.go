@@ -1,11 +1,13 @@
 package secretary
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,6 +143,7 @@ func (a *Agent) Decompose(ctx context.Context, req Request) (*core.TaskPlan, err
 	if err != nil {
 		return nil, fmt.Errorf("build command: %w", err)
 	}
+	log.Printf("[secretary] decompose agent=%s cmd=%v", a.agent.Name(), cmd)
 
 	sess, err := a.runtime.Create(ctx, core.RuntimeOpts{
 		WorkDir: req.WorkDir,
@@ -151,18 +154,43 @@ func (a *Agent) Decompose(ctx context.Context, req Request) (*core.TaskPlan, err
 		return nil, fmt.Errorf("create runtime session: %w", err)
 	}
 
+	// Drain stderr in the background to avoid deadlocks when the child process
+	// writes a lot of progress output to stderr (common for CLIs).
+	//
+	// Without this, the stderr pipe buffer can fill up, causing the child process
+	// to block indefinitely and the HTTP request to "hang".
+	var stderrBuf bytes.Buffer
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		// Keep only a bounded amount to avoid unbounded memory growth.
+		_, _ = io.CopyN(&stderrBuf, sess.Stderr, 64<<10)
+		// Drain the remaining data (if any) without buffering it.
+		_, _ = io.Copy(io.Discard, sess.Stderr)
+	}()
+
 	parser := a.agent.NewStreamParser(sess.Stdout)
 	rawOutput, parseErr := collectOutput(parser)
 	waitErr := sess.Wait()
+	<-stderrDone
 	if parseErr != nil {
 		return nil, parseErr
 	}
 	if waitErr != nil {
+		stderrText := strings.TrimSpace(stderrBuf.String())
+		if stderrText != "" {
+			return nil, fmt.Errorf("wait session: %w (stderr: %s)", waitErr, stderrText)
+		}
 		return nil, fmt.Errorf("wait session: %w", waitErr)
 	}
 
 	plan, err := ParseTaskPlan(rawOutput)
 	if err != nil {
+		// Attach stderr to help debug agent CLI failures / prompt blocking.
+		stderrText := strings.TrimSpace(stderrBuf.String())
+		if stderrText != "" {
+			return nil, fmt.Errorf("%w (stderr: %s)", err, stderrText)
+		}
 		return nil, err
 	}
 	return plan, nil
@@ -215,13 +243,23 @@ func (a *Agent) buildExecOpts(req Request, prompt string) core.ExecOpts {
 		maxTurns = req.MaxTurns
 	}
 
+	env := copyMap(req.Env)
+	// For agents that support schema-constrained outputs (e.g. Codex CLI), this
+	// guides them to return strict JSON for the TaskPlan contract.
+	if env == nil {
+		env = make(map[string]string)
+	}
+	if strings.TrimSpace(env["AI_WORKFLOW_CODEX_OUTPUT_SCHEMA"]) == "" && strings.TrimSpace(req.WorkDir) != "" {
+		env["AI_WORKFLOW_CODEX_OUTPUT_SCHEMA"] = filepath.Join(req.WorkDir, "configs", "schemas", "task_plan_v1.schema.json")
+	}
+
 	return core.ExecOpts{
 		Prompt:       prompt,
 		WorkDir:      req.WorkDir,
 		AllowedTools: copyStrings(a.allowedTools),
 		MaxTurns:     maxTurns,
 		Timeout:      req.Timeout,
-		Env:          copyMap(req.Env),
+		Env:          env,
 	}
 }
 

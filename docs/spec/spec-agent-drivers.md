@@ -488,19 +488,64 @@ Agent Driver 需要同时捕获 stdout 和 stderr：
 
 ## 十、Secretary Layer 对 Agent Driver 的复用
 
-### Secretary Agent
+### Secretary Agent — 持久交互 Session
 
-Secretary Agent 不是新的 Agent 类型，而是复用 Claude Driver 的一次特殊调用。它使用 `AgentPlugin.BuildCommand()` 构造 Claude CLI 命令，传入任务拆解专用 prompt，解析 JSON 输出为 TaskPlan。
+Secretary Agent 不是新的 Agent 类型，而是复用现有 AgentPlugin + RuntimePlugin 的**持久交互模式**。与 Pipeline Stage 的一次性调用不同，Secretary 维持一个长期运行的 Agent session，通过 stdin/stdout 持续交互。
 
 ```
-Secretary Agent 调用链：
-  构造 secretary.tmpl prompt → AgentPlugin(claude).BuildCommand(opts)
-  → RuntimePlugin.Create(session) → 解析 JSON → TaskPlan
+Secretary Agent 持久 session 协作流程：
+
+项目打开时：
+  → cmd := AgentPlugin(claude).BuildCommand(secretaryOpts)
+      // secretaryOpts.WorkDir = 项目目录
+      // secretaryOpts.AllowedTools = Secretary 专属工具集
+  → session := RuntimePlugin.Create(ctx, RuntimeOpts{
+      WorkDir: project.RepoPath,
+      Command: cmd,
+    })
+  → parser := AgentPlugin.NewStreamParser(session.Stdout)
+  → session 保持运行
+
+用户每条消息：
+  → RuntimePlugin.Send(sessionID, userMessage)
+  → for { event := parser.Next() }
+  → 文本事件 → WebSocket 推送到前端
+  → tool_use 事件 → 区分处理：
+      ├── 内置工具 (Read/Write/Edit/Bash) → Agent 自行执行
+      ├── Write/Edit 完成 → 后端记录变更文件 → 推送 secretary_files_changed
+      └── 查询工具 (query_plans 等) → 后端拦截 → 执行查询 → 结果写回 stdin
+
+项目关闭 / 空闲超时（默认 30 分钟）：
+  → RuntimePlugin.Kill(sessionID)
 ```
+
+**与一次性调用的关键区别**：
+- Session 跨多条用户消息保持（不是每次 -p 新建）
+- RuntimePlugin.Send() 成为核心通信方法（不再只用于"人工 inject"）
+- Agent 自行管理上下文窗口和对话历史
+- 后端需要拦截 tool_use 事件处理查询工具和文件变更跟踪
+
+**Claude CLI 持久交互模式说明**：
+- 使用 `claude` 不带 `-p` 标志启动交互模式
+- 通过 stdin 发送消息，stdout 读取回复
+- 如果 Claude CLI 不支持程序化 stdin/stdout 交互，退化方案为直接调用 Anthropic API 构建 Agent session
+- 实现时需验证当前 Claude CLI 版本的交互模式支持情况
+
+### Plan Parser
+
+Plan Parser 是一次**独立的一次性 Agent 调用**（非持久 session），负责将用户选中的计划文件解析为结构化 TaskPlan：
+
+```
+Plan Parser 调用链：
+  读取选中文件内容 → 构造解析 prompt → AgentPlugin(claude).BuildCommand(opts)
+  → RuntimePlugin.Create(session) → 解析 JSON → TaskPlan + TaskItems
+```
+
+与 Secretary 持久 session 的区别：使用标准的 `-p` 非交互模式，一次性调用，无需维持 session。
 
 ### Review Panel Agents
 
-Multi-Agent 审核委员会的每个 Reviewer 和 Aggregator 也是复用 Claude Driver：
+Multi-Agent 审核委员会的每个 Reviewer 和 Aggregator 也是复用 Claude Driver（一次性调用）：
 
 ```
 Review Agent 调用链（× 4 次，3 Reviewer + 1 Aggregator）：
@@ -513,6 +558,7 @@ Review Agent 调用链（× 4 次，3 Reviewer + 1 Aggregator）：
 - 不写 Checkpoint（审核结果写入 review_records 表）
 - 超时更短（默认 5 分钟，Stage 默认 30 分钟）
 - AllowedTools 更受限（只需 Read，不需要 Write/Edit/Bash）
+- Reviewer prompt 中注入 SourceFiles 的原始文件内容（使审核 Agent 理解原始计划意图）
 
 > 详见 [spec-secretary-layer.md](spec-secretary-layer.md) 的 Multi-Agent 审核委员会章节。
 
@@ -532,7 +578,8 @@ configs/prompts/
   ├── e2e_test.tmpl
   │
   ├── # Secretary Layer 模板（P2a/P2b 新增）
-  ├── secretary.tmpl              # Secretary Agent 任务拆解
+  ├── secretary_system.tmpl       # Secretary Agent 系统 prompt（含查询工具描述）
+  ├── plan_parser.tmpl            # Plan Parser 文件解析 prompt
   ├── review_completeness.tmpl    # 完整性审核
   ├── review_dependency.tmpl      # 依赖性审核
   ├── review_feasibility.tmpl     # 可行性审核

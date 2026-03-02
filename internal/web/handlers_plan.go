@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -163,6 +164,7 @@ func (h *planHandlers) createPlan(w http.ResponseWriter, r *http.Request) {
 		Request:    createReq,
 	})
 	if err != nil {
+		log.Printf("[web][plan] create draft failed project=%s session=%s err=%v", projectID, req.SessionID, err)
 		writeAPIError(w, http.StatusInternalServerError, "failed to create task plan", "CREATE_TASK_PLAN_FAILED")
 		return
 	}
