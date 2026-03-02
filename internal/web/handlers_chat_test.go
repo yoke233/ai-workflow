@@ -292,6 +292,125 @@ func TestCreateChatSessionDoesNotAutoCreatePlanByDefault(t *testing.T) {
 	}
 }
 
+func TestChatSessionCreateWithRole(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-role",
+		Name:     "chat-role",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-role"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	assistant := &stubChatAssistant{
+		response: ChatAssistantResponse{
+			Reply: "收到角色上下文",
+		},
+	}
+	srv := NewServer(Config{
+		Store:         store,
+		ChatAssistant: assistant,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, err := json.Marshal(map[string]any{
+		"message": "请以 reviewer 视角给建议",
+		"role":    "reviewer",
+	})
+	if err != nil {
+		t.Fatalf("marshal request body: %v", err)
+	}
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-chat-role/chat",
+		"application/json",
+		bytes.NewReader(rawBody),
+	)
+	if err != nil {
+		t.Fatalf("POST chat: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var created createChatSessionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if created.SessionID == "" {
+		t.Fatal("expected non-empty session id")
+	}
+
+	calls := assistant.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected one assistant call, got %d", len(calls))
+	}
+	if calls[0].Role != "reviewer" {
+		t.Fatalf("expected assistant request role reviewer, got %q", calls[0].Role)
+	}
+	if calls[0].Message != "请以 reviewer 视角给建议" {
+		t.Fatalf("expected assistant request message forwarded, got %q", calls[0].Message)
+	}
+
+	session, err := store.GetChatSession(created.SessionID)
+	if err != nil {
+		t.Fatalf("reload chat session: %v", err)
+	}
+	if len(session.Messages) < 1 {
+		t.Fatal("expected chat messages to be persisted")
+	}
+	if session.Messages[0].Role != "user" {
+		t.Fatalf("expected first message role user, got %q", session.Messages[0].Role)
+	}
+}
+
+func TestCreateChatSessionRejectsInvalidRole(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-invalid-role",
+		Name:     "chat-invalid-role",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-invalid-role"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, err := json.Marshal(map[string]any{
+		"message": "请处理这条消息",
+		"role":    "reviewer admin",
+	})
+	if err != nil {
+		t.Fatalf("marshal request body: %v", err)
+	}
+
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-chat-invalid-role/chat",
+		"application/json",
+		bytes.NewReader(rawBody),
+	)
+	if err != nil {
+		t.Fatalf("POST chat: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+
+	var apiErr apiError
+	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+		t.Fatalf("decode api error: %v", err)
+	}
+	if apiErr.Code != "INVALID_ROLE" {
+		t.Fatalf("expected INVALID_ROLE, got %s", apiErr.Code)
+	}
+}
+
 func TestCreateChatSessionContinuesExistingSessionWithAssistant(t *testing.T) {
 	store := newTestStore(t)
 	project := core.Project{

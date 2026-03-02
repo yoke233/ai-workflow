@@ -293,6 +293,103 @@ func TestSubmitPlanReviewReturnsReviewing(t *testing.T) {
 	}
 }
 
+func TestPlanReviewTriggersReviewOrchestrator(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-review-orchestrator",
+		Name:     "review-orchestrator",
+		RepoPath: filepath.Join(t.TempDir(), "repo-review-orchestrator"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	session := &core.ChatSession{
+		ID:        "chat-20260302-review-orchestrator",
+		ProjectID: project.ID,
+		Messages: []core.ChatMessage{
+			{Role: "user", Content: "请评审当前任务拆分"},
+			{Role: "assistant", Content: "建议补齐验收项"},
+		},
+	}
+	if err := store.CreateChatSession(session); err != nil {
+		t.Fatalf("seed chat session: %v", err)
+	}
+
+	plan := &core.TaskPlan{
+		ID:         "plan-20260302-review-orchestrator",
+		ProjectID:  project.ID,
+		SessionID:  session.ID,
+		Name:       "review-orchestrator-plan",
+		Status:     core.PlanDraft,
+		WaitReason: core.WaitNone,
+		FailPolicy: core.FailBlock,
+	}
+	if err := store.CreateTaskPlan(plan); err != nil {
+		t.Fatalf("seed plan: %v", err)
+	}
+
+	submitCalls := 0
+	var capturedPlanID string
+	var capturedInput secretary.ReviewInput
+	planManager := &testPlanManager{
+		submitReviewFn: func(_ context.Context, planID string, input secretary.ReviewInput) (*core.TaskPlan, error) {
+			submitCalls++
+			capturedPlanID = planID
+			capturedInput = input
+			loaded, err := store.GetTaskPlan(planID)
+			if err != nil {
+				return nil, err
+			}
+			loaded.Status = core.PlanReviewing
+			loaded.WaitReason = core.WaitNone
+			if err := store.SaveTaskPlan(loaded); err != nil {
+				return nil, err
+			}
+			return store.GetTaskPlan(planID)
+		},
+	}
+
+	srv := NewServer(Config{Store: store, PlanManager: planManager})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest(
+		http.MethodPost,
+		ts.URL+"/api/v1/projects/proj-review-orchestrator/plans/"+plan.ID+"/review",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /api/v1/projects/{pid}/plans/{id}/review: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	if submitCalls != 1 {
+		t.Fatalf("expected SubmitReview called once, got %d", submitCalls)
+	}
+	if capturedPlanID != plan.ID {
+		t.Fatalf("expected submitted plan id %q, got %q", plan.ID, capturedPlanID)
+	}
+
+	wantConversation := "user: 请评审当前任务拆分\nassistant: 建议补齐验收项"
+	if capturedInput.Conversation != wantConversation {
+		t.Fatalf("unexpected review conversation, want %q got %q", wantConversation, capturedInput.Conversation)
+	}
+	if !strings.Contains(capturedInput.ProjectContext, "project=review-orchestrator") {
+		t.Fatalf("expected project context contains project name, got %q", capturedInput.ProjectContext)
+	}
+	if !strings.Contains(capturedInput.ProjectContext, "repo="+project.RepoPath) {
+		t.Fatalf("expected project context contains repo path, got %q", capturedInput.ProjectContext)
+	}
+}
+
 func TestPlanActionRejectRequiresTwoPhaseFeedback(t *testing.T) {
 	store := newTestStore(t)
 	project := core.Project{

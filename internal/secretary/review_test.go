@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/user/ai-workflow/internal/acpclient"
 	"github.com/user/ai-workflow/internal/core"
 )
 
@@ -479,6 +480,84 @@ func TestReviewOrchestratorRunUnknownDecisionReturnsClearError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), `unsupported decision "hold"`) {
 		t.Fatalf("error = %v, want normalized unsupported decision detail", err)
+	}
+}
+
+func TestReviewOrchestratorUsesRoleBindings(t *testing.T) {
+	t.Parallel()
+
+	resolver := acpclient.NewRoleResolver(
+		[]acpclient.AgentProfile{
+			{
+				ID: "codex",
+				CapabilitiesMax: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+			},
+		},
+		[]acpclient.RoleProfile{
+			{
+				ID:      "reviewer",
+				AgentID: "codex",
+				Capabilities: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+				SessionPolicy: acpclient.SessionPolicy{
+					Reuse:       true,
+					ResetPrompt: true,
+				},
+			},
+			{
+				ID:      "aggregator",
+				AgentID: "codex",
+				Capabilities: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+				SessionPolicy: acpclient.SessionPolicy{
+					Reuse:       true,
+					ResetPrompt: true,
+				},
+			},
+		},
+	)
+
+	runtime, err := ResolveReviewOrchestratorRoles(ReviewRoleBindingInput{
+		Reviewers: map[string]string{
+			"completeness": "reviewer",
+			"dependency":   "reviewer",
+			"feasibility":  "reviewer",
+		},
+		Aggregator: "aggregator",
+	}, resolver)
+	if err != nil {
+		t.Fatalf("ResolveReviewOrchestratorRoles() error = %v", err)
+	}
+	if runtime.AggregatorRole != "aggregator" {
+		t.Fatalf("aggregator role = %q, want %q", runtime.AggregatorRole, "aggregator")
+	}
+	for _, reviewer := range []string{"completeness", "dependency", "feasibility"} {
+		if got := runtime.ReviewerRoles[reviewer]; got != "reviewer" {
+			t.Fatalf("reviewer role %s = %q, want %q", reviewer, got, "reviewer")
+		}
+		policy := runtime.ReviewerSessionPolicies[reviewer]
+		if !policy.Reuse {
+			t.Fatalf("reviewer %s reuse should default true", reviewer)
+		}
+		if !policy.ResetPrompt {
+			t.Fatalf("reviewer %s reset_prompt should default true", reviewer)
+		}
+	}
+	if !runtime.AggregatorSessionPolicy.Reuse {
+		t.Fatal("aggregator reuse should default true")
+	}
+	if !runtime.AggregatorSessionPolicy.ResetPrompt {
+		t.Fatal("aggregator reset_prompt should default true")
 	}
 }
 

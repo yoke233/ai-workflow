@@ -12,8 +12,8 @@ import (
 )
 
 type chatHandlers struct {
-	store       core.Store
-	assistant   ChatAssistant
+	store     core.Store
+	assistant ChatAssistant
 }
 
 type chatSessionDeleter interface {
@@ -22,6 +22,7 @@ type chatSessionDeleter interface {
 
 type createChatSessionRequest struct {
 	Message   string `json:"message"`
+	Role      string `json:"role,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
 }
 
@@ -32,8 +33,8 @@ type createChatSessionResponse struct {
 
 func registerChatRoutes(r chi.Router, store core.Store, assistant ChatAssistant) {
 	h := &chatHandlers{
-		store:       store,
-		assistant:   assistant,
+		store:     store,
+		assistant: assistant,
 	}
 	r.Post("/projects/{projectID}/chat", h.createSession)
 	r.Get("/projects/{projectID}/chat/{sessionID}", h.getSession)
@@ -70,9 +71,17 @@ func (h *chatHandlers) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Message = strings.TrimSpace(req.Message)
+	req.Role = strings.ToLower(strings.TrimSpace(req.Role))
 	req.SessionID = strings.TrimSpace(req.SessionID)
 	if req.Message == "" {
 		writeAPIError(w, http.StatusBadRequest, "message is required", "MESSAGE_REQUIRED")
+		return
+	}
+	if req.Role == "" {
+		req.Role = "secretary"
+	}
+	if !isValidRoleID(req.Role) {
+		writeAPIError(w, http.StatusBadRequest, "invalid role", "INVALID_ROLE")
 		return
 	}
 
@@ -111,6 +120,7 @@ func (h *chatHandlers) createSession(w http.ResponseWriter, r *http.Request) {
 	if h.assistant != nil {
 		assistantResp, err := h.assistant.Reply(r.Context(), ChatAssistantRequest{
 			Message:        req.Message,
+			Role:           req.Role,
 			WorkDir:        strings.TrimSpace(project.RepoPath),
 			AgentSessionID: strings.TrimSpace(session.AgentSessionID),
 		})
@@ -149,6 +159,19 @@ func (h *chatHandlers) createSession(w http.ResponseWriter, r *http.Request) {
 		SessionID: session.ID,
 		Reply:     reply,
 	})
+}
+
+func isValidRoleID(role string) bool {
+	if role == "" {
+		return false
+	}
+	for _, r := range role {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (h *chatHandlers) getSession(w http.ResponseWriter, r *http.Request) {

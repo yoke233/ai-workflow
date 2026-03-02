@@ -59,6 +59,7 @@ func (a *CodexChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest
 	if message == "" {
 		return ChatAssistantResponse{}, errors.New("message is required")
 	}
+	message = messageWithRoleContext(req.Role, message)
 	if a.runner == nil {
 		return ChatAssistantResponse{}, errors.New("chat assistant runner is not configured")
 	}

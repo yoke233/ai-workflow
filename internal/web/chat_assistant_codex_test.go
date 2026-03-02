@@ -58,6 +58,30 @@ func TestCodexChatAssistantReplyBuildsNewSessionCommand(t *testing.T) {
 	}
 }
 
+func TestCodexChatAssistantReplyInjectsRoleContext(t *testing.T) {
+	runner := &recordingClaudeRunner{
+		stdout: strings.Join([]string{
+			`{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}`,
+		}, "\n"),
+	}
+	assistant := newCodexChatAssistantForTest("codex", "", "", runner)
+
+	_, err := assistant.Reply(context.Background(), ChatAssistantRequest{
+		Message: "hello",
+		Role:    "reviewer",
+	})
+	if err != nil {
+		t.Fatalf("Reply returned error: %v", err)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected one runner call, got %d", len(runner.calls))
+	}
+	joined := strings.Join(runner.calls[0].args, " ")
+	if !strings.Contains(joined, "[role_id=reviewer]") {
+		t.Fatalf("expected role context in args, got %v", runner.calls[0].args)
+	}
+}
+
 func TestCodexChatAssistantReplyUsesResumeForExistingSession(t *testing.T) {
 	runner := &recordingClaudeRunner{
 		stdout: `{"type":"item.completed","item":{"type":"agent_message","text":"continued"}}`,

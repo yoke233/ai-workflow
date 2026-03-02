@@ -3,12 +3,14 @@ package secretary
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/user/ai-workflow/internal/acpclient"
 	"github.com/user/ai-workflow/internal/core"
 )
 
@@ -73,6 +75,34 @@ type nopWriteCloser struct{}
 func (nopWriteCloser) Write(data []byte) (int, error) { return len(data), nil }
 
 func (nopWriteCloser) Close() error { return nil }
+
+type stubSecretarySessionClient struct {
+	loadReqs []acpclient.LoadSessionRequest
+	newReqs  []acpclient.NewSessionRequest
+	calls    []string
+	loadResp acpclient.SessionInfo
+	loadErr  error
+	newResp  acpclient.SessionInfo
+	newErr   error
+}
+
+func (c *stubSecretarySessionClient) LoadSession(_ context.Context, req acpclient.LoadSessionRequest) (acpclient.SessionInfo, error) {
+	c.calls = append(c.calls, "load")
+	c.loadReqs = append(c.loadReqs, req)
+	if c.loadErr != nil {
+		return acpclient.SessionInfo{}, c.loadErr
+	}
+	return c.loadResp, nil
+}
+
+func (c *stubSecretarySessionClient) NewSession(_ context.Context, req acpclient.NewSessionRequest) (acpclient.SessionInfo, error) {
+	c.calls = append(c.calls, "new")
+	c.newReqs = append(c.newReqs, req)
+	if c.newErr != nil {
+		return acpclient.SessionInfo{}, c.newErr
+	}
+	return c.newResp, nil
+}
 
 func TestAgentDecomposeBuildsPromptAndParsesTaskPlan(t *testing.T) {
 	waitCalled := false
@@ -217,6 +247,78 @@ func TestPlanParserUsesRoleBinding(t *testing.T) {
 		t.Fatalf("expected 2 exec opts, got %d", len(agent.opts))
 	}
 	assertRoleID(t, agent.opts[1].AppendContext, "custom_role")
+}
+
+func TestSecretaryUsesBoundRole(t *testing.T) {
+	resolver := acpclient.NewRoleResolver(
+		[]acpclient.AgentProfile{
+			{
+				ID: "codex",
+				CapabilitiesMax: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+			},
+		},
+		[]acpclient.RoleProfile{
+			{
+				ID:      "secretary_custom",
+				AgentID: "codex",
+				Capabilities: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+				MCPTools: []string{"query_plans"},
+			},
+		},
+	)
+	client := &stubSecretarySessionClient{
+		loadErr: errors.New("session not found"),
+		newResp: acpclient.SessionInfo{SessionID: "sid-new"},
+	}
+
+	session, roleID, err := startSecretarySession(
+		context.Background(),
+		client,
+		resolver,
+		"",
+		"secretary_custom",
+		"sid-old",
+		"D:/project/ai-workflow",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("startSecretarySession() error = %v", err)
+	}
+	if roleID != "secretary_custom" {
+		t.Fatalf("role id = %q, want %q", roleID, "secretary_custom")
+	}
+	if session.SessionID != "sid-new" {
+		t.Fatalf("session id = %q, want %q", session.SessionID, "sid-new")
+	}
+	if !reflect.DeepEqual(client.calls, []string{"load", "new"}) {
+		t.Fatalf("call order = %#v, want load->new fallback", client.calls)
+	}
+	if len(client.loadReqs) != 1 {
+		t.Fatalf("LoadSession calls = %d, want 1", len(client.loadReqs))
+	}
+	if len(client.newReqs) != 1 {
+		t.Fatalf("NewSession calls = %d, want 1", len(client.newReqs))
+	}
+	if got := client.loadReqs[0].Metadata["role_id"]; got != "secretary_custom" {
+		t.Fatalf("load metadata role_id = %q, want %q", got, "secretary_custom")
+	}
+	if got := client.newReqs[0].Metadata["role_id"]; got != "secretary_custom" {
+		t.Fatalf("new metadata role_id = %q, want %q", got, "secretary_custom")
+	}
+	if len(client.newReqs[0].MCPServers) != 1 {
+		t.Fatalf("new session mcp servers = %d, want 1 from role config", len(client.newReqs[0].MCPServers))
+	}
+	if got := client.newReqs[0].MCPServers[0].Env["AI_WORKFLOW_MCP_TOOL"]; got != "query_plans" {
+		t.Fatalf("new session mcp tool = %q, want %q", got, "query_plans")
+	}
 }
 
 func TestParseTaskPlanRejectsInvalidTemplate(t *testing.T) {

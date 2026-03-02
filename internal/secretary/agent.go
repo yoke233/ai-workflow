@@ -14,13 +14,15 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/user/ai-workflow/internal/acpclient"
 	"github.com/user/ai-workflow/internal/core"
 )
 
 const (
-	defaultTemplatePath = "configs/prompts/secretary.tmpl"
-	defaultMaxTurns     = 12
-	defaultRoleID       = "plan_parser"
+	defaultTemplatePath    = "configs/prompts/secretary.tmpl"
+	defaultMaxTurns        = 12
+	defaultRoleID          = "plan_parser"
+	defaultSecretaryRoleID = "secretary"
 )
 
 var defaultAllowedTools = []string{"Read(*)"}
@@ -84,6 +86,11 @@ type Agent struct {
 	promptTmpl   *template.Template
 	allowedTools []string
 	maxTurns     int
+}
+
+type secretarySessionClient interface {
+	LoadSession(ctx context.Context, req acpclient.LoadSessionRequest) (acpclient.SessionInfo, error)
+	NewSession(ctx context.Context, req acpclient.NewSessionRequest) (acpclient.SessionInfo, error)
 }
 
 func NewAgent(agent core.AgentPlugin, runtime core.RuntimePlugin) (*Agent, error) {
@@ -488,6 +495,71 @@ func resolveRoleID(role string) string {
 		return defaultRoleID
 	}
 	return trimmed
+}
+
+func resolveSecretaryRoleID(explicitRole, boundRole string) string {
+	if trimmed := strings.TrimSpace(explicitRole); trimmed != "" {
+		return trimmed
+	}
+	if trimmed := strings.TrimSpace(boundRole); trimmed != "" {
+		return trimmed
+	}
+	return defaultSecretaryRoleID
+}
+
+func startSecretarySession(
+	ctx context.Context,
+	client secretarySessionClient,
+	resolver *acpclient.RoleResolver,
+	explicitRole string,
+	boundRole string,
+	persistedSessionID string,
+	cwd string,
+	mcpServers []acpclient.MCPServerConfig,
+) (acpclient.SessionInfo, string, error) {
+	if client == nil {
+		return acpclient.SessionInfo{}, "", errors.New("secretary session client is required")
+	}
+
+	roleID := resolveSecretaryRoleID(explicitRole, boundRole)
+	resolvedRole := acpclient.RoleProfile{}
+	if resolver != nil {
+		_, role, err := resolver.Resolve(roleID)
+		if err != nil {
+			return acpclient.SessionInfo{}, "", fmt.Errorf("resolve secretary role %q: %w", roleID, err)
+		}
+		resolvedRole = role
+	}
+
+	trimmedCWD := strings.TrimSpace(cwd)
+	metadata := map[string]string{
+		"role_id": roleID,
+	}
+	if sessionID := strings.TrimSpace(persistedSessionID); sessionID != "" {
+		loaded, err := client.LoadSession(ctx, acpclient.LoadSessionRequest{
+			SessionID: sessionID,
+			CWD:       trimmedCWD,
+			Metadata:  metadata,
+		})
+		if err == nil && strings.TrimSpace(loaded.SessionID) != "" {
+			return loaded, roleID, nil
+		}
+	}
+
+	effectiveMCPServers := append([]acpclient.MCPServerConfig(nil), mcpServers...)
+	if len(effectiveMCPServers) == 0 {
+		effectiveMCPServers = MCPToolsFromRoleConfig(resolvedRole)
+	}
+
+	session, err := client.NewSession(ctx, acpclient.NewSessionRequest{
+		CWD:        trimmedCWD,
+		MCPServers: effectiveMCPServers,
+		Metadata:   metadata,
+	})
+	if err != nil {
+		return acpclient.SessionInfo{}, "", err
+	}
+	return session, roleID, nil
 }
 
 func roleContextJSON(roleID string) string {

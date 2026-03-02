@@ -16,6 +16,7 @@ import (
 // ChatAssistantRequest contains one user turn for model completion.
 type ChatAssistantRequest struct {
 	Message        string
+	Role           string
 	WorkDir        string
 	AgentSessionID string
 }
@@ -97,6 +98,7 @@ func (a *ClaudeChatAssistant) Reply(ctx context.Context, req ChatAssistantReques
 	if message == "" {
 		return ChatAssistantResponse{}, errors.New("message is required")
 	}
+	message = messageWithRoleContext(req.Role, message)
 	if a.runner == nil {
 		return ChatAssistantResponse{}, errors.New("chat assistant runner is not configured")
 	}
@@ -214,4 +216,12 @@ func extractString(value any) string {
 	default:
 		return ""
 	}
+}
+
+func messageWithRoleContext(role, message string) string {
+	trimmedRole := strings.TrimSpace(role)
+	if trimmedRole == "" {
+		return message
+	}
+	return fmt.Sprintf("[role_id=%s]\n%s", trimmedRole, message)
 }
