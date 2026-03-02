@@ -164,7 +164,7 @@ func (e *Executor) applyChangeRole(ctx context.Context, p *core.Pipeline, action
 	if targetIndex < 0 {
 		return fmt.Errorf("target stage %s not found", target)
 	}
-	p.Stages[targetIndex].Agent = action.Role
+	p.Stages[targetIndex].Role = action.Role
 	p.Status = core.StatusRunning
 	p.UpdatedAt = time.Now()
 	if err := e.store.SavePipeline(p); err != nil {

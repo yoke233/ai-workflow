@@ -16,6 +16,27 @@ func TestMergeAgentConfig(t *testing.T) {
 	}
 }
 
+func TestMergeAgentConfig_CapabilitiesMaxOverride(t *testing.T) {
+	baseCaps := &CapabilitiesConfig{FSRead: true, FSWrite: false, Terminal: false}
+	overrideCaps := &CapabilitiesConfig{FSRead: true, FSWrite: true, Terminal: true}
+	global := &AgentConfig{CapabilitiesMax: baseCaps}
+	project := &AgentConfig{CapabilitiesMax: overrideCaps}
+
+	merged := MergeAgentConfig(global, project)
+	if merged.CapabilitiesMax == nil {
+		t.Fatal("expected capabilities_max to be merged")
+	}
+	if !merged.CapabilitiesMax.FSRead || !merged.CapabilitiesMax.FSWrite || !merged.CapabilitiesMax.Terminal {
+		t.Fatalf("expected merged capabilities_max from override, got %+v", *merged.CapabilitiesMax)
+	}
+
+	// Ensure merged config holds its own copy.
+	overrideCaps.FSWrite = false
+	if !merged.CapabilitiesMax.FSWrite {
+		t.Fatal("expected merged capabilities_max to be independent copy")
+	}
+}
+
 func TestLoadDefaults(t *testing.T) {
 	cfg := Defaults()
 	if cfg.Pipeline.DefaultTemplate != "standard" {
@@ -88,6 +109,139 @@ func TestConfigZeroValue_SpecSafeWhenMissing(t *testing.T) {
 	if cfg.Spec.Enabled {
 		t.Fatalf("expected zero-value spec.enabled false, got true")
 	}
+}
+
+func TestRoleDrivenConfigLoad(t *testing.T) {
+	cfg := loadTestConfig(t, `
+agents:
+  - name: claude
+    launch_command: claude-agent-acp
+    launch_args: []
+    env: {}
+    capabilities_max:
+      fs_read: true
+      fs_write: true
+      terminal: true
+roles:
+  - name: worker
+    agent: claude
+    prompt_template: implement
+    capabilities:
+      fs_read: true
+      fs_write: true
+      terminal: true
+    session:
+      reuse: true
+role_bindings:
+  secretary:
+    role: worker
+  pipeline:
+    stage_roles:
+      implement: worker
+  review_orchestrator:
+    reviewers: {}
+    aggregator: worker
+  plan_parser:
+    role: worker
+`)
+
+	agents := cfg.EffectiveAgentProfiles()
+	if got := len(agents); got != 1 {
+		t.Fatalf("expected one role-driven agent, got %d", got)
+	}
+	if got := agents[0].LaunchCommand; got != "claude-agent-acp" {
+		t.Fatalf("expected launch command claude-agent-acp, got %q", got)
+	}
+	if got := cfg.RoleBinds.Pipeline.StageRoles["implement"]; got != "worker" {
+		t.Fatalf("expected stage role implement=worker, got %q", got)
+	}
+}
+
+func TestRoleDrivenConfigUnknownFieldFailFast(t *testing.T) {
+	const raw = `
+agents:
+  - name: claude
+    launch_command: claude-agent-acp
+    capabilities_maxx:
+      fs_read: true
+`
+	layer, err := loadLayerFromBytes([]byte(raw))
+	if err == nil || layer != nil {
+		t.Fatalf("expected strict unknown-field error, got layer=%v err=%v", layer, err)
+	}
+}
+
+func TestRoleDrivenConfigCapabilityOverflowFailFast(t *testing.T) {
+	_, err := loadAndValidate(t, `
+agents:
+  - name: claude
+    launch_command: claude-agent-acp
+    capabilities_max:
+      fs_read: true
+      fs_write: false
+      terminal: false
+roles:
+  - name: worker
+    agent: claude
+    capabilities:
+      fs_read: true
+      fs_write: true
+      terminal: false
+`)
+	if err == nil {
+		t.Fatal("expected capability overflow error, got nil")
+	}
+}
+
+func TestApplyConfigLayer_RoleBindingsPartialOverrideKeepsOtherBindings(t *testing.T) {
+	cfg := Defaults()
+	layer, err := loadLayerFromBytes([]byte(`
+role_bindings:
+  pipeline:
+    stage_roles:
+      implement: reviewer
+`))
+	if err != nil {
+		t.Fatalf("load layer failed: %v", err)
+	}
+
+	ApplyConfigLayer(&cfg, layer)
+
+	if got := cfg.RoleBinds.Secretary.Role; got != "secretary" {
+		t.Fatalf("expected secretary role binding kept, got %q", got)
+	}
+	if got := cfg.RoleBinds.PlanParser.Role; got != "plan_parser" {
+		t.Fatalf("expected plan_parser role binding kept, got %q", got)
+	}
+	if got := cfg.RoleBinds.ReviewOrchestrator.Aggregator; got != "aggregator" {
+		t.Fatalf("expected review aggregator binding kept, got %q", got)
+	}
+	if got := cfg.RoleBinds.Pipeline.StageRoles["implement"]; got != "reviewer" {
+		t.Fatalf("expected pipeline implement role overwritten to reviewer, got %q", got)
+	}
+}
+
+func loadTestConfig(t *testing.T, raw string) Config {
+	t.Helper()
+	cfg, err := loadAndValidate(t, raw)
+	if err != nil {
+		t.Fatalf("loadAndValidate failed: %v", err)
+	}
+	return cfg
+}
+
+func loadAndValidate(t *testing.T, raw string) (Config, error) {
+	t.Helper()
+	cfg := Defaults()
+	layer, err := loadLayerFromBytes([]byte(raw))
+	if err != nil {
+		return Config{}, err
+	}
+	ApplyConfigLayer(&cfg, layer)
+	if err := validateConfig(&cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }
 
 func ptr[T any](v T) *T { return &v }

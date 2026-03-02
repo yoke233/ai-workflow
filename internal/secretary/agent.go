@@ -20,6 +20,7 @@ import (
 const (
 	defaultTemplatePath = "configs/prompts/secretary.tmpl"
 	defaultMaxTurns     = 12
+	defaultRoleID       = "plan_parser"
 )
 
 var defaultAllowedTools = []string{"Read(*)"}
@@ -30,6 +31,7 @@ type Request struct {
 	ProjectName  string
 	TechStack    string
 	RepoPath     string
+	Role         string
 
 	// Regeneration input fields (rules 10.3).
 	OriginalConversationSummary string
@@ -242,6 +244,7 @@ func (a *Agent) buildExecOpts(req Request, prompt string) core.ExecOpts {
 	if req.MaxTurns > 0 {
 		maxTurns = req.MaxTurns
 	}
+	roleID := resolveRoleID(req.Role)
 
 	env := copyMap(req.Env)
 	// For agents that support schema-constrained outputs (e.g. Codex CLI), this
@@ -254,12 +257,13 @@ func (a *Agent) buildExecOpts(req Request, prompt string) core.ExecOpts {
 	}
 
 	return core.ExecOpts{
-		Prompt:       prompt,
-		WorkDir:      req.WorkDir,
-		AllowedTools: copyStrings(a.allowedTools),
-		MaxTurns:     maxTurns,
-		Timeout:      req.Timeout,
-		Env:          env,
+		Prompt:        prompt,
+		WorkDir:       req.WorkDir,
+		AllowedTools:  copyStrings(a.allowedTools),
+		MaxTurns:      maxTurns,
+		Timeout:       req.Timeout,
+		Env:           env,
+		AppendContext: roleContextJSON(roleID),
 	}
 }
 
@@ -476,6 +480,24 @@ func defaultJSONPlaceholder(value string) string {
 		return "{}"
 	}
 	return trimmed
+}
+
+func resolveRoleID(role string) string {
+	trimmed := strings.TrimSpace(role)
+	if trimmed == "" {
+		return defaultRoleID
+	}
+	return trimmed
+}
+
+func roleContextJSON(roleID string) string {
+	payload, err := json.Marshal(map[string]string{
+		"role_id": roleID,
+	})
+	if err != nil {
+		return fmt.Sprintf(`{"role_id":%q}`, defaultRoleID)
+	}
+	return string(payload)
 }
 
 func compactStrings(values []string) []string {

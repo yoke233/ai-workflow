@@ -46,6 +46,7 @@ const (
 type StageConfig struct {
 	Name           StageID       `yaml:"name" json:"name"`
 	Agent          string        `yaml:"agent" json:"agent"`
+	Role           string        `yaml:"role" json:"role"`
 	PromptTemplate string        `yaml:"prompt_template" json:"prompt_template"`
 	Timeout        time.Duration `yaml:"timeout" json:"timeout"`
 	MaxRetries     int           `yaml:"max_retries" json:"max_retries"`

@@ -4,6 +4,8 @@ import "time"
 
 type Config struct {
 	Agents    AgentsConfig    `yaml:"agents"`
+	Roles     []RoleConfig    `yaml:"roles"`
+	RoleBinds RoleBindings    `yaml:"role_bindings"`
 	Spec      SpecConfig      `yaml:"spec"`
 	Runtime   RuntimeConfig   `yaml:"runtime"`
 	Pipeline  PipelineConfig  `yaml:"pipeline"`
@@ -16,20 +18,22 @@ type Config struct {
 }
 
 type AgentsConfig struct {
-	Claude   *AgentConfig `yaml:"claude"`
-	Codex    *AgentConfig `yaml:"codex"`
-	OpenSpec *AgentConfig `yaml:"openspec"`
+	Claude   *AgentConfig         `yaml:"claude"`
+	Codex    *AgentConfig         `yaml:"codex"`
+	OpenSpec *AgentConfig         `yaml:"openspec"`
+	Profiles []AgentProfileConfig `yaml:"-"`
 }
 
 type AgentConfig struct {
-	Plugin       *string   `yaml:"plugin"`
-	Binary       *string   `yaml:"binary"`
-	MaxTurns     *int      `yaml:"default_max_turns"`
-	DefaultTools *[]string `yaml:"default_tools"`
-	Model        *string   `yaml:"model"`
-	Reasoning    *string   `yaml:"reasoning"`
-	Sandbox      *string   `yaml:"sandbox"`
-	Approval     *string   `yaml:"approval"`
+	Plugin          *string             `yaml:"plugin"`
+	Binary          *string             `yaml:"binary"`
+	MaxTurns        *int                `yaml:"default_max_turns"`
+	DefaultTools    *[]string           `yaml:"default_tools"`
+	Model           *string             `yaml:"model"`
+	Reasoning       *string             `yaml:"reasoning"`
+	Sandbox         *string             `yaml:"sandbox"`
+	Approval        *string             `yaml:"approval"`
+	CapabilitiesMax *CapabilitiesConfig `yaml:"capabilities_max"`
 }
 
 type SpecConfig struct {
@@ -121,22 +125,25 @@ type LogConfig struct {
 
 // ConfigLayer 表示可选覆盖层。nil 字段表示“未设置”，用于多层配置继承合并。
 type ConfigLayer struct {
-	Agents    *AgentsLayer    `yaml:"agents"`
-	Spec      *SpecLayer      `yaml:"spec"`
-	Runtime   *RuntimeLayer   `yaml:"runtime"`
-	Pipeline  *PipelineLayer  `yaml:"pipeline"`
-	Scheduler *SchedulerLayer `yaml:"scheduler"`
-	Secretary *SecretaryLayer `yaml:"secretary"`
-	Server    *ServerLayer    `yaml:"server"`
-	GitHub    *GitHubLayer    `yaml:"github"`
-	Store     *StoreLayer     `yaml:"store"`
-	Log       *LogLayer       `yaml:"log"`
+	Agents    *AgentsLayer       `yaml:"agents"`
+	Roles     *[]RoleConfig      `yaml:"roles"`
+	RoleBinds *RoleBindingsLayer `yaml:"role_bindings"`
+	Spec      *SpecLayer         `yaml:"spec"`
+	Runtime   *RuntimeLayer      `yaml:"runtime"`
+	Pipeline  *PipelineLayer     `yaml:"pipeline"`
+	Scheduler *SchedulerLayer    `yaml:"scheduler"`
+	Secretary *SecretaryLayer    `yaml:"secretary"`
+	Server    *ServerLayer       `yaml:"server"`
+	GitHub    *GitHubLayer       `yaml:"github"`
+	Store     *StoreLayer        `yaml:"store"`
+	Log       *LogLayer          `yaml:"log"`
 }
 
 type AgentsLayer struct {
-	Claude   *AgentConfig `yaml:"claude"`
-	Codex    *AgentConfig `yaml:"codex"`
-	OpenSpec *AgentConfig `yaml:"openspec"`
+	Claude   *AgentConfig          `yaml:"claude"`
+	Codex    *AgentConfig          `yaml:"codex"`
+	OpenSpec *AgentConfig          `yaml:"openspec"`
+	Profiles *[]AgentProfileConfig `yaml:"-"`
 }
 
 type SpecLayer struct {
@@ -224,4 +231,154 @@ type LogLayer struct {
 	File       *string `yaml:"file"`
 	MaxSizeMB  *int    `yaml:"max_size_mb"`
 	MaxAgeDays *int    `yaml:"max_age_days"`
+}
+
+type CapabilitiesConfig struct {
+	FSRead   bool `yaml:"fs_read"`
+	FSWrite  bool `yaml:"fs_write"`
+	Terminal bool `yaml:"terminal"`
+}
+
+type AgentProfileConfig struct {
+	Name            string             `yaml:"name"`
+	LaunchCommand   string             `yaml:"launch_command"`
+	LaunchArgs      []string           `yaml:"launch_args"`
+	Env             map[string]string  `yaml:"env"`
+	CapabilitiesMax CapabilitiesConfig `yaml:"capabilities_max"`
+}
+
+type RoleConfig struct {
+	Name             string             `yaml:"name"`
+	Agent            string             `yaml:"agent"`
+	PromptTemplate   string             `yaml:"prompt_template"`
+	Capabilities     CapabilitiesConfig `yaml:"capabilities"`
+	Session          SessionConfig      `yaml:"session"`
+	PermissionPolicy []PermissionRule   `yaml:"permission_policy"`
+	MCP              MCPConfig          `yaml:"mcp"`
+}
+
+type SessionConfig struct {
+	Reuse             bool `yaml:"reuse"`
+	PreferLoadSession bool `yaml:"prefer_load_session"`
+	ResetPrompt       bool `yaml:"reset_prompt"`
+	MaxTurns          int  `yaml:"max_turns"`
+}
+
+type PermissionRule struct {
+	Pattern string `yaml:"pattern"`
+	Action  string `yaml:"action"`
+	Scope   string `yaml:"scope"`
+}
+
+type MCPConfig struct {
+	Enabled bool     `yaml:"enabled"`
+	Tools   []string `yaml:"tools"`
+}
+
+type RoleBindings struct {
+	Secretary          SingleRoleBinding    `yaml:"secretary"`
+	Pipeline           PipelineRoleBindings `yaml:"pipeline"`
+	ReviewOrchestrator ReviewRoleBindings   `yaml:"review_orchestrator"`
+	PlanParser         SingleRoleBinding    `yaml:"plan_parser"`
+}
+
+type SingleRoleBinding struct {
+	Role string `yaml:"role"`
+}
+
+type PipelineRoleBindings struct {
+	StageRoles map[string]string `yaml:"stage_roles"`
+}
+
+type ReviewRoleBindings struct {
+	Reviewers  map[string]string `yaml:"reviewers"`
+	Aggregator string            `yaml:"aggregator"`
+}
+
+type RoleBindingsLayer struct {
+	Secretary          *SingleRoleBindingLayer    `yaml:"secretary"`
+	Pipeline           *PipelineRoleBindingsLayer `yaml:"pipeline"`
+	ReviewOrchestrator *ReviewRoleBindingsLayer   `yaml:"review_orchestrator"`
+	PlanParser         *SingleRoleBindingLayer    `yaml:"plan_parser"`
+}
+
+type SingleRoleBindingLayer struct {
+	Role *string `yaml:"role"`
+}
+
+type PipelineRoleBindingsLayer struct {
+	StageRoles *map[string]string `yaml:"stage_roles"`
+}
+
+type ReviewRoleBindingsLayer struct {
+	Reviewers  *map[string]string `yaml:"reviewers"`
+	Aggregator *string            `yaml:"aggregator"`
+}
+
+func (c *AgentsConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	type legacy struct {
+		Claude   *AgentConfig `yaml:"claude"`
+		Codex    *AgentConfig `yaml:"codex"`
+		OpenSpec *AgentConfig `yaml:"openspec"`
+	}
+
+	// yaml.v3 passes *yaml.Node here, decode through closure.
+	var list []AgentProfileConfig
+	if err := unmarshal(&list); err == nil {
+		c.Profiles = cloneAgentProfiles(list)
+		return nil
+	}
+
+	var l legacy
+	if err := unmarshal(&l); err != nil {
+		return err
+	}
+	c.Claude = l.Claude
+	c.Codex = l.Codex
+	c.OpenSpec = l.OpenSpec
+	return nil
+}
+
+func (c *AgentsLayer) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	type legacy struct {
+		Claude   *AgentConfig `yaml:"claude"`
+		Codex    *AgentConfig `yaml:"codex"`
+		OpenSpec *AgentConfig `yaml:"openspec"`
+	}
+
+	var list []AgentProfileConfig
+	if err := unmarshal(&list); err == nil {
+		cloned := cloneAgentProfiles(list)
+		c.Profiles = &cloned
+		return nil
+	}
+
+	var l legacy
+	if err := unmarshal(&l); err != nil {
+		return err
+	}
+	c.Claude = l.Claude
+	c.Codex = l.Codex
+	c.OpenSpec = l.OpenSpec
+	return nil
+}
+
+func cloneAgentProfiles(in []AgentProfileConfig) []AgentProfileConfig {
+	if in == nil {
+		return nil
+	}
+	out := make([]AgentProfileConfig, len(in))
+	for i := range in {
+		out[i] = in[i]
+		if in[i].LaunchArgs != nil {
+			out[i].LaunchArgs = append([]string(nil), in[i].LaunchArgs...)
+		}
+		if in[i].Env != nil {
+			out[i].Env = make(map[string]string, len(in[i].Env))
+			for k, v := range in[i].Env {
+				out[i].Env[k] = v
+			}
+		}
+	}
+	return out
 }

@@ -35,6 +35,10 @@ func MergeAgentConfig(base, override *AgentConfig) *AgentConfig {
 	if override.Approval != nil {
 		out.Approval = override.Approval
 	}
+	if override.CapabilitiesMax != nil {
+		caps := *override.CapabilitiesMax
+		out.CapabilitiesMax = &caps
+	}
 	return &out
 }
 
@@ -57,6 +61,9 @@ func MergeForPipeline(global *Config, project *ConfigLayer, override map[string]
 	if err := ApplyEnvOverrides(&merged); err != nil {
 		return nil, err
 	}
+	if err := validateConfig(&merged); err != nil {
+		return nil, err
+	}
 	return &merged, nil
 }
 
@@ -66,7 +73,10 @@ func cloneConfig(in Config) Config {
 		Claude:   cloneAgentConfig(in.Agents.Claude),
 		Codex:    cloneAgentConfig(in.Agents.Codex),
 		OpenSpec: cloneAgentConfig(in.Agents.OpenSpec),
+		Profiles: cloneAgentProfiles(in.Agents.Profiles),
 	}
+	out.Roles = cloneRoles(in.Roles)
+	out.RoleBinds = cloneRoleBindings(in.RoleBinds)
 	out.Spec = cloneSpecConfig(in.Spec)
 	out.GitHub = cloneGitHubConfig(in.GitHub)
 	return out
@@ -101,6 +111,10 @@ func cloneAgentConfig(in *AgentConfig) *AgentConfig {
 	if in.Approval != nil {
 		out.Approval = ptrValue(*in.Approval)
 	}
+	if in.CapabilitiesMax != nil {
+		caps := *in.CapabilitiesMax
+		out.CapabilitiesMax = &caps
+	}
 	return &out
 }
 
@@ -113,6 +127,33 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		cfg.Agents.Claude = MergeAgentConfig(cfg.Agents.Claude, agents.Claude)
 		cfg.Agents.Codex = MergeAgentConfig(cfg.Agents.Codex, agents.Codex)
 		cfg.Agents.OpenSpec = MergeAgentConfig(cfg.Agents.OpenSpec, agents.OpenSpec)
+		if agents.Profiles != nil {
+			cfg.Agents.Profiles = cloneAgentProfiles(*agents.Profiles)
+		}
+	}
+
+	if roles := layer.Roles; roles != nil {
+		cfg.Roles = cloneRoles(*roles)
+	}
+
+	if binds := layer.RoleBinds; binds != nil {
+		if v := binds.Secretary; v != nil && v.Role != nil {
+			cfg.RoleBinds.Secretary.Role = *v.Role
+		}
+		if v := binds.PlanParser; v != nil && v.Role != nil {
+			cfg.RoleBinds.PlanParser.Role = *v.Role
+		}
+		if v := binds.Pipeline; v != nil && v.StageRoles != nil {
+			cfg.RoleBinds.Pipeline.StageRoles = cloneStringMap(*v.StageRoles)
+		}
+		if v := binds.ReviewOrchestrator; v != nil {
+			if v.Reviewers != nil {
+				cfg.RoleBinds.ReviewOrchestrator.Reviewers = cloneStringMap(*v.Reviewers)
+			}
+			if v.Aggregator != nil {
+				cfg.RoleBinds.ReviewOrchestrator.Aggregator = *v.Aggregator
+			}
+		}
 	}
 
 	if spec := layer.Spec; spec != nil {
@@ -281,6 +322,30 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 			cfg.Log.MaxAgeDays = *log.MaxAgeDays
 		}
 	}
+}
+
+func cloneRoles(in []RoleConfig) []RoleConfig {
+	if in == nil {
+		return nil
+	}
+	out := make([]RoleConfig, len(in))
+	for i := range in {
+		out[i] = in[i]
+		if in[i].PermissionPolicy != nil {
+			out[i].PermissionPolicy = append([]PermissionRule(nil), in[i].PermissionPolicy...)
+		}
+		if in[i].MCP.Tools != nil {
+			out[i].MCP.Tools = append([]string(nil), in[i].MCP.Tools...)
+		}
+	}
+	return out
+}
+
+func cloneRoleBindings(in RoleBindings) RoleBindings {
+	out := in
+	out.Pipeline.StageRoles = cloneStringMap(in.Pipeline.StageRoles)
+	out.ReviewOrchestrator.Reviewers = cloneStringMap(in.ReviewOrchestrator.Reviewers)
+	return out
 }
 
 func cloneStringSlicePtr(in *[]string) *[]string {

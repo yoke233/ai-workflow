@@ -134,6 +134,7 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, *ev
 	bus := eventbus.New()
 	logger := slog.Default()
 	exec := engine.NewExecutor(bootstrapSet.Store, bus, bootstrapSet.Agents, bootstrapSet.Runtime, logger)
+	exec.SetRoleResolver(bootstrapSet.RoleResolver)
 
 	recoveryOnce.Do(func() {
 		go func() {
@@ -443,7 +444,7 @@ func cmdPipelineAction(args []string) error {
 			if i >= len(args) {
 				return fmt.Errorf("--role requires a value")
 			}
-			action.Role = args[i]
+			action.Role = strings.TrimSpace(args[i])
 		case "--message":
 			i++
 			if i >= len(args) {

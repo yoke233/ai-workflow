@@ -9,6 +9,11 @@ func Defaults() Config {
 				Plugin:   ptrValue("claude"),
 				Binary:   ptrValue("claude"),
 				MaxTurns: ptrValue(30),
+				CapabilitiesMax: &CapabilitiesConfig{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
 			},
 			Codex: &AgentConfig{
 				Plugin:    ptrValue("codex"),
@@ -17,9 +22,104 @@ func Defaults() Config {
 				Reasoning: ptrValue("high"),
 				Sandbox:   ptrValue("workspace-write"),
 				Approval:  ptrValue("never"),
+				CapabilitiesMax: &CapabilitiesConfig{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
 			},
 			OpenSpec: &AgentConfig{
 				Binary: ptrValue("openspec"),
+			},
+		},
+		Roles: []RoleConfig{
+			{
+				Name:           "secretary",
+				Agent:          "codex",
+				PromptTemplate: "secretary_system",
+				Capabilities: CapabilitiesConfig{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+				Session: SessionConfig{
+					Reuse:             true,
+					PreferLoadSession: true,
+				},
+			},
+			{
+				Name:           "worker",
+				Agent:          "codex",
+				PromptTemplate: "implement",
+				Capabilities: CapabilitiesConfig{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+				Session: SessionConfig{
+					Reuse: true,
+				},
+			},
+			{
+				Name:           "reviewer",
+				Agent:          "codex",
+				PromptTemplate: "code_review",
+				Capabilities: CapabilitiesConfig{
+					FSRead:   true,
+					FSWrite:  false,
+					Terminal: false,
+				},
+				Session: SessionConfig{
+					Reuse:       true,
+					ResetPrompt: true,
+				},
+			},
+			{
+				Name:           "aggregator",
+				Agent:          "codex",
+				PromptTemplate: "review_aggregator",
+				Capabilities: CapabilitiesConfig{
+					FSRead:   true,
+					FSWrite:  false,
+					Terminal: false,
+				},
+				Session: SessionConfig{
+					Reuse:       true,
+					ResetPrompt: true,
+				},
+			},
+			{
+				Name:           "plan_parser",
+				Agent:          "codex",
+				PromptTemplate: "plan_parser",
+				Capabilities: CapabilitiesConfig{
+					FSRead:   true,
+					FSWrite:  false,
+					Terminal: false,
+				},
+			},
+		},
+		RoleBinds: RoleBindings{
+			Secretary: SingleRoleBinding{
+				Role: "secretary",
+			},
+			Pipeline: PipelineRoleBindings{
+				StageRoles: map[string]string{
+					"requirements": "worker",
+					"implement":    "worker",
+					"verify":       "reviewer",
+				},
+			},
+			ReviewOrchestrator: ReviewRoleBindings{
+				Reviewers: map[string]string{
+					"completeness": "reviewer",
+					"dependency":   "reviewer",
+					"feasibility":  "reviewer",
+				},
+				Aggregator: "aggregator",
+			},
+			PlanParser: SingleRoleBinding{
+				Role: "plan_parser",
 			},
 		},
 		Spec: SpecConfig{

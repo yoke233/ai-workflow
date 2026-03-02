@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/user/ai-workflow/internal/acpclient"
 	"github.com/user/ai-workflow/internal/core"
 	"github.com/user/ai-workflow/internal/eventbus"
 	runtimeprocess "github.com/user/ai-workflow/internal/plugins/runtime-process"
@@ -439,5 +440,141 @@ func TestExecutor_Run_AgentPromptFromTemplate(t *testing.T) {
 	}
 	if len(runtime.workDirs) == 0 || runtime.workDirs[0] != workDir {
 		t.Fatalf("runtime should execute in worktree dir %q, got %v", workDir, runtime.workDirs)
+	}
+}
+
+func TestExecuteStageByRole(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close()
+
+	workDir := t.TempDir()
+	runtime := &fakeRuntime{waitResults: []error{nil}}
+	agent := &fakeAgent{name: "codex"}
+
+	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+		{
+			Name:           core.StageImplement,
+			Role:           "worker",
+			PromptTemplate: "implement",
+			OnFailure:      core.OnFailureAbort,
+			MaxRetries:     0,
+		},
+	})
+	p.WorktreePath = workDir
+	if err := store.SavePipeline(p); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := acpclient.NewRoleResolver(
+		[]acpclient.AgentProfile{
+			{
+				ID: "codex",
+				CapabilitiesMax: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+			},
+		},
+		[]acpclient.RoleProfile{
+			{
+				ID:      "worker",
+				AgentID: "codex",
+				Capabilities: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+			},
+		},
+	)
+
+	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine.SetRoleResolver(resolver)
+	if err := execEngine.Run(context.Background(), p.ID); err != nil {
+		t.Fatalf("run by role failed: %v", err)
+	}
+
+	got, err := store.GetPipeline(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != core.StatusDone {
+		t.Fatalf("expected done, got %s", got.Status)
+	}
+	if runtime.calls != 1 {
+		t.Fatalf("expected one stage execution, got %d", runtime.calls)
+	}
+
+	checkpoints, err := store.GetCheckpoints(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checkpoints) == 0 {
+		t.Fatal("expected checkpoints to be persisted")
+	}
+	last := checkpoints[len(checkpoints)-1]
+	if last.AgentUsed != "codex" {
+		t.Fatalf("expected checkpoint agent_used codex, got %q", last.AgentUsed)
+	}
+}
+
+func TestExecuteStageByRole_MissingRoleFails(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close()
+
+	workDir := t.TempDir()
+	runtime := &fakeRuntime{waitResults: []error{nil}}
+	agent := &fakeAgent{name: "codex"}
+
+	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+		{
+			Name:       core.StageImplement,
+			Role:       "missing-role",
+			OnFailure:  core.OnFailureAbort,
+			MaxRetries: 0,
+		},
+	})
+	p.WorktreePath = workDir
+	if err := store.SavePipeline(p); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := acpclient.NewRoleResolver(
+		[]acpclient.AgentProfile{
+			{
+				ID: "codex",
+				CapabilitiesMax: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+			},
+		},
+		[]acpclient.RoleProfile{
+			{
+				ID:      "worker",
+				AgentID: "codex",
+				Capabilities: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+			},
+		},
+	)
+
+	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine.SetRoleResolver(resolver)
+
+	err := execEngine.Run(context.Background(), p.ID)
+	if err == nil {
+		t.Fatal("expected missing role to fail pipeline run")
+	}
+	if !strings.Contains(err.Error(), "stage role not resolved") {
+		t.Fatalf("expected role resolution failure, got %v", err)
+	}
+	if runtime.calls != 0 {
+		t.Fatalf("expected runtime not to start session on missing role, got calls=%d", runtime.calls)
 	}
 }

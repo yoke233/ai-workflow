@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/user/ai-workflow/internal/acpclient"
 	"github.com/user/ai-workflow/internal/core"
 	"github.com/user/ai-workflow/internal/eventbus"
 	gitops "github.com/user/ai-workflow/internal/git"
@@ -21,11 +22,12 @@ import (
 )
 
 type Executor struct {
-	store   core.Store
-	bus     *eventbus.Bus
-	agents  map[string]core.AgentPlugin
-	runtime core.RuntimePlugin
-	logger  *slog.Logger
+	store        core.Store
+	bus          *eventbus.Bus
+	agents       map[string]core.AgentPlugin
+	roleResolver *acpclient.RoleResolver
+	runtime      core.RuntimePlugin
+	logger       *slog.Logger
 
 	sessionMu     sync.Mutex
 	activeSession map[string]string
@@ -47,6 +49,10 @@ func NewExecutor(
 
 		activeSession: make(map[string]string),
 	}
+}
+
+func (e *Executor) SetRoleResolver(resolver *acpclient.RoleResolver) {
+	e.roleResolver = resolver
 }
 
 func (e *Executor) CreatePipeline(projectID, name, description, template string) (*core.Pipeline, error) {
@@ -169,12 +175,17 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 		stageSucceeded := false
 		stageSkipped := false
 		for attempt := 0; ; attempt++ {
+			agentUsed := stage.Agent
+			if resolvedAgent, resolveErr := e.resolveStageAgentName(&stage); resolveErr == nil {
+				agentUsed = resolvedAgent
+			}
+
 			cp := &core.Checkpoint{
 				PipelineID: p.ID,
 				StageName:  stage.Name,
 				Status:     core.CheckpointInProgress,
 				StartedAt:  time.Now(),
-				AgentUsed:  stage.Agent,
+				AgentUsed:  agentUsed,
 				RetryCount: attempt,
 			}
 			if err := e.store.SaveCheckpoint(cp); err != nil {
@@ -272,7 +283,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 					Status:     core.CheckpointSkipped,
 					StartedAt:  time.Now(),
 					FinishedAt: time.Now(),
-					AgentUsed:  stage.Agent,
+					AgentUsed:  agentUsed,
 					RetryCount: attempt,
 					Error:      err.Error(),
 				}
@@ -485,9 +496,9 @@ func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *c
 		return fmt.Errorf("worktree path is empty for agent stage %s", stage.Name)
 	}
 
-	agent, ok := e.agents[stage.Agent]
-	if !ok {
-		return fmt.Errorf("agent %q not found", stage.Agent)
+	agentName, agent, err := e.resolveStageAgent(stage)
+	if err != nil {
+		return err
 	}
 
 	promptStage := stage.PromptTemplate
@@ -552,7 +563,7 @@ func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *c
 			Type:       core.EventAgentOutput,
 			PipelineID: p.ID,
 			Stage:      stage.Name,
-			Agent:      stage.Agent,
+			Agent:      agentName,
 			Data: map[string]string{
 				"content": evt.Content,
 				"type":    evt.Type,
@@ -565,6 +576,37 @@ func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *c
 		return fmt.Errorf("wait session: %w", err)
 	}
 	return nil
+}
+
+func (e *Executor) resolveStageAgentName(stage *core.StageConfig) (string, error) {
+	agentName := stage.Agent
+	if stage.Role != "" && e.roleResolver != nil {
+		resolvedAgent, _, err := e.roleResolver.Resolve(stage.Role)
+		if err != nil {
+			return "", fmt.Errorf("stage role not resolved: %w", err)
+		}
+		if strings.TrimSpace(resolvedAgent.ID) == "" {
+			return "", fmt.Errorf("stage role not resolved: role %q resolved empty agent id", stage.Role)
+		}
+		agentName = resolvedAgent.ID
+	}
+	return agentName, nil
+}
+
+func (e *Executor) resolveStageAgent(stage *core.StageConfig) (string, core.AgentPlugin, error) {
+	agentName, err := e.resolveStageAgentName(stage)
+	if err != nil {
+		return "", nil, err
+	}
+
+	agent, ok := e.agents[agentName]
+	if !ok {
+		if stage.Role != "" && e.roleResolver != nil {
+			return "", nil, fmt.Errorf("stage role not resolved: role %q -> agent %q not found", stage.Role, agentName)
+		}
+		return "", nil, fmt.Errorf("agent %q not found", agentName)
+	}
+	return agentName, agent, nil
 }
 
 func buildPromptExecutionContext(p *core.Pipeline, stage core.StageID) (string, error) {

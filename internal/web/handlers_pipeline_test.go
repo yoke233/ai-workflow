@@ -254,6 +254,94 @@ func TestApplyPipelineAction(t *testing.T) {
 	}
 }
 
+func TestPipelineActionChangeRole(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-pipe-change-role",
+		Name:     "project-pipe-change-role",
+		RepoPath: filepath.Join(t.TempDir(), "repo-pipe-change-role"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	now := time.Now()
+	pipeline := &core.Pipeline{
+		ID:           "pipe-change-role-1",
+		ProjectID:    project.ID,
+		Name:         "change-role-pipeline",
+		Template:     "quick",
+		Status:       core.StatusRunning,
+		CurrentStage: core.StageImplement,
+		Stages: []core.StageConfig{
+			{Name: core.StageImplement, Agent: "codex"},
+		},
+		Artifacts:       map[string]string{},
+		Config:          map[string]any{},
+		MaxTotalRetries: 5,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := store.SavePipeline(pipeline); err != nil {
+		t.Fatalf("seed pipeline: %v", err)
+	}
+
+	execCalled := false
+	executor := &testPipelineExecutor{
+		applyActionFn: func(_ context.Context, action core.PipelineAction) error {
+			execCalled = true
+			if action.Type != core.ActionChangeRole {
+				t.Fatalf("expected action change_role, got %s", action.Type)
+			}
+			if action.Role != "reviewer" {
+				t.Fatalf("expected role reviewer, got %q", action.Role)
+			}
+			loaded, err := store.GetPipeline(action.PipelineID)
+			if err != nil {
+				return err
+			}
+			loaded.Stages[0].Role = action.Role
+			loaded.Status = core.StatusRunning
+			loaded.UpdatedAt = time.Now()
+			return store.SavePipeline(loaded)
+		},
+	}
+
+	srv := NewServer(Config{
+		Store:        store,
+		PipelineExec: executor,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-pipe-change-role/pipelines/pipe-change-role-1/action",
+		"application/json",
+		bytes.NewBufferString(`{"action":"change_role","role":"reviewer"}`),
+	)
+	if err != nil {
+		t.Fatalf("POST pipeline action change_role: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if !execCalled {
+		t.Fatal("expected pipeline action to delegate change_role to executor")
+	}
+
+	updated, err := store.GetPipeline("pipe-change-role-1")
+	if err != nil {
+		t.Fatalf("reload pipeline: %v", err)
+	}
+	if got := updated.Stages[0].Role; got != "reviewer" {
+		t.Fatalf("expected stage role reviewer, got %q", got)
+	}
+	if got := updated.Stages[0].Agent; got != "codex" {
+		t.Fatalf("expected stage agent unchanged codex, got %q", got)
+	}
+}
+
 func TestDefaultPipelineStageConfig_DefaultAgentAndE2E(t *testing.T) {
 	for _, stageID := range []core.StageID{
 		core.StageRequirements,

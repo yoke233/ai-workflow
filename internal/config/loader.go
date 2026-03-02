@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -24,6 +25,9 @@ func LoadGlobal(path string) (*Config, error) {
 	}
 
 	if err := ApplyEnvOverrides(&cfg); err != nil {
+		return nil, err
+	}
+	if err := validateConfig(&cfg); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
@@ -63,7 +67,9 @@ func decodeLayerFromMap(raw map[string]any) (*ConfigLayer, error) {
 
 func loadLayerFromBytes(data []byte) (*ConfigLayer, error) {
 	layer := &ConfigLayer{}
-	if err := yaml.Unmarshal(data, layer); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(layer); err != nil {
 		return nil, err
 	}
 	return layer, nil

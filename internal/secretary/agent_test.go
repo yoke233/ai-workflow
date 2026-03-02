@@ -2,6 +2,7 @@ package secretary
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"path/filepath"
 	"reflect"
@@ -187,6 +188,37 @@ func TestAgentDecomposeBuildsPromptAndParsesTaskPlan(t *testing.T) {
 	}
 }
 
+func TestPlanParserUsesRoleBinding(t *testing.T) {
+	agent := &mockAgent{}
+	templatePath := filepath.Join("..", "..", "configs", "prompts", "secretary.tmpl")
+	driver, err := NewAgentWithTemplatePath(agent, nil, templatePath)
+	if err != nil {
+		t.Fatalf("new secretary agent: %v", err)
+	}
+
+	defaultReq := Request{
+		Conversation: "请拆解当前任务",
+		WorkDir:      "D:/project/ai-workflow",
+	}
+	if _, err := driver.BuildCommand(defaultReq); err != nil {
+		t.Fatalf("build command with default role: %v", err)
+	}
+	if len(agent.opts) != 1 {
+		t.Fatalf("expected 1 exec opts, got %d", len(agent.opts))
+	}
+	assertRoleID(t, agent.opts[0].AppendContext, "plan_parser")
+
+	overrideReq := defaultReq
+	overrideReq.Role = "custom_role"
+	if _, err := driver.BuildCommand(overrideReq); err != nil {
+		t.Fatalf("build command with custom role: %v", err)
+	}
+	if len(agent.opts) != 2 {
+		t.Fatalf("expected 2 exec opts, got %d", len(agent.opts))
+	}
+	assertRoleID(t, agent.opts[1].AppendContext, "custom_role")
+}
+
 func TestParseTaskPlanRejectsInvalidTemplate(t *testing.T) {
 	_, err := ParseTaskPlan(`{
   "name": "invalid-plan",
@@ -277,5 +309,22 @@ func TestToTaskItem_MapsStructuredFields(t *testing.T) {
 	}
 	if len(item.Constraints) != 1 || item.Constraints[0] != "no breaking changes" {
 		t.Fatalf("constraints mapping failed: %#v", item.Constraints)
+	}
+}
+
+func assertRoleID(t *testing.T, appendContext, wantRole string) {
+	t.Helper()
+
+	if strings.TrimSpace(appendContext) == "" {
+		t.Fatal("append context should not be empty")
+	}
+
+	payload := map[string]string{}
+	if err := json.Unmarshal([]byte(appendContext), &payload); err != nil {
+		t.Fatalf("append context should be json: %v", err)
+	}
+
+	if payload["role_id"] != wantRole {
+		t.Fatalf("unexpected role_id, got %q want %q", payload["role_id"], wantRole)
 	}
 }
