@@ -37,14 +37,8 @@ type createProjectAsyncRequest struct {
 	SourceType string `json:"source_type"`
 	RepoPath   string `json:"repo_path,omitempty"`
 	Slug       string `json:"slug,omitempty"`
-	Owner      string `json:"owner,omitempty"`
-	Repo       string `json:"repo,omitempty"`
+	RemoteURL  string `json:"remote_url,omitempty"`
 	Ref        string `json:"ref,omitempty"`
-	GitHub     struct {
-		Owner string `json:"owner"`
-		Repo  string `json:"repo"`
-		Ref   string `json:"ref,omitempty"`
-	} `json:"github,omitempty"`
 }
 
 type createProjectRequestAcceptedResponse struct {
@@ -255,9 +249,7 @@ func (h *projectHandlers) createProjectRequestAsync(w http.ResponseWriter, r *ht
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	state.GitHub.Owner = req.GitHub.Owner
-	state.GitHub.Repo = req.GitHub.Repo
-	state.GitHub.Ref = req.GitHub.Ref
+	state.GitHub.Ref = req.Ref
 	h.createRequests.create(state)
 
 	writeJSON(w, http.StatusAccepted, createProjectRequestAcceptedResponse{
@@ -293,30 +285,8 @@ func (h *projectHandlers) normalizeCreateProjectAsyncRequest(req *createProjectA
 	req.SourceType = strings.TrimSpace(req.SourceType)
 	req.RepoPath = strings.TrimSpace(req.RepoPath)
 	req.Slug = normalizeProjectSlug(req.Slug)
-	req.Owner = strings.TrimSpace(req.Owner)
-	req.Repo = strings.TrimSpace(req.Repo)
+	req.RemoteURL = strings.TrimSpace(req.RemoteURL)
 	req.Ref = strings.TrimSpace(req.Ref)
-	req.GitHub.Owner = strings.TrimSpace(req.GitHub.Owner)
-	req.GitHub.Repo = strings.TrimSpace(req.GitHub.Repo)
-	req.GitHub.Ref = strings.TrimSpace(req.GitHub.Ref)
-	if req.GitHub.Owner == "" {
-		req.GitHub.Owner = req.Owner
-	}
-	if req.GitHub.Repo == "" {
-		req.GitHub.Repo = req.Repo
-	}
-	if req.GitHub.Ref == "" {
-		req.GitHub.Ref = req.Ref
-	}
-	if req.Owner == "" {
-		req.Owner = req.GitHub.Owner
-	}
-	if req.Repo == "" {
-		req.Repo = req.GitHub.Repo
-	}
-	if req.Ref == "" {
-		req.Ref = req.GitHub.Ref
-	}
 	if req.SourceType == projectSourceTypeLocalNew && req.Slug == "" && req.Name != "" {
 		req.Slug = normalizeProjectSlug(req.Name)
 	}
@@ -337,11 +307,8 @@ func validateCreateProjectAsyncRequest(req createProjectAsyncRequest) (message, 
 			return "slug is required for local_new", "SLUG_REQUIRED"
 		}
 	case projectSourceTypeGitHubClone:
-		if strings.TrimSpace(req.GitHub.Owner) == "" {
-			return "github.owner is required", "GITHUB_OWNER_REQUIRED"
-		}
-		if strings.TrimSpace(req.GitHub.Repo) == "" {
-			return "github.repo is required", "GITHUB_REPO_REQUIRED"
+		if strings.TrimSpace(req.RemoteURL) == "" {
+			return "remote_url is required for github_clone", "REMOTE_URL_REQUIRED"
 		}
 	default:
 		return fmt.Sprintf("unsupported source_type: %s", sourceType), "INVALID_SOURCE_TYPE"
@@ -364,12 +331,11 @@ func (h *projectHandlers) processProjectCreateRequest(requestID string, req crea
 	h.broadcastProjectCreateEvent("project_create_started", runningState, runningState.Step, runningState.Message)
 
 	input := ProjectRepoProvisionInput{
-		SourceType:  req.SourceType,
-		RepoPath:    req.RepoPath,
-		Slug:        req.Slug,
-		GitHubOwner: req.GitHub.Owner,
-		GitHubRepo:  req.GitHub.Repo,
-		GitHubRef:   req.GitHub.Ref,
+		SourceType: req.SourceType,
+		RepoPath:   req.RepoPath,
+		Slug:       req.Slug,
+		RemoteURL:  req.RemoteURL,
+		Ref:        req.Ref,
 		Progress: func(step, message string) {
 			currentState, ok := h.createRequests.update(requestID, func(state *projectCreateRequestState) {
 				state.Step = strings.TrimSpace(step)
@@ -419,7 +385,7 @@ func (h *projectHandlers) processProjectCreateRequest(requestID string, req crea
 	}
 	h.broadcastProjectCreateEvent("project_create_progress", updatedState, updatedState.Step, updatedState.Message)
 
-	projectName := resolveCreateProjectName(req, updatedState.RepoPath)
+	projectName := resolveCreateProjectName(req, updatedState.RepoPath, updatedState.GitHub.Repo)
 	if projectName == "" {
 		h.failProjectCreateRequest(requestID, "resolve_project_name", "project name is empty", errors.New("empty project name"))
 		return
@@ -467,7 +433,7 @@ func (h *projectHandlers) processProjectCreateRequest(requestID string, req crea
 	h.broadcastProjectCreateEvent("project_create_succeeded", succeededState, succeededState.Step, succeededState.Message)
 }
 
-func resolveCreateProjectName(req createProjectAsyncRequest, repoPath string) string {
+func resolveCreateProjectName(req createProjectAsyncRequest, repoPath string, clonedRepo string) string {
 	if strings.TrimSpace(req.Name) != "" {
 		return strings.TrimSpace(req.Name)
 	}
@@ -475,7 +441,7 @@ func resolveCreateProjectName(req createProjectAsyncRequest, repoPath string) st
 	case projectSourceTypeLocalNew:
 		return strings.TrimSpace(req.Slug)
 	case projectSourceTypeGitHubClone:
-		return strings.TrimSpace(req.GitHub.Repo)
+		return strings.TrimSpace(clonedRepo)
 	case projectSourceTypeLocalPath:
 		base := strings.TrimSpace(filepath.Base(strings.TrimSpace(repoPath)))
 		if base == "." || base == string(filepath.Separator) {

@@ -83,7 +83,7 @@ func TestProjectRepoProvisionerLocalNewRequiresSlug(t *testing.T) {
 	}
 }
 
-func TestProjectRepoProvisionerGitHubCloneValidatesOwnerRepo(t *testing.T) {
+func TestProjectRepoProvisionerGitHubCloneValidatesRemoteURL(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repos-root")
 	provisioner := newProjectRepoProvisioner(root, &recordingGitRunner{})
 
@@ -92,33 +92,23 @@ func TestProjectRepoProvisionerGitHubCloneValidatesOwnerRepo(t *testing.T) {
 		input ProjectRepoProvisionInput
 	}{
 		{
-			name: "missing owner",
+			name: "missing remote url",
 			input: ProjectRepoProvisionInput{
 				SourceType: string(projectSourceTypeGitHubClone),
-				GitHubRepo: "demo",
 			},
 		},
 		{
-			name: "missing repo",
+			name: "unsupported remote scheme",
 			input: ProjectRepoProvisionInput{
-				SourceType:  string(projectSourceTypeGitHubClone),
-				GitHubOwner: "acme",
+				SourceType: string(projectSourceTypeGitHubClone),
+				RemoteURL:  "ftp://github.com/acme/demo.git",
 			},
 		},
 		{
-			name: "invalid owner characters",
+			name: "missing owner/repo path",
 			input: ProjectRepoProvisionInput{
-				SourceType:  string(projectSourceTypeGitHubClone),
-				GitHubOwner: "acme/team",
-				GitHubRepo:  "demo",
-			},
-		},
-		{
-			name: "invalid repo characters",
-			input: ProjectRepoProvisionInput{
-				SourceType:  string(projectSourceTypeGitHubClone),
-				GitHubOwner: "acme",
-				GitHubRepo:  "demo/repo",
+				SourceType: string(projectSourceTypeGitHubClone),
+				RemoteURL:  "https://github.com/acme",
 			},
 		},
 	}
@@ -128,6 +118,9 @@ func TestProjectRepoProvisionerGitHubCloneValidatesOwnerRepo(t *testing.T) {
 			_, err := provisioner.Provision(context.Background(), tc.input)
 			if err == nil {
 				t.Fatal("expected validation error")
+			}
+			if !strings.Contains(strings.ToLower(err.Error()), "remote_url") {
+				t.Fatalf("expected remote_url diagnostic error, got %v", err)
 			}
 		})
 	}
@@ -152,23 +145,22 @@ func TestProjectRepoProvisionerGitHubCloneUpdatesExistingRepo(t *testing.T) {
 	}
 	provisioner := newProjectRepoProvisioner(root, runner)
 	input := ProjectRepoProvisionInput{
-		SourceType:  string(projectSourceTypeGitHubClone),
-		GitHubOwner: "acme",
-		GitHubRepo:  "demo",
-		GitHubRef:   "main",
+		SourceType: string(projectSourceTypeGitHubClone),
+		RemoteURL:  "https://github.com/acme/demo.git",
+		Ref:        "main",
 	}
 
 	got, err := provisioner.Provision(context.Background(), input)
 	if err != nil {
 		t.Fatalf("first github clone provision failed: %v", err)
 	}
-	wantPath := filepath.Join(root, "acme__demo")
+	wantPath := filepath.Join(root, "github.com__acme__demo")
 	if got.RepoPath != wantPath {
 		t.Fatalf("expected repo_path %s, got %s", wantPath, got.RepoPath)
 	}
 	firstCalls := runner.Calls()
 	if !hasGitCall(firstCalls, func(call []string) bool {
-		return len(call) >= 4 && call[0] == "clone" && call[len(call)-1] == wantPath
+		return len(call) == 3 && call[0] == "clone" && call[1] == input.RemoteURL && call[2] == wantPath
 	}) {
 		t.Fatalf("expected clone call during first provision, got %v", firstCalls)
 	}

@@ -100,28 +100,18 @@ func TestWorktreeSetupBeforeRequirements(t *testing.T) {
 	}
 }
 
-func TestDefaultStageConfig_DefaultAgentAndE2E(t *testing.T) {
-	t.Run("requirements and code_review use codex", func(t *testing.T) {
+func TestDefaultStageConfig_RoleOnlyDefaults(t *testing.T) {
+	t.Run("agent field is empty for role-driven stages", func(t *testing.T) {
 		for _, stageID := range []core.StageID{
 			core.StageRequirements,
-			core.StageCodeReview,
-		} {
-			cfg := defaultStageConfig(stageID)
-			if cfg.Agent != "codex" {
-				t.Fatalf("stage %s should default to codex, got %q", stageID, cfg.Agent)
-			}
-		}
-	})
-
-	t.Run("implement fixup and e2e use codex", func(t *testing.T) {
-		for _, stageID := range []core.StageID{
 			core.StageImplement,
+			core.StageCodeReview,
 			core.StageFixup,
 			core.StageE2ETest,
 		} {
 			cfg := defaultStageConfig(stageID)
-			if cfg.Agent != "codex" {
-				t.Fatalf("stage %s should default to codex, got %q", stageID, cfg.Agent)
+			if cfg.Agent != "" {
+				t.Fatalf("stage %s should not default stage.agent, got %q", stageID, cfg.Agent)
 			}
 		}
 	})

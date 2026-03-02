@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +26,7 @@ type Executor struct {
 	roleResolver *acpclient.RoleResolver
 	stageRoles   map[core.StageID]string
 	runtime      core.RuntimePlugin
+	workspace    core.WorkspacePlugin
 	logger       *slog.Logger
 
 	sessionMu     sync.Mutex
@@ -54,6 +53,10 @@ func NewExecutor(
 
 func (e *Executor) SetRoleResolver(resolver *acpclient.RoleResolver) {
 	e.roleResolver = resolver
+}
+
+func (e *Executor) SetWorkspace(workspace core.WorkspacePlugin) {
+	e.workspace = workspace
 }
 
 func (e *Executor) SetPipelineStageRoles(stageRoles map[string]string) {
@@ -197,7 +200,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 		stageSucceeded := false
 		stageSkipped := false
 		for attempt := 0; ; attempt++ {
-			agentUsed := stage.Agent
+			agentUsed := ""
 			if resolvedAgent, resolveErr := e.resolveStageAgentName(&stage); resolveErr == nil {
 				agentUsed = resolvedAgent
 			}
@@ -665,37 +668,27 @@ func buildPromptExecutionContext(p *core.Pipeline, stage core.StageID) (string, 
 }
 
 func (e *Executor) runWorktreeSetup(project *core.Project, p *core.Pipeline) error {
-	if project.RepoPath == "" {
-		return errors.New("project repo path is empty")
-	}
-	runner := gitops.NewRunner(project.RepoPath)
-
 	if p.Config == nil {
 		p.Config = map[string]any{}
 	}
-	if p.BranchName == "" {
-		p.BranchName = "ai-flow/" + p.ID
-	}
-	if p.WorktreePath == "" {
-		p.WorktreePath = filepath.Join(project.RepoPath, ".worktrees", p.ID)
-	}
-	if err := os.MkdirAll(filepath.Dir(p.WorktreePath), 0o755); err != nil {
-		return err
+	if e.workspace == nil {
+		return errors.New("workspace plugin is not configured")
 	}
 
-	if _, err := os.Stat(p.WorktreePath); errors.Is(err, os.ErrNotExist) {
-		if err := runner.WorktreeAdd(p.WorktreePath, p.BranchName); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-
-	baseBranch, err := runner.CurrentBranch()
+	result, err := e.workspace.Setup(context.Background(), core.WorkspaceSetupRequest{
+		RepoPath:     project.RepoPath,
+		PipelineID:   p.ID,
+		BranchName:   p.BranchName,
+		WorktreePath: p.WorktreePath,
+	})
 	if err != nil {
 		return err
 	}
-	p.Config["base_branch"] = baseBranch
+	p.BranchName = result.BranchName
+	p.WorktreePath = result.WorktreePath
+	if result.BaseBranch != "" {
+		p.Config["base_branch"] = result.BaseBranch
+	}
 
 	return e.store.SavePipeline(p)
 }
@@ -729,8 +722,13 @@ func (e *Executor) runCleanup(project *core.Project, p *core.Pipeline) error {
 	if p.WorktreePath == "" {
 		return nil
 	}
-	runner := gitops.NewRunner(project.RepoPath)
-	return runner.WorktreeRemove(p.WorktreePath)
+	if e.workspace == nil {
+		return errors.New("workspace plugin is not configured")
+	}
+	return e.workspace.Cleanup(context.Background(), core.WorkspaceCleanupRequest{
+		RepoPath:     project.RepoPath,
+		WorktreePath: p.WorktreePath,
+	})
 }
 
 func defaultStageConfig(id core.StageID) core.StageConfig {
@@ -742,11 +740,11 @@ func defaultStageConfig(id core.StageID) core.StageConfig {
 	}
 	switch id {
 	case core.StageRequirements, core.StageCodeReview:
-		cfg.Agent = "codex"
+		cfg.Agent = ""
 	case core.StageImplement, core.StageFixup:
-		cfg.Agent = "codex"
+		cfg.Agent = ""
 	case core.StageE2ETest:
-		cfg.Agent = "codex"
+		cfg.Agent = ""
 		cfg.Timeout = 15 * time.Minute
 	case core.StageWorktreeSetup, core.StageMerge, core.StageCleanup:
 		cfg.Agent = ""

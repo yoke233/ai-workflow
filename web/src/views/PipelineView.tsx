@@ -190,9 +190,13 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
 
   const currentStageAgent = useMemo(() => {
     if (!selectedPipeline) return null;
-    const cp = checkpoints.find(
-      (c) => c.stage_name === selectedPipeline.current_stage,
-    );
+    let cp: PipelineCheckpoint | undefined;
+    for (let i = checkpoints.length - 1; i >= 0; i -= 1) {
+      if (checkpoints[i]?.stage_name === selectedPipeline.current_stage) {
+        cp = checkpoints[i];
+        break;
+      }
+    }
     return cp?.agent_used || null;
   }, [selectedPipeline, checkpoints]);
 

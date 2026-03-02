@@ -305,7 +305,7 @@ git commit -m "feat(engine): add p1 scheduler with fifo and multi-level limits"
 - Modify: `internal/engine/executor.go`
 - Modify: `internal/core/events.go`
 
-**Step 1: 写失败测试（approve/reject/modify/skip/rerun/change_agent/abort/pause/resume）**
+**Step 1: 写失败测试（approve/reject/modify/skip/rerun/change_role/abort/pause/resume）**
 
 ```go
 func TestActionApprove_ContinueNextStage(t *testing.T) {}
@@ -579,4 +579,5 @@ git commit -m "feat: complete p1 multi-project scheduler and config-driven orche
 ---
 
 Plan complete and saved to `docs/plans/2026-02-28-p1-implementation.md`.
+
 

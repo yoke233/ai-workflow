@@ -104,21 +104,19 @@ describe("ProjectAdminPanel", () => {
 
     expect(screen.getByLabelText("项目来源")).toBeTruthy();
     expect(screen.getByLabelText("仓库路径")).toBeTruthy();
-    expect(screen.queryByLabelText("GitHub Owner")).toBeNull();
-    expect(screen.queryByLabelText("GitHub Repo")).toBeNull();
+    expect(screen.queryByLabelText("Remote URL")).toBeNull();
 
     fireEvent.change(screen.getByLabelText("项目来源"), {
       target: { value: "local_new" },
     });
     expect(screen.queryByLabelText("仓库路径")).toBeNull();
-    expect(screen.queryByLabelText("GitHub Owner")).toBeNull();
+    expect(screen.queryByLabelText("Remote URL")).toBeNull();
 
     fireEvent.change(screen.getByLabelText("项目来源"), {
       target: { value: "github_clone" },
     });
     expect(screen.queryByLabelText("仓库路径")).toBeNull();
-    expect(screen.getByLabelText("GitHub Owner")).toBeTruthy();
-    expect(screen.getByLabelText("GitHub Repo")).toBeTruthy();
+    expect(screen.getByLabelText("Remote URL")).toBeTruthy();
     expect(screen.getByLabelText("Git Ref（可选）")).toBeTruthy();
   });
 

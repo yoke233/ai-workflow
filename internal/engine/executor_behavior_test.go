@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/user/ai-workflow/internal/eventbus"
 	runtimeprocess "github.com/user/ai-workflow/internal/plugins/runtime-process"
 	storesqlite "github.com/user/ai-workflow/internal/plugins/store-sqlite"
+	workspaceworktree "github.com/user/ai-workflow/internal/plugins/workspace-worktree"
 )
 
 type fakeAgent struct {
@@ -89,6 +91,36 @@ func (r *fakeRuntime) Create(_ context.Context, opts core.RuntimeOpts) (*core.Se
 			return waitErr
 		},
 	}, nil
+}
+
+type fakeWorkspace struct {
+	setupErr   error
+	cleanupErr error
+
+	setupResult  core.WorkspaceSetupResult
+	setupCalls   int
+	cleanupCalls int
+	setupReqs    []core.WorkspaceSetupRequest
+	cleanupReqs  []core.WorkspaceCleanupRequest
+}
+
+func (w *fakeWorkspace) Name() string { return "fake-workspace" }
+func (w *fakeWorkspace) Init(context.Context) error {
+	return nil
+}
+func (w *fakeWorkspace) Close() error { return nil }
+func (w *fakeWorkspace) Setup(_ context.Context, req core.WorkspaceSetupRequest) (core.WorkspaceSetupResult, error) {
+	w.setupCalls++
+	w.setupReqs = append(w.setupReqs, req)
+	if w.setupErr != nil {
+		return core.WorkspaceSetupResult{}, w.setupErr
+	}
+	return w.setupResult, nil
+}
+func (w *fakeWorkspace) Cleanup(_ context.Context, req core.WorkspaceCleanupRequest) error {
+	w.cleanupCalls++
+	w.cleanupReqs = append(w.cleanupReqs, req)
+	return w.cleanupErr
 }
 
 type nopWriteCloser struct{}
@@ -271,6 +303,7 @@ func TestExecutor_Run_WorktreeMergeCleanupAndWorkDir(t *testing.T) {
 	})
 
 	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtimeprocess.New())
+	execEngine.SetWorkspace(workspaceworktree.New())
 	if err := execEngine.Run(context.Background(), p.ID); err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
@@ -292,6 +325,52 @@ func TestExecutor_Run_WorktreeMergeCleanupAndWorkDir(t *testing.T) {
 	}
 	if !strings.Contains(string(logOut), "feat-from-agent") {
 		t.Fatalf("merge stage did not bring feature commit into base branch: %s", string(logOut))
+	}
+}
+
+func TestExecutor_Run_WorktreeStagesUseWorkspacePlugin(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close()
+
+	repoPath := t.TempDir()
+	workspace := &fakeWorkspace{
+		setupResult: core.WorkspaceSetupResult{
+			BranchName:   "ai-flow/20260228-pipe",
+			WorktreePath: filepath.Join(repoPath, ".worktrees", "20260228-pipe"),
+			BaseBranch:   "main",
+		},
+	}
+
+	p := setupProjectAndPipeline(t, store, repoPath, []core.StageConfig{
+		{Name: core.StageWorktreeSetup, OnFailure: core.OnFailureAbort},
+		{Name: core.StageCleanup, OnFailure: core.OnFailureAbort},
+	})
+
+	execEngine := newExecutor(store, map[string]core.AgentPlugin{}, &fakeRuntime{})
+	execEngine.SetWorkspace(workspace)
+	if err := execEngine.Run(context.Background(), p.ID); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	if workspace.setupCalls != 1 {
+		t.Fatalf("expected setup called once, got %d", workspace.setupCalls)
+	}
+	if workspace.cleanupCalls != 1 {
+		t.Fatalf("expected cleanup called once, got %d", workspace.cleanupCalls)
+	}
+
+	got, err := store.GetPipeline(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BranchName != workspace.setupResult.BranchName {
+		t.Fatalf("pipeline branch mismatch, got=%q want=%q", got.BranchName, workspace.setupResult.BranchName)
+	}
+	if got.WorktreePath != workspace.setupResult.WorktreePath {
+		t.Fatalf("pipeline worktree mismatch, got=%q want=%q", got.WorktreePath, workspace.setupResult.WorktreePath)
+	}
+	if baseBranch, _ := got.Config["base_branch"].(string); baseBranch != workspace.setupResult.BaseBranch {
+		t.Fatalf("pipeline base branch mismatch, got=%q want=%q", baseBranch, workspace.setupResult.BaseBranch)
 	}
 }
 
@@ -730,6 +809,94 @@ func TestExecuteStageByRole_EmptyRoleFails(t *testing.T) {
 	}
 	if runtime.calls != 0 {
 		t.Fatalf("expected runtime not to start session on empty role, got calls=%d", runtime.calls)
+	}
+}
+
+func TestExecuteStageByRole_EmptyRoleDoesNotFallbackToStageAgent(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close()
+
+	workDir := t.TempDir()
+	runtime := &fakeRuntime{waitResults: []error{nil}}
+	agent := &fakeAgent{name: "codex"}
+
+	project := &core.Project{
+		ID:       "proj-no-fallback",
+		Name:     "proj-no-fallback",
+		RepoPath: workDir,
+	}
+	if err := store.CreateProject(project); err != nil {
+		t.Fatal(err)
+	}
+	p := &core.Pipeline{
+		ID:           "pipe-no-fallback",
+		ProjectID:    project.ID,
+		Name:         "pipe-no-fallback",
+		Template:     "quick",
+		Status:       core.StatusCreated,
+		CurrentStage: core.StageImplement,
+		Stages: []core.StageConfig{
+			{
+				Name:       core.StageImplement,
+				Agent:      "legacy-agent",
+				OnFailure:  core.OnFailureAbort,
+				MaxRetries: 0,
+			},
+		},
+		Artifacts:       map[string]string{},
+		Config:          map[string]any{},
+		WorktreePath:    workDir,
+		MaxTotalRetries: 5,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+	if err := store.SavePipeline(p); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver := acpclient.NewRoleResolver(
+		[]acpclient.AgentProfile{
+			{
+				ID: "codex",
+				CapabilitiesMax: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+			},
+		},
+		[]acpclient.RoleProfile{
+			{
+				ID:      "worker",
+				AgentID: "codex",
+				Capabilities: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+			},
+		},
+	)
+
+	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	execEngine.SetRoleResolver(resolver)
+
+	err := execEngine.Run(context.Background(), p.ID)
+	if err == nil {
+		t.Fatal("expected empty stage role to fail pipeline run")
+	}
+
+	checkpoints, cpErr := store.GetCheckpoints(p.ID)
+	if cpErr != nil {
+		t.Fatalf("get checkpoints: %v", cpErr)
+	}
+	if len(checkpoints) == 0 {
+		t.Fatal("expected checkpoint to be persisted on failed stage")
+	}
+	for _, cp := range checkpoints {
+		if cp.AgentUsed == "legacy-agent" {
+			t.Fatalf("stage.agent fallback should be removed, got checkpoint agent_used=%q", cp.AgentUsed)
+		}
 	}
 }
 

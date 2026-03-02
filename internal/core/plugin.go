@@ -2,12 +2,10 @@ package core
 
 import "context"
 
-// PluginSlot identifies one of the ten pluggable extension points.
+// PluginSlot identifies one of the core pluggable extension points.
 type PluginSlot string
 
 const (
-	SlotAgent      PluginSlot = "agent"
-	SlotRuntime    PluginSlot = "runtime"
 	SlotWorkspace  PluginSlot = "workspace"
 	SlotSpec       PluginSlot = "spec"
 	SlotReviewGate PluginSlot = "review_gate"

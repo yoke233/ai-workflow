@@ -258,7 +258,7 @@ p2b-2 → p2b-3 → p2b-4 → p2b-5
 | `internal/core/store.go` | 扩展 Store 接口方法（ChatSession/TaskPlan/TaskItem/ReviewRecord） | p2a-2, p2b-1 |
 | `internal/core/events.go` | 添加 Secretary Layer 事件类型 | p2a-10 |
 | `internal/plugins/factory/factory.go` | 扩展 BootstrapSet + 注册新插件到 newDefaultRegistry() | fnd-2~fnd-6 |
-| `internal/config/types.go` | 添加 `secretary`/`review_panel`/`dag_scheduler` 配置段 | p2a-7, p2b-3 |
+| `internal/config/types.go` | 添加 `secretary`/`review_orchestrator`/`dag_scheduler` 配置段 | p2a-7, p2b-3 |
 | `internal/engine/executor.go` | 执行期文件沉淀 prompt 注入 | p2a-11 |
 | `internal/engine/prompts.go` | 新增 secretary prompt 变量 | p2a-6, p2a-11 |
 | `internal/plugins/store-sqlite/migrations.go` | 4 张新表 DDL（chat_sessions/task_plans/task_items/review_records） | p2a-3, p2b-1 |
@@ -280,3 +280,4 @@ p2b-2 → p2b-3 → p2b-4 → p2b-5
 4. P2b 完成后: TaskPlan 自动经过 AI review 强门禁 → 人工最终确认 → 进入 DAG 调度
 5. P2c 完成后: `ai-flow server` 打开浏览器可见 Chat/Plan/Board/Pipeline 四个视图
 6. 全部完成: 端到端 — 对话 → 拆解 → AI 审核(≤2轮) → 人工确认 → 并行执行 → 完成
+

@@ -164,15 +164,12 @@ func TestCreateProjectRequestValidation(t *testing.T) {
 			wantCode: "SLUG_REQUIRED",
 		},
 		{
-			name: "github clone missing owner",
+			name: "github clone missing remote_url",
 			body: map[string]any{
 				"name":        "proj-1",
 				"source_type": string(projectSourceTypeGitHubClone),
-				"github": map[string]any{
-					"repo": "demo",
-				},
 			},
-			wantCode: "GITHUB_OWNER_REQUIRED",
+			wantCode: "REMOTE_URL_REQUIRED",
 		},
 	}
 
@@ -293,7 +290,7 @@ func TestCreateProjectRequestLifecycleSucceeded(t *testing.T) {
 	}
 }
 
-func TestCreateProjectRequestGitHubCloneAcceptsTopLevelFields(t *testing.T) {
+func TestCreateProjectRequestGitHubCloneUsesRemoteURL(t *testing.T) {
 	store := newTestStore(t)
 	repoPath := filepath.Join(t.TempDir(), "repo-github-clone")
 	provisioner := &stubProjectRepoProvisioner{
@@ -312,8 +309,7 @@ func TestCreateProjectRequestGitHubCloneAcceptsTopLevelFields(t *testing.T) {
 
 	reqBody := map[string]any{
 		"source_type": string(projectSourceTypeGitHubClone),
-		"owner":       "acme",
-		"repo":        "demo-repo",
+		"remote_url":  "https://github.com/acme/demo-repo.git",
 		"ref":         "main",
 	}
 	raw, err := json.Marshal(reqBody)
@@ -348,14 +344,11 @@ func TestCreateProjectRequestGitHubCloneAcceptsTopLevelFields(t *testing.T) {
 	if calls[0].SourceType != string(projectSourceTypeGitHubClone) {
 		t.Fatalf("expected source type %s, got %s", projectSourceTypeGitHubClone, calls[0].SourceType)
 	}
-	if calls[0].GitHubOwner != "acme" {
-		t.Fatalf("expected github owner %q, got %q", "acme", calls[0].GitHubOwner)
+	if calls[0].RemoteURL != "https://github.com/acme/demo-repo.git" {
+		t.Fatalf("expected remote_url %q, got %q", "https://github.com/acme/demo-repo.git", calls[0].RemoteURL)
 	}
-	if calls[0].GitHubRepo != "demo-repo" {
-		t.Fatalf("expected github repo %q, got %q", "demo-repo", calls[0].GitHubRepo)
-	}
-	if calls[0].GitHubRef != "main" {
-		t.Fatalf("expected github ref %q, got %q", "main", calls[0].GitHubRef)
+	if calls[0].Ref != "main" {
+		t.Fatalf("expected ref %q, got %q", "main", calls[0].Ref)
 	}
 
 	project, err := store.GetProject(finalState.ProjectID)
@@ -614,12 +607,6 @@ func (s *stubProjectRepoProvisioner) Provision(ctx context.Context, input Projec
 
 	if strings.TrimSpace(result.RepoPath) == "" {
 		result.RepoPath = strings.TrimSpace(input.RepoPath)
-	}
-	if strings.TrimSpace(result.GitHubOwner) == "" {
-		result.GitHubOwner = strings.TrimSpace(input.GitHubOwner)
-	}
-	if strings.TrimSpace(result.GitHubRepo) == "" {
-		result.GitHubRepo = strings.TrimSpace(input.GitHubRepo)
 	}
 	return result, nil
 }

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	workspaceclone "github.com/user/ai-workflow/internal/plugins/workspace-clone"
 )
 
 const (
@@ -18,8 +20,7 @@ const (
 )
 
 var (
-	reProjectSlug          = regexp.MustCompile(`[^a-z0-9_-]+`)
-	reGitHubNameCharacters = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+	reProjectSlug = regexp.MustCompile(`[^a-z0-9_-]+`)
 )
 
 // ProjectRepoProvisionInput carries source-specific fields for repository preparation.
@@ -29,9 +30,8 @@ type ProjectRepoProvisionInput struct {
 	RepoPath string
 	Slug     string
 
-	GitHubOwner string
-	GitHubRepo  string
-	GitHubRef   string
+	RemoteURL string
+	Ref       string
 
 	Progress func(step, message string)
 }
@@ -74,8 +74,13 @@ func (r shellGitCommandRunner) Run(ctx context.Context, args ...string) error {
 }
 
 type projectRepoProvisioner struct {
-	reposRoot string
-	gitRunner gitCommandRunner
+	reposRoot   string
+	gitRunner   gitCommandRunner
+	clonePlugin remoteClonePlugin
+}
+
+type remoteClonePlugin interface {
+	Clone(ctx context.Context, req workspaceclone.CloneRequest) (workspaceclone.CloneResult, error)
 }
 
 // NewProjectRepoProvisioner creates a default provisioner. reposRoot can be empty to use ~/.ai-workflow/repos.
@@ -88,8 +93,9 @@ func newProjectRepoProvisioner(reposRoot string, gitRunner gitCommandRunner) *pr
 		gitRunner = shellGitCommandRunner{}
 	}
 	return &projectRepoProvisioner{
-		reposRoot: strings.TrimSpace(reposRoot),
-		gitRunner: gitRunner,
+		reposRoot:   strings.TrimSpace(reposRoot),
+		gitRunner:   gitRunner,
+		clonePlugin: workspaceclone.NewWithRunner(gitRunner),
 	}
 }
 
@@ -150,21 +156,15 @@ func (p *projectRepoProvisioner) provisionLocalNew(ctx context.Context, input Pr
 }
 
 func (p *projectRepoProvisioner) provisionGitHubClone(ctx context.Context, input ProjectRepoProvisionInput) (ProjectRepoProvisionResult, error) {
-	owner := strings.TrimSpace(input.GitHubOwner)
-	repo := strings.TrimSpace(input.GitHubRepo)
-	ref := strings.TrimSpace(input.GitHubRef)
+	remoteURL := strings.TrimSpace(input.RemoteURL)
+	ref := strings.TrimSpace(input.Ref)
+	if remoteURL == "" {
+		return ProjectRepoProvisionResult{}, fmt.Errorf("remote_url is required for github_clone")
+	}
 
-	if owner == "" {
-		return ProjectRepoProvisionResult{}, fmt.Errorf("github.owner is required for github_clone")
-	}
-	if repo == "" {
-		return ProjectRepoProvisionResult{}, fmt.Errorf("github.repo is required for github_clone")
-	}
-	if !isValidGitHubNamePart(owner) {
-		return ProjectRepoProvisionResult{}, fmt.Errorf("github.owner contains unsupported characters")
-	}
-	if !isValidGitHubNamePart(repo) {
-		return ProjectRepoProvisionResult{}, fmt.Errorf("github.repo contains unsupported characters")
+	remote, err := workspaceclone.ParseRemoteURL(remoteURL)
+	if err != nil {
+		return ProjectRepoProvisionResult{}, err
 	}
 
 	reposRoot, err := p.resolveReposRoot()
@@ -176,34 +176,39 @@ func (p *projectRepoProvisioner) provisionGitHubClone(ctx context.Context, input
 		return ProjectRepoProvisionResult{}, fmt.Errorf("create repos root: %w", err)
 	}
 
-	targetPath := filepath.Join(reposRoot, owner+"__"+repo)
-	remoteURL := fmt.Sprintf("https://github.com/%s/%s.git", owner, repo)
-	if pathExists(targetPath) {
+	targetPath := filepath.Join(reposRoot, buildRemoteRepoKey(remote.Host, remote.Owner, remote.Repo))
+	if pathExists(filepath.Join(targetPath, ".git")) {
 		notifyProvisionProgress(input.Progress, "update_repository", "updating existing repository from GitHub")
-		if err := p.gitRunner.Run(ctx, "-C", targetPath, "fetch", "--all", "--prune"); err != nil {
-			return ProjectRepoProvisionResult{}, err
-		}
 	} else {
 		notifyProvisionProgress(input.Progress, "clone_repository", "cloning repository from GitHub")
-		args := []string{"clone"}
-		if ref != "" {
-			args = append(args, "--branch", ref)
-		}
-		args = append(args, remoteURL, targetPath)
-		if err := p.gitRunner.Run(ctx, args...); err != nil {
-			return ProjectRepoProvisionResult{}, err
-		}
 	}
-
 	if ref != "" {
 		notifyProvisionProgress(input.Progress, "checkout_ref", "checking out requested ref")
-		if err := p.gitRunner.Run(ctx, "-C", targetPath, "checkout", ref); err != nil {
-			return ProjectRepoProvisionResult{}, err
-		}
+	}
+	cloneResult, err := p.clonePlugin.Clone(ctx, workspaceclone.CloneRequest{
+		RemoteURL:  remoteURL,
+		TargetPath: targetPath,
+		Ref:        ref,
+	})
+	if err != nil {
+		return ProjectRepoProvisionResult{}, err
+	}
+
+	repoPath := strings.TrimSpace(cloneResult.RepoPath)
+	if repoPath == "" {
+		repoPath = targetPath
+	}
+	owner := strings.TrimSpace(cloneResult.Owner)
+	if owner == "" {
+		owner = remote.Owner
+	}
+	repo := strings.TrimSpace(cloneResult.Repo)
+	if repo == "" {
+		repo = remote.Repo
 	}
 
 	return ProjectRepoProvisionResult{
-		RepoPath:    targetPath,
+		RepoPath:    repoPath,
 		GitHubOwner: owner,
 		GitHubRepo:  repo,
 	}, nil
@@ -231,17 +236,34 @@ func normalizeProjectSlug(raw string) string {
 	return normalized
 }
 
-func isValidGitHubNamePart(value string) bool {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return false
-	}
-	return reGitHubNameCharacters.MatchString(trimmed)
-}
-
 func pathExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func buildRemoteRepoKey(host, owner, repo string) string {
+	return normalizeRepoKeyPart(host) + "__" + normalizeRepoKeyPart(owner) + "__" + normalizeRepoKeyPart(repo)
+}
+
+func normalizeRepoKeyPart(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "unknown"
+	}
+	var b strings.Builder
+	b.Grow(len(trimmed))
+	for _, ch := range trimmed {
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch == '.' {
+			b.WriteRune(ch)
+			continue
+		}
+		b.WriteByte('-')
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "unknown"
+	}
+	return out
 }
 
 func notifyProvisionProgress(progress func(step, message string), step, message string) {

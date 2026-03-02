@@ -297,8 +297,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("项目来源"), {
       target: { value: "github_clone" },
     });
-    expect(screen.getByLabelText("GitHub Owner")).toBeTruthy();
-    expect(screen.getByLabelText("GitHub Repo")).toBeTruthy();
+    expect(screen.getByLabelText("Remote URL")).toBeTruthy();
     expect(screen.queryByLabelText("仓库路径")).toBeNull();
   });
 

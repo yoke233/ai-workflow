@@ -96,8 +96,7 @@ const ProjectAdminPanel = ({
   const [sourceType, setSourceType] = useState<ProjectSourceType>("local_path");
   const [name, setName] = useState("");
   const [repoPath, setRepoPath] = useState("");
-  const [owner, setOwner] = useState("");
-  const [repo, setRepo] = useState("");
+  const [remoteUrl, setRemoteUrl] = useState("");
   const [ref, setRef] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [phase, setPhase] = useState<CreatePhase>("idle");
@@ -123,10 +122,10 @@ const ProjectAdminPanel = ({
       return repoPath.trim().length > 0;
     }
     if (sourceType === "github_clone") {
-      return owner.trim().length > 0 && repo.trim().length > 0;
+      return remoteUrl.trim().length > 0;
     }
     return true;
-  }, [isBusy, name, owner, repo, repoPath, sourceType]);
+  }, [isBusy, name, remoteUrl, repoPath, sourceType]);
 
   const resolvePayload = useCallback((): CreateProjectCreateRequest | null => {
     const nextName = name.trim();
@@ -149,17 +148,15 @@ const ProjectAdminPanel = ({
     }
 
     if (sourceType === "github_clone") {
-      const nextOwner = owner.trim();
-      const nextRepo = repo.trim();
-      if (nextOwner.length === 0 || nextRepo.length === 0) {
-        setFailureMessage("请输入 GitHub Owner 和 GitHub Repo");
+      const nextRemoteURL = remoteUrl.trim();
+      if (nextRemoteURL.length === 0) {
+        setFailureMessage("请输入远程仓库地址");
         return null;
       }
       const payload: CreateProjectCreateRequest = {
         name: nextName,
         source_type: "github_clone",
-        owner: nextOwner,
-        repo: nextRepo,
+        remote_url: nextRemoteURL,
       };
       const nextRef = ref.trim();
       if (nextRef.length > 0) {
@@ -172,7 +169,7 @@ const ProjectAdminPanel = ({
       name: nextName,
       source_type: "local_new",
     };
-  }, [name, owner, ref, repo, repoPath, sourceType]);
+  }, [name, ref, remoteUrl, repoPath, sourceType]);
 
   const notifySucceeded = useCallback(
     async (projectId?: string, message?: string) => {
@@ -395,34 +392,18 @@ const ProjectAdminPanel = ({
         {sourceType === "github_clone" ? (
           <>
             <div className="flex flex-col gap-1">
-              <label htmlFor="create-github-owner" className="text-xs font-medium text-slate-700">
-                GitHub Owner
+              <label htmlFor="create-remote-url" className="text-xs font-medium text-slate-700">
+                Remote URL
               </label>
               <input
-                id="create-github-owner"
+                id="create-remote-url"
                 className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                value={owner}
+                value={remoteUrl}
                 onChange={(event) => {
-                  setOwner(event.target.value);
+                  setRemoteUrl(event.target.value);
                   setFailureMessage(null);
                 }}
-                placeholder="例如：octocat"
-                disabled={isBusy}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="create-github-repo" className="text-xs font-medium text-slate-700">
-                GitHub Repo
-              </label>
-              <input
-                id="create-github-repo"
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                value={repo}
-                onChange={(event) => {
-                  setRepo(event.target.value);
-                  setFailureMessage(null);
-                }}
-                placeholder="例如：hello-world"
+                placeholder="例如：https://github.com/octocat/hello-world.git 或 git@github.com:octocat/hello-world.git"
                 disabled={isBusy}
               />
             </div>

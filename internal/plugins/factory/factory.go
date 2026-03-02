@@ -24,6 +24,7 @@ import (
 	storesqlite "github.com/user/ai-workflow/internal/plugins/store-sqlite"
 	trackergithub "github.com/user/ai-workflow/internal/plugins/tracker-github"
 	trackerlocal "github.com/user/ai-workflow/internal/plugins/tracker-local"
+	workspaceworktree "github.com/user/ai-workflow/internal/plugins/workspace-worktree"
 	"github.com/user/ai-workflow/internal/secretary"
 )
 
@@ -38,16 +39,20 @@ type BootstrapSet struct {
 	SCM          core.SCM
 	Notifier     core.Notifier
 	Spec         core.SpecPlugin
+	Workspace    core.WorkspacePlugin
 }
 
 const (
-	defaultReviewGatePlugin = "review-ai-panel"
-	localReviewGatePlugin   = "review-local"
-	defaultTrackerPlugin    = "tracker-local"
-	defaultSCMPlugin        = "local-git"
-	defaultNotifierPlugin   = "desktop"
-	githubTrackerPluginName = "tracker-github"
-	githubSCMPluginName     = "scm-github"
+	slotAgentDriver         core.PluginSlot = "agent"
+	slotRuntimeDriver       core.PluginSlot = "runtime"
+	defaultWorkspacePlugin                  = "worktree"
+	defaultReviewGatePlugin                 = "review-ai-panel"
+	localReviewGatePlugin                   = "review-local"
+	defaultTrackerPlugin                    = "tracker-local"
+	defaultSCMPlugin                        = "local-git"
+	defaultNotifierPlugin                   = "desktop"
+	githubTrackerPluginName                 = "tracker-github"
+	githubSCMPluginName                     = "scm-github"
 )
 
 type pluginNameOverrides struct {
@@ -131,9 +136,9 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 	}
 
 	runtimeName := strings.TrimSpace(effective.Runtime.Driver)
-	runtimeModule, ok := registry.Get(core.SlotRuntime, runtimeName)
+	runtimeModule, ok := registry.Get(slotRuntimeDriver, runtimeName)
 	if !ok {
-		return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotRuntime, runtimeName)
+		return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", slotRuntimeDriver, runtimeName)
 	}
 	runtimeRaw, err := runtimeModule.Factory(nil)
 	if err != nil {
@@ -141,7 +146,7 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 	}
 	runtimePlugin, ok := runtimeRaw.(core.RuntimePlugin)
 	if !ok {
-		return nil, fmt.Errorf("plugin is not a runtime plugin: slot=%s name=%s", core.SlotRuntime, runtimeName)
+		return nil, fmt.Errorf("plugin is not a runtime plugin: slot=%s name=%s", slotRuntimeDriver, runtimeName)
 	}
 
 	agentConfigs := map[string]*config.AgentConfig{
@@ -158,9 +163,9 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 			moduleName = strings.TrimSpace(*agentCfg.Plugin)
 		}
 
-		module, ok := registry.Get(core.SlotAgent, moduleName)
+		module, ok := registry.Get(slotAgentDriver, moduleName)
 		if !ok {
-			return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotAgent, moduleName)
+			return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", slotAgentDriver, moduleName)
 		}
 		raw, err := module.Factory(agentConfigToMap(agentCfg))
 		if err != nil {
@@ -168,7 +173,7 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 		}
 		agentPlugin, ok := raw.(core.AgentPlugin)
 		if !ok {
-			return nil, fmt.Errorf("plugin is not an agent plugin: slot=%s name=%s", core.SlotAgent, moduleName)
+			return nil, fmt.Errorf("plugin is not an agent plugin: slot=%s name=%s", slotAgentDriver, moduleName)
 		}
 		agents[agentName] = agentPlugin
 	}
@@ -285,6 +290,18 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 	if err != nil {
 		return nil, err
 	}
+	workspaceModule, ok := registry.Get(core.SlotWorkspace, defaultWorkspacePlugin)
+	if !ok {
+		return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotWorkspace, defaultWorkspacePlugin)
+	}
+	workspaceRaw, err := workspaceModule.Factory(nil)
+	if err != nil {
+		return nil, fmt.Errorf("build workspace plugin %q: %w", defaultWorkspacePlugin, err)
+	}
+	workspacePlugin, ok := workspaceRaw.(core.WorkspacePlugin)
+	if !ok {
+		return nil, fmt.Errorf("plugin is not a workspace plugin: slot=%s name=%s", core.SlotWorkspace, defaultWorkspacePlugin)
+	}
 
 	return &BootstrapSet{
 		Agents:       agents,
@@ -296,6 +313,7 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 		SCM:          scmPlugin,
 		Notifier:     notifierPlugin,
 		Spec:         specPlugin,
+		Workspace:    workspacePlugin,
 	}, nil
 }
 
@@ -304,7 +322,7 @@ func newDefaultRegistry() (*core.Registry, error) {
 	modules := []core.PluginModule{
 		{
 			Name: "claude",
-			Slot: core.SlotAgent,
+			Slot: slotAgentDriver,
 			Factory: func(cfg map[string]any) (core.Plugin, error) {
 				binary := stringFromMap(cfg, "binary", "claude")
 				return agentclaude.New(binary), nil
@@ -312,7 +330,7 @@ func newDefaultRegistry() (*core.Registry, error) {
 		},
 		{
 			Name: "codex",
-			Slot: core.SlotAgent,
+			Slot: slotAgentDriver,
 			Factory: func(cfg map[string]any) (core.Plugin, error) {
 				binary := stringFromMap(cfg, "binary", "codex")
 				model := stringFromMap(cfg, "model", "gpt-5.3-codex")
@@ -322,7 +340,7 @@ func newDefaultRegistry() (*core.Registry, error) {
 		},
 		{
 			Name: "process",
-			Slot: core.SlotRuntime,
+			Slot: slotRuntimeDriver,
 			Factory: func(map[string]any) (core.Plugin, error) {
 				return runtimeprocess.New(), nil
 			},
@@ -422,6 +440,7 @@ func newDefaultRegistry() (*core.Registry, error) {
 				return notifierdesktop.New(), nil
 			},
 		},
+		workspaceworktree.Module(),
 		specnoop.Module(),
 	}
 

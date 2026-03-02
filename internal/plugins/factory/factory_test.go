@@ -3,12 +3,30 @@ package factory
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/user/ai-workflow/internal/config"
 	"github.com/user/ai-workflow/internal/core"
 )
+
+func TestFactoryNoCoreCommunicationSlotDependency(t *testing.T) {
+	content, err := os.ReadFile("factory.go")
+	if err != nil {
+		t.Fatalf("read factory.go: %v", err)
+	}
+
+	src := string(content)
+	for _, legacy := range []string{
+		"core.SlotAgent",
+		"core.SlotRuntime",
+	} {
+		if strings.Contains(src, legacy) {
+			t.Fatalf("legacy reference still exists in factory: %s", legacy)
+		}
+	}
+}
 
 func TestFactoryBuildKnownPlugin(t *testing.T) {
 	cfg := config.Defaults()
@@ -58,6 +76,12 @@ func TestFactoryBuildKnownPlugin(t *testing.T) {
 	}
 	if set.Spec == nil {
 		t.Fatal("expected spec plugin to be initialized")
+	}
+	if set.Workspace == nil {
+		t.Fatal("expected workspace plugin to be initialized")
+	}
+	if set.Workspace.Name() != "workspace-worktree" {
+		t.Fatalf("expected workspace plugin name workspace-worktree, got %q", set.Workspace.Name())
 	}
 	if set.RoleResolver == nil {
 		t.Fatal("expected role resolver to be initialized")

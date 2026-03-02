@@ -190,7 +190,7 @@ git commit -m "feat(tracker): add linear tracker plugin and factory selection"
 - Linear 假服务（创建任务、更新状态、网络失败）。
 
 ### Smoke Cases
-- `/switch codex` 能触发 `change_agent` 并继续执行。
+- `/switch codex` 能触发 `change_role` 并继续执行。
 - `/logs implement` 能返回实现阶段摘要评论。
 - tracker-linear 失败时仅 warning，本地 task 状态仍推进。
 
@@ -208,3 +208,4 @@ git commit -m "feat(tracker): add linear tracker plugin and factory selection"
 
 ## Next Wave Entry Condition
 - Governed by `executing-wave-plans` verdict rule (`Go` / satisfied `Conditional Go` only), then enter Wave 6.
+

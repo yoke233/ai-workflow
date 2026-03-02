@@ -313,8 +313,7 @@ describe("apiClient", () => {
     const accepted = await client.createProjectCreateRequest({
       name: "demo",
       source_type: "github_clone",
-      owner: "acme",
-      repo: "demo",
+      remote_url: "https://github.com/acme/demo.git",
       ref: "main",
     });
     const status = await client.getProjectCreateRequest("req-1");
@@ -334,8 +333,7 @@ describe("apiClient", () => {
     expect(parsedBody).toEqual({
       name: "demo",
       source_type: "github_clone",
-      owner: "acme",
-      repo: "demo",
+      remote_url: "https://github.com/acme/demo.git",
       ref: "main",
     });
   });

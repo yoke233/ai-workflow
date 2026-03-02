@@ -25,8 +25,7 @@ export interface CreateProjectCreateRequest {
   name: string;
   source_type: ProjectSourceType;
   repo_path?: string;
-  owner?: string;
-  repo?: string;
+  remote_url?: string;
   ref?: string;
 }
 

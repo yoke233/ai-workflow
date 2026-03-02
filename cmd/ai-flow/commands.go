@@ -141,11 +141,15 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, *ev
 	if bootstrapSet.Spec == nil {
 		return nil, nil, nil, errors.New("spec plugin is not configured in bootstrap set")
 	}
+	if bootstrapSet.Workspace == nil {
+		return nil, nil, nil, errors.New("workspace plugin is not configured in bootstrap set")
+	}
 
 	bus := eventbus.New()
 	logger := slog.Default()
 	exec := engine.NewExecutor(bootstrapSet.Store, bus, bootstrapSet.Agents, bootstrapSet.Runtime, logger)
 	exec.SetRoleResolver(bootstrapSet.RoleResolver)
+	exec.SetWorkspace(bootstrapSet.Workspace)
 	exec.SetPipelineStageRoles(cfg.RoleBinds.Pipeline.StageRoles)
 
 	recoveryOnce.Do(func() {
