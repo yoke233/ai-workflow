@@ -19,8 +19,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/user/ai-workflow/internal/observability"
-	"github.com/user/ai-workflow/internal/observability/logctx"
+	"github.com/yoke233/ai-workflow/internal/observability"
+	"github.com/yoke233/ai-workflow/internal/observability/logctx"
 )
 
 type stringSliceFlag []string

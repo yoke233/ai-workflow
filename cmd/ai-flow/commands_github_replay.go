@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	ghwebhook "github.com/user/ai-workflow/internal/github"
+	ghwebhook "github.com/yoke233/ai-workflow/internal/github"
 )
 
 var githubReplayByDeliveryID = func(ctx context.Context, deliveryID string) (bool, error) {

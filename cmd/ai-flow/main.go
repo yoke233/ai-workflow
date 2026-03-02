@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	agentclaude "github.com/user/ai-workflow/internal/plugins/agent-claude"
-	runtimeprocess "github.com/user/ai-workflow/internal/plugins/runtime-process"
-	"github.com/user/ai-workflow/internal/tui"
+	agentclaude "github.com/yoke233/ai-workflow/internal/plugins/agent-claude"
+	runtimeprocess "github.com/yoke233/ai-workflow/internal/plugins/runtime-process"
+	"github.com/yoke233/ai-workflow/internal/tui"
 )
 
 func main() {

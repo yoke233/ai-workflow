@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user/ai-workflow/internal/config"
-	ghsvc "github.com/user/ai-workflow/internal/github"
+	"github.com/yoke233/ai-workflow/internal/config"
+	ghsvc "github.com/yoke233/ai-workflow/internal/github"
 )
 
 var probeGitHubAppPermissions = func(ctx context.Context, _ config.GitHubConfig) error {
