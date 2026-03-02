@@ -212,6 +212,80 @@ func TestCreateListGetPlanAndDAG(t *testing.T) {
 	}
 }
 
+func TestCreatePlanUsesConfiguredPlanParserRole(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-plan-role-api",
+		Name:     "plan-role-api",
+		RepoPath: filepath.Join(t.TempDir(), "repo-plan-role-api"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	session := &core.ChatSession{
+		ID:        "chat-20260302-planrole01",
+		ProjectID: project.ID,
+		Messages: []core.ChatMessage{
+			{Role: "user", Content: "请生成任务计划"},
+		},
+	}
+	if err := store.CreateChatSession(session); err != nil {
+		t.Fatalf("seed chat session: %v", err)
+	}
+
+	gotRole := ""
+	planManager := &testPlanManager{
+		createDraftFn: func(_ context.Context, input secretary.CreateDraftInput) (*core.TaskPlan, error) {
+			gotRole = strings.TrimSpace(input.Request.Role)
+			plan := &core.TaskPlan{
+				ID:         "plan-20260302-role",
+				ProjectID:  input.ProjectID,
+				SessionID:  input.SessionID,
+				Name:       "role-plan",
+				Status:     core.PlanDraft,
+				WaitReason: core.WaitNone,
+				FailPolicy: core.FailBlock,
+			}
+			if err := store.CreateTaskPlan(plan); err != nil {
+				return nil, err
+			}
+			return store.GetTaskPlan(plan.ID)
+		},
+	}
+
+	srv := NewServer(Config{
+		Store:            store,
+		PlanManager:      planManager,
+		PlanParserRoleID: "plan_parser_custom",
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, err := json.Marshal(map[string]any{
+		"session_id": session.ID,
+		"name":       "role-plan",
+	})
+	if err != nil {
+		t.Fatalf("marshal create plan body: %v", err)
+	}
+
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-plan-role-api/plans",
+		"application/json",
+		bytes.NewReader(rawBody),
+	)
+	if err != nil {
+		t.Fatalf("POST /api/v1/projects/{pid}/plans: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	if gotRole != "plan_parser_custom" {
+		t.Fatalf("expected create draft request role %q, got %q", "plan_parser_custom", gotRole)
+	}
+}
+
 func TestSubmitPlanReviewReturnsReviewing(t *testing.T) {
 	store := newTestStore(t)
 	project := core.Project{

@@ -13,9 +13,12 @@ import (
 	"github.com/user/ai-workflow/internal/secretary"
 )
 
+const defaultPlanParserRoleID = "plan_parser"
+
 type planHandlers struct {
 	store       core.Store
 	planManager PlanManager
+	planRoleID  string
 }
 
 type createPlanRequest struct {
@@ -72,10 +75,11 @@ type planActionFeedback struct {
 	ExpectedDirection string `json:"expected_direction,omitempty"`
 }
 
-func registerPlanRoutes(r chi.Router, store core.Store, planManager PlanManager) {
+func registerPlanRoutes(r chi.Router, store core.Store, planManager PlanManager, planParserRoleID string) {
 	h := &planHandlers{
 		store:       store,
 		planManager: planManager,
+		planRoleID:  resolvePlanParserRoleID(planParserRoleID),
 	}
 	r.Post("/projects/{projectID}/plans", h.createPlan)
 	r.Get("/projects/{projectID}/plans", h.listPlans)
@@ -151,6 +155,7 @@ func (h *planHandlers) createPlan(w http.ResponseWriter, r *http.Request) {
 		Conversation: summarizeChatMessages(session.Messages),
 		ProjectName:  strings.TrimSpace(project.Name),
 		RepoPath:     strings.TrimSpace(project.RepoPath),
+		Role:         h.planRoleID,
 		WorkDir:      strings.TrimSpace(project.RepoPath),
 	}
 	if createReq.WorkDir == "" {
@@ -169,6 +174,14 @@ func (h *planHandlers) createPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, normalizeTaskPlanForAPI(created))
+}
+
+func resolvePlanParserRoleID(roleID string) string {
+	trimmed := strings.TrimSpace(roleID)
+	if trimmed == "" {
+		return defaultPlanParserRoleID
+	}
+	return trimmed
 }
 
 func (h *planHandlers) listPlans(w http.ResponseWriter, r *http.Request) {

@@ -46,6 +46,7 @@ type Config struct {
 	ChatAssistant          ChatAssistant
 	PipelineExec           PipelineExecutor
 	PipelineStageRoles     map[string]string
+	PlanParserRoleID       string
 	WebhookReplayer        WebhookDeliveryReplayer
 	Hub                    *Hub
 	ProjectRepoProvisioner ProjectRepoProvisioner
@@ -107,7 +108,7 @@ func NewServer(cfg Config) *Server {
 		registerProjectRoutes(r, cfg.Store, hub, projectRepoProvisioner)
 		registerPipelineRoutes(r, cfg.Store, cfg.PipelineExec, cfg.PipelineStageRoles)
 		registerChatRoutes(r, cfg.Store, cfg.ChatAssistant)
-		registerPlanRoutes(r, cfg.Store, cfg.PlanManager)
+		registerPlanRoutes(r, cfg.Store, cfg.PlanManager, cfg.PlanParserRoleID)
 		registerTaskRoutes(r, cfg.Store)
 		registerAdminOpsRoutes(r, cfg.Store, cfg.BearerToken, webhookReplayer)
 		r.Get("/ws", hub.HandleWS)

@@ -594,6 +594,7 @@ func runServer(ctx context.Context, args []string) error {
 		ChatAssistant:      chatAssistant,
 		PipelineExec:       exec,
 		PipelineStageRoles: cfg.RoleBinds.Pipeline.StageRoles,
+		PlanParserRoleID:   strings.TrimSpace(cfg.RoleBinds.PlanParser.Role),
 		Hub:                hub,
 	})
 
