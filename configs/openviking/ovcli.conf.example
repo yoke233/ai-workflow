@@ -1,0 +1,6 @@
+{
+  "url": "http://localhost:1933",
+  "timeout": 60.0,
+  "output": "table"
+}
+

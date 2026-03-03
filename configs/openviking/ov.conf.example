@@ -1,0 +1,27 @@
+{
+  "storage": {
+    "workspace": "/app/data"
+  },
+  "log": {
+    "level": "INFO",
+    "output": "stdout"
+  },
+  "embedding": {
+    "dense": {
+      "provider": "openai",
+      "api_base": "https://api.openai.com/v1",
+      "api_key": "FILL_ME",
+      "model": "text-embedding-3-large",
+      "dimension": 3072
+    },
+    "max_concurrent": 10
+  },
+  "vlm": {
+    "provider": "openai",
+    "api_base": "https://api.openai.com/v1",
+    "api_key": "FILL_ME",
+    "model": "gpt-4o",
+    "max_concurrent": 50
+  }
+}
+
