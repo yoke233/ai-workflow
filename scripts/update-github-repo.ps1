@@ -135,18 +135,18 @@ function Remove-GitSuffix {
 
 function New-RepoSpec {
   param(
-    [string]$Host,
+    [string]$RepoHost,
     [string]$Owner,
     [string]$Repo,
     [string]$GitRemote
   )
 
-  $hostNormalized = $Host.Trim().ToLowerInvariant()
+  $hostNormalized = $RepoHost.Trim().ToLowerInvariant()
   $ownerNormalized = $Owner.Trim()
   $repoNormalized = Remove-GitSuffix -RepoName $Repo.Trim()
 
   if (-not $hostNormalized -or -not $ownerNormalized -or -not $repoNormalized) {
-    throw "仓库信息不完整：host=$Host owner=$Owner repo=$Repo"
+    throw "仓库信息不完整：host=$RepoHost owner=$Owner repo=$Repo"
   }
 
   return @{
@@ -171,23 +171,23 @@ function Resolve-RepositorySpec {
     $owner = $Matches.owner
     $repo = Remove-GitSuffix -RepoName $Matches.repo
     $gitRemote = "https://github.com/$owner/$repo.git"
-    return New-RepoSpec -Host "github.com" -Owner $owner -Repo $repo -GitRemote $gitRemote
+    return New-RepoSpec -RepoHost "github.com" -Owner $owner -Repo $repo -GitRemote $gitRemote
   }
 
   if ($raw -match '^(?<host>[^/\s]+\.[^/\s]+)/(?<owner>[^/\s]+)/(?<repo>[^/\s]+)$') {
-    $host = $Matches.host
+    $repoHost = $Matches.host
     $owner = $Matches.owner
     $repo = Remove-GitSuffix -RepoName $Matches.repo
-    $gitRemote = "https://$host/$owner/$repo.git"
-    return New-RepoSpec -Host $host -Owner $owner -Repo $repo -GitRemote $gitRemote
+    $gitRemote = "https://$repoHost/$owner/$repo.git"
+    return New-RepoSpec -RepoHost $repoHost -Owner $owner -Repo $repo -GitRemote $gitRemote
   }
 
   if ($raw -match '^(?<user>[^@/\s]+)@(?<host>[^:/\s]+):(?<owner>[^/\s]+)/(?<repo>[^/\s]+?)(?:\.git)?/?$') {
-    $host = $Matches.host
+    $repoHost = $Matches.host
     $owner = $Matches.owner
     $repo = Remove-GitSuffix -RepoName $Matches.repo
-    $gitRemote = "$($Matches.user)@${host}:$owner/$repo.git"
-    return New-RepoSpec -Host $host -Owner $owner -Repo $repo -GitRemote $gitRemote
+    $gitRemote = "$($Matches.user)@${repoHost}:$owner/$repo.git"
+    return New-RepoSpec -RepoHost $repoHost -Owner $owner -Repo $repo -GitRemote $gitRemote
   }
 
   $uri = $null
@@ -205,7 +205,7 @@ function Resolve-RepositorySpec {
     $owner = $segments[0]
     $repo = Remove-GitSuffix -RepoName $segments[1]
     $gitRemote = $raw.TrimEnd("/")
-    return New-RepoSpec -Host $uri.Host -Owner $owner -Repo $repo -GitRemote $gitRemote
+    return New-RepoSpec -RepoHost $uri.Host -Owner $owner -Repo $repo -GitRemote $gitRemote
   }
 
   throw "不支持的仓库写法：$raw。请使用 owner/repo、https、ssh 或 git@host:owner/repo。"
