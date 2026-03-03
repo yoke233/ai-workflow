@@ -170,6 +170,11 @@ func Defaults() Config {
 				MaxConcurrentTasks: 2,
 			},
 		},
+		A2A: A2AConfig{
+			Enabled: false,
+			Token:   "",
+			Version: "0.3",
+		},
 		Server: ServerConfig{
 			Host: "127.0.0.1",
 			Port: 8080,

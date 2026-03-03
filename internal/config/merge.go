@@ -201,6 +201,18 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		}
 	}
 
+	if a2a := layer.A2A; a2a != nil {
+		if a2a.Enabled != nil {
+			cfg.A2A.Enabled = *a2a.Enabled
+		}
+		if a2a.Token != nil {
+			cfg.A2A.Token = *a2a.Token
+		}
+		if a2a.Version != nil {
+			cfg.A2A.Version = *a2a.Version
+		}
+	}
+
 	if server := layer.Server; server != nil {
 		if server.Host != nil {
 			cfg.Server.Host = *server.Host

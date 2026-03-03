@@ -133,6 +133,56 @@ func TestConfig_Defaults_GitHub(t *testing.T) {
 	}
 }
 
+func TestA2ADefaults_DisabledByDefault(t *testing.T) {
+	cfg := Defaults()
+	if cfg.A2A.Enabled {
+		t.Fatal("expected a2a.enabled default false, got true")
+	}
+	if cfg.A2A.Token != "" {
+		t.Fatalf("expected a2a.token default empty, got %q", cfg.A2A.Token)
+	}
+	if cfg.A2A.Version != "0.3" {
+		t.Fatalf("expected a2a.version default 0.3, got %q", cfg.A2A.Version)
+	}
+}
+
+func TestA2AToken_CanBeReadFromConfig(t *testing.T) {
+	cfg, err := loadAndValidate(t, `
+a2a:
+  token: "a2a-token"
+`)
+	if err != nil {
+		t.Fatalf("loadAndValidate failed: %v", err)
+	}
+	if cfg.A2A.Token != "a2a-token" {
+		t.Fatalf("expected a2a.token loaded, got %q", cfg.A2A.Token)
+	}
+}
+
+func TestA2AEnabledWithoutToken_FailFast(t *testing.T) {
+	_, err := loadAndValidate(t, `
+a2a:
+  enabled: true
+  token: ""
+`)
+	if err == nil {
+		t.Fatal("expected enabled a2a with empty token to fail")
+	}
+}
+
+func TestA2AEnabledWithoutToken_NoServerAuthFallback(t *testing.T) {
+	_, err := loadAndValidate(t, `
+server:
+  auth_token: "legacy-token"
+a2a:
+  enabled: true
+  token: ""
+`)
+	if err == nil {
+		t.Fatal("expected enabled a2a with empty token to fail even when server.auth_token is set")
+	}
+}
+
 func TestRoleDrivenConfigLoad(t *testing.T) {
 	cfg := loadTestConfig(t, `
 agents:

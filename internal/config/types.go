@@ -6,10 +6,11 @@ type Config struct {
 	Agents    AgentsConfig    `yaml:"agents"`
 	Roles     []RoleConfig    `yaml:"roles"`
 	RoleBinds RoleBindings    `yaml:"role_bindings"`
-Runtime   RuntimeConfig   `yaml:"runtime"`
+	Runtime   RuntimeConfig   `yaml:"runtime"`
 	Pipeline  PipelineConfig  `yaml:"pipeline"`
 	Scheduler SchedulerConfig `yaml:"scheduler"`
 	Secretary SecretaryConfig `yaml:"secretary"`
+	A2A       A2AConfig       `yaml:"a2a"`
 	Server    ServerConfig    `yaml:"server"`
 	GitHub    GitHubConfig    `yaml:"github"`
 	Store     StoreConfig     `yaml:"store"`
@@ -65,6 +66,12 @@ type DAGSchedulerConfig struct {
 	MaxConcurrentTasks int `yaml:"max_concurrent_tasks"`
 }
 
+type A2AConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Token   string `yaml:"token"`
+	Version string `yaml:"version"`
+}
+
 type ServerConfig struct {
 	Host        string `yaml:"host"`
 	Port        int    `yaml:"port"`
@@ -116,10 +123,11 @@ type ConfigLayer struct {
 	Agents    *AgentsLayer       `yaml:"agents"`
 	Roles     *[]RoleConfig      `yaml:"roles"`
 	RoleBinds *RoleBindingsLayer `yaml:"role_bindings"`
-Runtime   *RuntimeLayer      `yaml:"runtime"`
+	Runtime   *RuntimeLayer      `yaml:"runtime"`
 	Pipeline  *PipelineLayer     `yaml:"pipeline"`
 	Scheduler *SchedulerLayer    `yaml:"scheduler"`
 	Secretary *SecretaryLayer    `yaml:"secretary"`
+	A2A       *A2ALayer          `yaml:"a2a"`
 	Server    *ServerLayer       `yaml:"server"`
 	GitHub    *GitHubLayer       `yaml:"github"`
 	Store     *StoreLayer        `yaml:"store"`
@@ -161,6 +169,12 @@ type ReviewOrchestratorLayer struct {
 
 type DAGSchedulerLayer struct {
 	MaxConcurrentTasks *int `yaml:"max_concurrent_tasks"`
+}
+
+type A2ALayer struct {
+	Enabled *bool   `yaml:"enabled"`
+	Token   *string `yaml:"token"`
+	Version *string `yaml:"version"`
 }
 
 type ServerLayer struct {

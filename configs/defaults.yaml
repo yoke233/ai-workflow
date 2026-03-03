@@ -203,6 +203,11 @@ github:
 #     max_copies: 7                # 保留最近 N 份
 
 # Web Server（同时承载 API + WebSocket + GitHub Webhook）
+a2a:
+  enabled: false
+  token: ""
+  version: "0.3"
+
 server:
   host: "127.0.0.1"               # 监听地址，默认只监听本地
   port: 8080

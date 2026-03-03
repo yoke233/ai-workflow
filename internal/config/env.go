@@ -35,6 +35,20 @@ func ApplyEnvOverrides(cfg *Config) error {
 		cfg.Scheduler.MaxGlobalAgents = maxAgents
 	}
 
+	if v, ok := os.LookupEnv("AI_WORKFLOW_A2A_ENABLED"); ok {
+		enabled, err := strconv.ParseBool(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("invalid AI_WORKFLOW_A2A_ENABLED: %w", err)
+		}
+		cfg.A2A.Enabled = enabled
+	}
+	if v, ok := os.LookupEnv("AI_WORKFLOW_A2A_TOKEN"); ok {
+		cfg.A2A.Token = v
+	}
+	if v, ok := os.LookupEnv("AI_WORKFLOW_A2A_VERSION"); ok {
+		cfg.A2A.Version = v
+	}
+
 	if v, ok := os.LookupEnv("AI_WORKFLOW_GITHUB_TOKEN"); ok {
 		cfg.GitHub.Token = v
 	}
