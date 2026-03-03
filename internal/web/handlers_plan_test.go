@@ -324,6 +324,7 @@ func TestPlanCreateFromFilesPassesSourceFilesAndReviewInput(t *testing.T) {
 		"session_id": session.ID,
 		"name":       "from-files-plan",
 		"file_paths": []string{"docs/plan.md", "README.md"},
+		"auto_merge": false,
 	})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
@@ -363,6 +364,9 @@ func TestPlanCreateFromFilesPassesSourceFilesAndReviewInput(t *testing.T) {
 	if !reflect.DeepEqual(capturedCreateInput.FileContents, wantFileContents) {
 		t.Fatalf("unexpected create input file contents: %#v", capturedCreateInput.FileContents)
 	}
+	if capturedCreateInput.AutoMerge == nil || *capturedCreateInput.AutoMerge {
+		t.Fatalf("expected create input auto_merge=false, got %#v", capturedCreateInput.AutoMerge)
+	}
 	if !reflect.DeepEqual(created.SourceFiles, wantSourceFiles) {
 		t.Fatalf("unexpected response source files: %#v", created.SourceFiles)
 	}
@@ -377,6 +381,67 @@ func TestPlanCreateFromFilesPassesSourceFilesAndReviewInput(t *testing.T) {
 	}
 	if !strings.Contains(capturedReviewInput.ProjectContext, "project=plan-from-files") {
 		t.Fatalf("unexpected review project context: %q", capturedReviewInput.ProjectContext)
+	}
+}
+
+func TestPlanCreatePassesAutoMergeOption(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-plan-create-auto-merge",
+		Name:     "plan-create-auto-merge",
+		RepoPath: filepath.Join(t.TempDir(), "repo-plan-create-auto-merge"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	session := &core.ChatSession{
+		ID:        "chat-20260303-createautomerge01",
+		ProjectID: project.ID,
+		Messages: []core.ChatMessage{
+			{Role: "user", Content: "create issue with auto merge off"},
+		},
+	}
+	if err := store.CreateChatSession(session); err != nil {
+		t.Fatalf("seed chat session: %v", err)
+	}
+
+	var capturedAutoMerge *bool
+	manager := &testPlanManager{
+		createIssuesFn: func(_ context.Context, input IssueCreateInput) ([]core.Issue, error) {
+			capturedAutoMerge = input.AutoMerge
+			issue := core.Issue{
+				ID:         "issue-20260303-createautomerge01",
+				ProjectID:  input.ProjectID,
+				SessionID:  input.SessionID,
+				Title:      "auto-merge-option",
+				Template:   "standard",
+				State:      core.IssueStateOpen,
+				Status:     core.IssueStatusDraft,
+				FailPolicy: input.FailPolicy,
+				AutoMerge:  input.AutoMerge == nil || *input.AutoMerge,
+			}
+			if err := store.CreateIssue(&issue); err != nil {
+				return nil, err
+			}
+			return []core.Issue{issue}, nil
+		},
+	}
+
+	srv := NewServer(Config{Store: store, PlanManager: manager})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doIssuePost(t, ts, "/api/v1/projects/proj-plan-create-auto-merge/plans", map[string]any{
+		"session_id": session.ID,
+		"name":       "auto-merge-off-plan",
+		"auto_merge": false,
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	if capturedAutoMerge == nil || *capturedAutoMerge {
+		t.Fatalf("expected auto_merge=false to be forwarded, got %#v", capturedAutoMerge)
 	}
 }
 
@@ -688,6 +753,112 @@ func TestPlanActionApproveStatusConflictMapsTo409(t *testing.T) {
 	}
 }
 
+func TestPlanSetAutoMergeUpdatesIssueAndRecordsChange(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-plan-set-auto-merge",
+		Name:     "plan-set-auto-merge",
+		RepoPath: filepath.Join(t.TempDir(), "repo-plan-set-auto-merge"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	issue := mustCreateIssue(t, store, core.Issue{
+		ID:         "issue-20260303-setautomerge01",
+		ProjectID:  project.ID,
+		Title:      "set auto merge",
+		Template:   "standard",
+		State:      core.IssueStateOpen,
+		Status:     core.IssueStatusReviewing,
+		FailPolicy: core.FailBlock,
+		AutoMerge:  true,
+	})
+
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doIssuePost(t, ts, "/api/v1/projects/proj-plan-set-auto-merge/plans/"+issue.ID+"/auto-merge", map[string]any{
+		"auto_merge": false,
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var payload issueAutoMergeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode auto-merge response: %v", err)
+	}
+	if payload.AutoMerge {
+		t.Fatalf("expected auto_merge=false, got true")
+	}
+	if payload.Status != string(core.IssueStatusReviewing) {
+		t.Fatalf("expected status=%q, got %q", core.IssueStatusReviewing, payload.Status)
+	}
+
+	updated, err := store.GetIssue(issue.ID)
+	if err != nil {
+		t.Fatalf("GetIssue(%s): %v", issue.ID, err)
+	}
+	if updated.AutoMerge {
+		t.Fatalf("expected issue auto_merge to be false, got true")
+	}
+
+	changes, err := store.GetIssueChanges(issue.ID)
+	if err != nil {
+		t.Fatalf("GetIssueChanges(%s): %v", issue.ID, err)
+	}
+	found := false
+	for i := range changes {
+		change := changes[i]
+		if change.Field == "auto_merge" &&
+			change.OldValue == "true" &&
+			change.NewValue == "false" &&
+			change.Reason == "set_auto_merge" &&
+			change.ChangedBy == "web" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected auto_merge change record, got %#v", changes)
+	}
+}
+
+func TestPlanSetAutoMergeRequiresField(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-plan-set-auto-merge-required",
+		Name:     "plan-set-auto-merge-required",
+		RepoPath: filepath.Join(t.TempDir(), "repo-plan-set-auto-merge-required"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	issue := mustCreateIssue(t, store, core.Issue{
+		ID:         "issue-20260303-setautomerge02",
+		ProjectID:  project.ID,
+		Title:      "set auto merge required",
+		Template:   "standard",
+		State:      core.IssueStateOpen,
+		Status:     core.IssueStatusDraft,
+		FailPolicy: core.FailBlock,
+		AutoMerge:  true,
+	})
+
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := doIssuePost(t, ts, "/api/v1/projects/proj-plan-set-auto-merge-required/plans/"+issue.ID+"/auto-merge", map[string]any{})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
 func TestPlanListReturnsTotalWithPagination(t *testing.T) {
 	store := newTestStore(t)
 	project := core.Project{
@@ -879,10 +1050,12 @@ func TestPlanTimelineAggregatesAndSupportsFiltersPaginationAndAliases(t *testing
 
 	score := 95
 	if err := store.SaveReviewRecord(&core.ReviewRecord{
-		IssueID:  issue.ID,
-		Round:    2,
-		Reviewer: "timeline_reviewer",
-		Verdict:  "pass",
+		IssueID:   issue.ID,
+		Round:     2,
+		Reviewer:  "timeline_reviewer",
+		Verdict:   "pass",
+		Summary:   "评审通过，可进入执行阶段",
+		RawOutput: "review notes:\n- 依赖关系完整\n- 风险可控\n结论: approve",
 		Issues: []core.ReviewIssue{
 			{
 				Severity:    "low",
@@ -1061,6 +1234,17 @@ func TestPlanTimelineAggregatesAndSupportsFiltersPaginationAndAliases(t *testing
 	if aliasTimeline.Items[0].Kind != "review" || aliasTimeline.Items[0].ActorType != "agent" {
 		t.Fatalf("expected alias item kind=review, got %#v", aliasTimeline.Items[0])
 	}
+	if aliasTimeline.Items[0].Body != "评审通过，可进入执行阶段" {
+		t.Fatalf("expected review body from summary, got %q", aliasTimeline.Items[0].Body)
+	}
+	if got := toString(aliasTimeline.Items[0].Meta["raw_output"]); got == "" {
+		t.Fatalf("expected timeline meta.raw_output, got %#v", aliasTimeline.Items[0].Meta)
+	}
+}
+
+func toString(value any) string {
+	text, _ := value.(string)
+	return text
 }
 
 func doIssuePost(t *testing.T, ts *httptest.Server, path string, body map[string]any) *http.Response {

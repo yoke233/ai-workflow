@@ -486,10 +486,13 @@ func buildReviewVerdict(name string, issues []core.ReviewIssue) core.ReviewVerdi
 		status = "issues_found"
 		score = 60
 	}
+	summary := defaultVerdictSummary(status, score, len(issues))
 	return core.ReviewVerdict{
-		Reviewer: name,
-		Status:   status,
-		Issues:   issues,
-		Score:    score,
+		Reviewer:  name,
+		Status:    status,
+		Summary:   summary,
+		RawOutput: formatReviewRawOutput(summary, status, score, issues),
+		Issues:    issues,
+		Score:     score,
 	}
 }

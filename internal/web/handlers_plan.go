@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -34,6 +35,7 @@ type createIssuesRequest struct {
 	SessionID  string `json:"session_id"`
 	Name       string `json:"name"`
 	FailPolicy string `json:"fail_policy"`
+	AutoMerge  *bool  `json:"auto_merge"`
 }
 
 type createIssuesFromFilesRequest struct {
@@ -41,6 +43,7 @@ type createIssuesFromFilesRequest struct {
 	Name       string   `json:"name"`
 	FailPolicy string   `json:"fail_policy"`
 	FilePaths  []string `json:"file_paths"`
+	AutoMerge  *bool    `json:"auto_merge"`
 }
 
 type issueListResponse struct {
@@ -51,6 +54,15 @@ type issueListResponse struct {
 
 type issueStatusResponse struct {
 	Status string `json:"status"`
+}
+
+type issueAutoMergeRequest struct {
+	AutoMerge *bool `json:"auto_merge"`
+}
+
+type issueAutoMergeResponse struct {
+	Status    string `json:"status"`
+	AutoMerge bool   `json:"auto_merge"`
 }
 
 type issueTimelineResponse struct {
@@ -160,6 +172,7 @@ func registerIssueRoutes(r chi.Router, store core.Store, issueManager IssueManag
 		r.Get(base+"/{id}/timeline", h.getIssueTimeline)
 		r.Post(base+"/{id}/review", h.submitForReview)
 		r.Post(base+"/{id}/action", h.applyIssueAction)
+		r.Post(base+"/{id}/auto-merge", h.setIssueAutoMerge)
 	}
 
 	registerResourceRoutes("/projects/{projectID}/issues")
@@ -249,6 +262,7 @@ func (h *issueHandlers) createIssues(w http.ResponseWriter, r *http.Request) {
 		SessionID:  req.SessionID,
 		Name:       req.Name,
 		FailPolicy: failPolicy,
+		AutoMerge:  req.AutoMerge,
 		Request:    createReq,
 	})
 	if err != nil {
@@ -362,6 +376,7 @@ func (h *issueHandlers) createIssuesFromFiles(w http.ResponseWriter, r *http.Req
 		SessionID:    req.SessionID,
 		Name:         req.Name,
 		FailPolicy:   failPolicy,
+		AutoMerge:    req.AutoMerge,
 		Request:      createReq,
 		SourceFiles:  sourceFiles,
 		FileContents: cloneIssueStringMap(fileContents),
@@ -824,6 +839,55 @@ func (h *issueHandlers) applyIssueAction(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+func (h *issueHandlers) setIssueAutoMerge(w http.ResponseWriter, r *http.Request) {
+	issue, ok := h.loadIssueForProject(w, r)
+	if !ok {
+		return
+	}
+	if h.store == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
+		return
+	}
+
+	var req issueAutoMergeRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid json body", "INVALID_JSON")
+		return
+	}
+	if req.AutoMerge == nil {
+		writeAPIError(w, http.StatusBadRequest, "auto_merge is required", "AUTO_MERGE_REQUIRED")
+		return
+	}
+
+	current := issue.AutoMerge
+	next := *req.AutoMerge
+	if current != next {
+		issue.AutoMerge = next
+		if err := h.store.SaveIssue(issue); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to update issue", "SAVE_ISSUE_FAILED")
+			return
+		}
+		if err := h.store.SaveIssueChange(&core.IssueChange{
+			IssueID:   issue.ID,
+			Field:     "auto_merge",
+			OldValue:  strconv.FormatBool(current),
+			NewValue:  strconv.FormatBool(next),
+			Reason:    "set_auto_merge",
+			ChangedBy: "web",
+		}); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "failed to save issue change", "SAVE_ISSUE_CHANGE_FAILED")
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, issueAutoMergeResponse{
+		Status:    string(issue.Status),
+		AutoMerge: issue.AutoMerge,
+	})
+}
+
 func (h *issueHandlers) loadIssueForProject(w http.ResponseWriter, r *http.Request) (*core.Issue, bool) {
 	if h.store == nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
@@ -1039,15 +1103,27 @@ func (h *issueHandlers) collectIssueTimelineEvents(issue *core.Issue, kinds map[
 			hasTime := !record.CreatedAt.IsZero()
 
 			reviewer := normalizeTimelineActorName(record.Reviewer, "reviewer")
-			body := "verdict=" + issueTimelineStringOrFallback(record.Verdict, "unknown")
-			if record.Score != nil {
-				body += fmt.Sprintf(" · score=%d", *record.Score)
+			summary := strings.TrimSpace(record.Summary)
+			rawOutput := strings.TrimSpace(record.RawOutput)
+			body := summary
+			if body == "" {
+				body = "verdict=" + issueTimelineStringOrFallback(record.Verdict, "unknown")
+				if record.Score != nil {
+					body += fmt.Sprintf(" · score=%d", *record.Score)
+				}
+			}
+			if rawOutput == "" {
+				rawOutput = body
 			}
 			meta := map[string]any{
 				"round":        record.Round,
 				"verdict":      record.Verdict,
 				"issues_count": len(record.Issues),
 				"fixes_count":  len(record.Fixes),
+				"summary":      summary,
+				"raw_output":   rawOutput,
+				"issues":       record.Issues,
+				"fixes":        record.Fixes,
 			}
 			if record.Score != nil {
 				meta["score"] = *record.Score

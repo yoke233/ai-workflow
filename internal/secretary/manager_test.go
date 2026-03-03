@@ -88,6 +88,9 @@ func TestManager_CreateIssuesPersistsDraftWithDefaults(t *testing.T) {
 	if issue.Template != "standard" {
 		t.Fatalf("created template = %q, want %q", issue.Template, "standard")
 	}
+	if !issue.AutoMerge {
+		t.Fatalf("created auto_merge = %t, want true", issue.AutoMerge)
+	}
 	if issue.FailPolicy != core.FailBlock {
 		t.Fatalf("created fail_policy = %q, want %q", issue.FailPolicy, core.FailBlock)
 	}
@@ -104,6 +107,9 @@ func TestManager_CreateIssuesPersistsDraftWithDefaults(t *testing.T) {
 	}
 	if persisted.Status != core.IssueStatusDraft {
 		t.Fatalf("persisted status = %q, want %q", persisted.Status, core.IssueStatusDraft)
+	}
+	if !persisted.AutoMerge {
+		t.Fatalf("persisted auto_merge = %t, want true", persisted.AutoMerge)
 	}
 	if persisted.SessionID != sessionID {
 		t.Fatalf("persisted session_id = %q, want %q", persisted.SessionID, sessionID)
@@ -186,6 +192,167 @@ func TestManager_SubmitForReviewMarksIssueReviewingViaTwoPhase(t *testing.T) {
 	}
 	if change.Reason != "submit_for_review" {
 		t.Fatalf("change reason = %q, want %q", change.Reason, "submit_for_review")
+	}
+}
+
+func TestManager_SubmitForReviewAutoApprovesWhenAutoMergeEnabledAndRoundPasses(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+
+	project := mustCreateManagerProject(t, store, "proj-manager-auto-approve")
+	issue := mustCreateManagerIssue(t, store, project.ID, "issue-auto-approve", core.IssueStatusDraft, core.IssueStateOpen)
+	issue.AutoMerge = true
+	if err := store.SaveIssue(issue); err != nil {
+		t.Fatalf("SaveIssue(%s) error = %v", issue.ID, err)
+	}
+
+	review := &fakeManagerTwoPhaseReview{
+		submitHook: func(issues []*core.Issue) error {
+			for i := range issues {
+				if err := store.SaveReviewRecord(&core.ReviewRecord{
+					IssueID:   issues[i].ID,
+					Round:     1,
+					Reviewer:  "auto-reviewer",
+					Verdict:   "pass",
+					Issues:    nil,
+					Fixes:     nil,
+					RawOutput: "all checks passed",
+				}); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+	scheduler := &fakeManagerScheduler{}
+	manager, err := NewManager(store, nil, review, scheduler)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	if err := manager.SubmitForReview(context.Background(), []string{issue.ID}); err != nil {
+		t.Fatalf("SubmitForReview() error = %v", err)
+	}
+	if scheduler.startIssueCalls != 1 {
+		t.Fatalf("scheduler StartIssue calls = %d, want 1", scheduler.startIssueCalls)
+	}
+
+	updated, err := store.GetIssue(issue.ID)
+	if err != nil {
+		t.Fatalf("GetIssue(%s) error = %v", issue.ID, err)
+	}
+	if updated.Status != core.IssueStatusQueued {
+		t.Fatalf("updated status = %q, want %q", updated.Status, core.IssueStatusQueued)
+	}
+}
+
+func TestManager_SubmitForReviewDoesNotAutoApproveWhenAutoMergeDisabled(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+
+	project := mustCreateManagerProject(t, store, "proj-manager-auto-approve-disabled")
+	issue := mustCreateManagerIssue(t, store, project.ID, "issue-auto-approve-disabled", core.IssueStatusDraft, core.IssueStateOpen)
+	issue.AutoMerge = false
+	if err := store.SaveIssue(issue); err != nil {
+		t.Fatalf("SaveIssue(%s) error = %v", issue.ID, err)
+	}
+
+	review := &fakeManagerTwoPhaseReview{
+		submitHook: func(issues []*core.Issue) error {
+			for i := range issues {
+				if err := store.SaveReviewRecord(&core.ReviewRecord{
+					IssueID:  issues[i].ID,
+					Round:    1,
+					Reviewer: "auto-reviewer",
+					Verdict:  "pass",
+				}); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+	scheduler := &fakeManagerScheduler{}
+	manager, err := NewManager(store, nil, review, scheduler)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	if err := manager.SubmitForReview(context.Background(), []string{issue.ID}); err != nil {
+		t.Fatalf("SubmitForReview() error = %v", err)
+	}
+	if scheduler.startIssueCalls != 0 {
+		t.Fatalf("scheduler StartIssue calls = %d, want 0", scheduler.startIssueCalls)
+	}
+
+	updated, err := store.GetIssue(issue.ID)
+	if err != nil {
+		t.Fatalf("GetIssue(%s) error = %v", issue.ID, err)
+	}
+	if updated.Status != core.IssueStatusReviewing {
+		t.Fatalf("updated status = %q, want %q", updated.Status, core.IssueStatusReviewing)
+	}
+}
+
+func TestManager_SubmitForReviewDoesNotAutoApproveWhenRoundNotPass(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+
+	project := mustCreateManagerProject(t, store, "proj-manager-auto-approve-no-pass")
+	issue := mustCreateManagerIssue(t, store, project.ID, "issue-auto-approve-no-pass", core.IssueStatusDraft, core.IssueStateOpen)
+	issue.AutoMerge = true
+	if err := store.SaveIssue(issue); err != nil {
+		t.Fatalf("SaveIssue(%s) error = %v", issue.ID, err)
+	}
+
+	review := &fakeManagerTwoPhaseReview{
+		submitHook: func(issues []*core.Issue) error {
+			for i := range issues {
+				if err := store.SaveReviewRecord(&core.ReviewRecord{
+					IssueID:  issues[i].ID,
+					Round:    1,
+					Reviewer: "auto-reviewer",
+					Verdict:  "fix",
+					Issues: []core.ReviewIssue{
+						{
+							Severity:    "high",
+							IssueID:     "rv-1",
+							Description: "need rework",
+							Suggestion:  "add missing rollback flow",
+						},
+					},
+				}); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
+	scheduler := &fakeManagerScheduler{}
+	manager, err := NewManager(store, nil, review, scheduler)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	if err := manager.SubmitForReview(context.Background(), []string{issue.ID}); err != nil {
+		t.Fatalf("SubmitForReview() error = %v", err)
+	}
+	if scheduler.startIssueCalls != 0 {
+		t.Fatalf("scheduler StartIssue calls = %d, want 0", scheduler.startIssueCalls)
+	}
+
+	updated, err := store.GetIssue(issue.ID)
+	if err != nil {
+		t.Fatalf("GetIssue(%s) error = %v", issue.ID, err)
+	}
+	if updated.Status != core.IssueStatusReviewing {
+		t.Fatalf("updated status = %q, want %q", updated.Status, core.IssueStatusReviewing)
 	}
 }
 
@@ -597,6 +764,7 @@ type fakeManagerTwoPhaseReview struct {
 
 	submitCalls   int
 	lastSubmitted []*core.Issue
+	submitHook    func(issues []*core.Issue) error
 	submitErr     error
 }
 
@@ -606,6 +774,11 @@ func (r *fakeManagerTwoPhaseReview) SubmitForReview(_ context.Context, issues []
 
 	r.submitCalls++
 	r.lastSubmitted = cloneManagerIssues(issues)
+	if r.submitHook != nil {
+		if err := r.submitHook(cloneManagerIssues(issues)); err != nil {
+			return err
+		}
+	}
 	return r.submitErr
 }
 

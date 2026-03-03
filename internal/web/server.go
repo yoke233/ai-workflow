@@ -31,6 +31,7 @@ type IssueCreateInput struct {
 	SessionID    string
 	Name         string
 	FailPolicy   core.FailurePolicy
+	AutoMerge    *bool
 	Request      IssueCreateRequest
 	SourceFiles  []string
 	FileContents map[string]string

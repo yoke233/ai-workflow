@@ -129,6 +129,7 @@ func (a *secretaryIssueManagerAdapter) CreateIssues(ctx context.Context, input w
 				Title:      resolveIssueTitle(input),
 				Body:       buildIssueBody(input),
 				Template:   "standard",
+				AutoMerge:  input.AutoMerge,
 				Labels:     resolveIssueLabels(input),
 				FailPolicy: failPolicy,
 			},

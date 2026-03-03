@@ -24,6 +24,7 @@ const buildPlan = (
   session_id: overrides?.session_id ?? "chat-1",
   name: overrides?.name ?? name,
   status: overrides?.status ?? "draft",
+  auto_merge: overrides?.auto_merge ?? true,
   pipeline_id: overrides?.pipeline_id ?? "",
   wait_reason: overrides?.wait_reason ?? "",
   tasks: overrides?.tasks ?? [],
@@ -66,6 +67,7 @@ const createMockApiClient = (): ApiClient => {
     createPlanFromFiles: vi.fn(),
     submitPlanReview: vi.fn().mockResolvedValue({ status: "reviewing" }),
     applyPlanAction: vi.fn().mockResolvedValue({ status: "reviewing" }),
+    setIssueAutoMerge: vi.fn().mockResolvedValue({ status: "draft", auto_merge: false }),
     applyTaskAction: vi.fn(),
     listPlans: vi.fn().mockResolvedValue({
       items: [
@@ -271,6 +273,33 @@ describe("PlanView", () => {
     });
   });
 
+  it("支持切换自动合并开关", async () => {
+    const apiClient = createMockApiClient();
+    const wsClient = createMockWsClient();
+
+    render(
+      <PlanView
+        apiClient={apiClient}
+        wsClient={wsClient}
+        projectId="proj-1"
+        refreshToken={0}
+      />,
+    );
+
+    const autoMergeCheckbox = await screen.findByRole("checkbox", {
+      name: "自动合并（评审通过后自动进入 pipeline 执行合并）",
+    });
+    expect((autoMergeCheckbox as HTMLInputElement).checked).toBe(true);
+
+    fireEvent.click(autoMergeCheckbox);
+
+    await waitFor(() => {
+      expect(apiClient.setIssueAutoMerge).toHaveBeenCalledWith("proj-1", "plan-1", {
+        auto_merge: false,
+      });
+    });
+  });
+
   it("reviewing 状态支持通过与驳回", async () => {
     const apiClient = createMockApiClient();
     const wsClient = createMockWsClient();
@@ -381,6 +410,8 @@ describe("PlanView", () => {
         round: 1,
         reviewer: "demand_reviewer",
         verdict: "fix",
+        summary: "评审建议先补齐回滚与异常路径。",
+        raw_output: "review raw output:\n- 缺少回滚计划\n- 需要补充失败路径测试",
         issues: [
           {
             severity: "high",
@@ -467,6 +498,14 @@ describe("PlanView", () => {
       expect(screen.getByRole("button", { name: /Change · status/ })).toBeTruthy();
       expect(screen.getByRole("button", { name: /log · review phase/ })).toBeTruthy();
       expect(screen.getByRole("button", { name: /Audit · human_reject/ })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Review Round 1 · fix/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText("评审结论")).toBeTruthy();
+      expect(screen.getByText("完整审阅输出")).toBeTruthy();
+      expect(screen.getByText(/review raw output:/)).toBeTruthy();
     });
   });
 

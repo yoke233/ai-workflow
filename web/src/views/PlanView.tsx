@@ -144,12 +144,14 @@ const normalizePlan = (value: unknown, index: number): ApiTaskPlan | null => {
   const id = toText(value.id).trim() || `plan-${index + 1}`;
   const name = toText(value.name).trim() || toText(value.title).trim() || id;
   const status = toText(value.status).trim() || "draft";
+  const autoMerge = typeof value.auto_merge === "boolean" ? value.auto_merge : true;
 
   return {
     ...(value as unknown as ApiTaskPlan),
     id,
     name,
     status: status as ApiTaskPlan["status"],
+    auto_merge: autoMerge,
     wait_reason: toText(value.wait_reason).trim(),
     tasks: asObjectArray<ApiTaskPlan["tasks"][number]>(value.tasks),
     source_files: normalizeStringList(value.source_files),
@@ -365,6 +367,7 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
   const [audits, setAudits] = useState<AdminAuditLogItem[]>([]);
 
   const [actionLoading, setActionLoading] = useState(false);
+  const [autoMergeLoading, setAutoMergeLoading] = useState(false);
   const [rejectCategory, setRejectCategory] = useState<PlanRejectFeedbackCategory>("coverage_gap");
   const [rejectDetail, setRejectDetail] = useState("");
   const [rejectDirection, setRejectDirection] = useState("");
@@ -393,6 +396,7 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
     setChanges([]);
     setTimeline([]);
     setAudits([]);
+    setAutoMergeLoading(false);
     setSelectedStepId(null);
     setSelectedFilePath(null);
   }, [projectId]);
@@ -688,8 +692,39 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
     }
   };
 
+  const setIssueAutoMerge = async (nextAutoMerge: boolean) => {
+    if (!activePlan || autoMergeLoading) {
+      return;
+    }
+    setAutoMergeLoading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await apiClient.setIssueAutoMerge(projectId, activePlan.id, {
+        auto_merge: nextAutoMerge,
+      });
+      setPlans((current) =>
+        current.map((plan) =>
+          plan.id === activePlan.id
+            ? {
+                ...plan,
+                auto_merge: response.auto_merge,
+                status: (toText(response.status).trim() || plan.status) as ApiTaskPlan["status"],
+              }
+            : plan,
+        ),
+      );
+      setNotice(`自动合并已${response.auto_merge ? "开启" : "关闭"}，当前状态：${response.status}`);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setAutoMergeLoading(false);
+    }
+  };
+
   const waitReason = toText(activePlan?.wait_reason).trim().toLowerCase();
   const status = toText(activePlan?.status).trim().toLowerCase();
+  const autoMergeEnabled = activePlan?.auto_merge ?? true;
   const canSubmitReview = status === "draft";
   const canApprove =
     status === "reviewing" ||
@@ -755,6 +790,18 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
                 plan_id={activePlan.id} · status={activePlan.status}
                 {activePlan.wait_reason ? ` · wait_reason=${activePlan.wait_reason}` : ""}
               </p>
+              <label className="mt-3 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={autoMergeEnabled}
+                  disabled={autoMergeLoading}
+                  onChange={(event) => {
+                    void setIssueAutoMerge(event.target.checked);
+                  }}
+                />
+                <span>自动合并（评审通过后自动进入 pipeline 执行合并）</span>
+                {autoMergeLoading ? <span className="text-slate-500">保存中...</span> : null}
+              </label>
 
               {canRetryParse ? (
                 <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">
@@ -912,10 +959,22 @@ const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProp
                               issue_id?: string;
                               description?: string;
                             }>(selectedStep.review?.fixes);
+                            const reviewSummary = toText(selectedStep.review?.summary).trim();
+                            const reviewRawOutput = toText(selectedStep.review?.raw_output).trim();
+                            const fallbackDetail = [
+                              `verdict=${toText(selectedStep.review?.verdict) || "unknown"}`,
+                              `score=${toText(selectedStep.review?.score) || "N/A"}`,
+                            ].join("\n");
                             return (
                               <>
-                          <p>verdict={toText(selectedStep.review.verdict) || "unknown"}</p>
-                          <p>score={toText(selectedStep.review.score) || "N/A"}</p>
+                          <p className="font-semibold text-slate-900">评审结论</p>
+                          <pre className="mt-1 max-h-40 overflow-auto rounded border border-slate-200 bg-white p-2 whitespace-pre-wrap">
+                            {reviewSummary || fallbackDetail}
+                          </pre>
+                          <p className="mt-2 font-semibold text-slate-900">完整审阅输出</p>
+                          <pre className="mt-1 max-h-64 overflow-auto rounded border border-slate-200 bg-white p-2 whitespace-pre-wrap">
+                            {reviewRawOutput || reviewSummary || fallbackDetail}
+                          </pre>
                           <p className="mt-2 font-semibold text-slate-900">issues</p>
                           {reviewIssues.length === 0 ? (
                             <p className="mt-1 text-slate-500">无 issue</p>

@@ -79,12 +79,14 @@ export interface CreatePlanRequest {
   session_id: string;
   name?: string;
   fail_policy?: "block" | "skip" | "human";
+  auto_merge?: boolean;
 }
 
 export interface CreatePlanFromFilesRequest {
   session_id: string;
   name?: string;
   fail_policy?: "block" | "skip" | "human";
+  auto_merge?: boolean;
   file_paths: string[];
 }
 
@@ -133,6 +135,15 @@ export interface PlanActionRequest {
 
 export interface PlanActionResponse {
   status: TaskPlanStatus | string;
+}
+
+export interface SetIssueAutoMergeRequest {
+  auto_merge: boolean;
+}
+
+export interface SetIssueAutoMergeResponse {
+  status: TaskPlanStatus | string;
+  auto_merge: boolean;
 }
 
 export interface TaskActionRequest {
@@ -265,6 +276,8 @@ export interface PlanReviewRecord {
   round: number;
   reviewer: string;
   verdict: string;
+  summary?: string;
+  raw_output?: string;
   issues: PlanReviewIssue[];
   fixes: PlanProposedFix[];
   score?: number;

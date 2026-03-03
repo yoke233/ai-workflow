@@ -254,13 +254,19 @@ const stringifyTimelineMeta = (meta: Record<string, unknown>): string => {
 };
 
 const pickTimelineDetail = (entry: IssueTimelineEntry): string => {
+  const meta = entry.meta ?? {};
+  const rawOutput = normalizeText(meta.raw_output).trim();
+  if (rawOutput.length > 0) {
+    return rawOutput;
+  }
+
   const body = normalizeText(entry.body).trim();
   if (body.length > 0) {
     return body;
   }
 
-  const meta = entry.meta ?? {};
   const candidates = [
+    normalizeText(meta.summary).trim(),
     normalizeText(meta.message).trim(),
     normalizeText(meta.error).trim(),
     normalizeText(meta.content).trim(),
@@ -283,10 +289,14 @@ const pickTimelineDetail = (entry: IssueTimelineEntry): string => {
   if (status.length > 0) {
     return `status=${status}`;
   }
-  return "无详细输出";
+  return "";
 };
 
 const pickTimelineSummary = (entry: IssueTimelineEntry): string => {
+  const summary = normalizeText(entry.meta?.summary).trim();
+  if (summary.length > 0) {
+    return summarizeText(summary);
+  }
   return summarizeText(pickTimelineDetail(entry));
 };
 
@@ -942,8 +952,7 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
                 ) : (
                   <ol className="space-y-3">
                     {timelineItems.map((item) => {
-                      const hasDetail =
-                        item.resultDetail.trim().length > 0 && item.resultDetail !== "无详细输出";
+                      const hasDetail = item.resultDetail.trim().length > 0;
                       return (
                         <li
                           key={item.id}

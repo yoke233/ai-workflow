@@ -45,6 +45,8 @@ VALUES ('plan-mig-1', 2, 'ai-panel', 'approved', '[]', '[]', 90)
 	assertColumnNotExists(t, db, "pipelines", "task_item_id")
 	assertColumnExists(t, db, "review_records", "issue_id")
 	assertColumnNotExists(t, db, "review_records", "plan_id")
+	assertColumnExists(t, db, "review_records", "summary")
+	assertColumnExists(t, db, "review_records", "raw_output")
 
 	var issueRows int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM issues WHERE id='task-mig-1'`).Scan(&issueRows); err != nil {
@@ -60,6 +62,14 @@ VALUES ('plan-mig-1', 2, 'ai-panel', 'approved', '[]', '[]', 90)
 	}
 	if reviewIssueID != "plan-mig-1" {
 		t.Fatalf("expected review_records.issue_id=plan-mig-1, got %q", reviewIssueID)
+	}
+	var reviewSummary string
+	var reviewRawOutput string
+	if err := db.QueryRow(`SELECT COALESCE(summary, ''), COALESCE(raw_output, '') FROM review_records WHERE reviewer='ai-panel'`).Scan(&reviewSummary, &reviewRawOutput); err != nil {
+		t.Fatalf("query migrated review_records.summary/raw_output: %v", err)
+	}
+	if reviewSummary != "" || reviewRawOutput != "" {
+		t.Fatalf("expected default empty summary/raw_output after migration, got summary=%q raw_output=%q", reviewSummary, reviewRawOutput)
 	}
 
 	var wave3Flag string

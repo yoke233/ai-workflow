@@ -82,6 +82,14 @@ WHERE id='task-legacy-1'
 	if reviewIssueID != "plan-legacy-1" {
 		t.Fatalf("expected review_records.plan_id to migrate into issue_id, got %q", reviewIssueID)
 	}
+	var reviewSummary string
+	var reviewRawOutput string
+	if err := db.QueryRow(`SELECT COALESCE(summary, ''), COALESCE(raw_output, '') FROM review_records WHERE reviewer='ai-panel'`).Scan(&reviewSummary, &reviewRawOutput); err != nil {
+		t.Fatalf("query review_records.summary/raw_output after cutover: %v", err)
+	}
+	if reviewSummary != "" || reviewRawOutput != "" {
+		t.Fatalf("expected migrated review summary/raw_output empty defaults, got summary=%q raw_output=%q", reviewSummary, reviewRawOutput)
+	}
 }
 
 func TestCutover_Wave3Flag_Idempotent(t *testing.T) {

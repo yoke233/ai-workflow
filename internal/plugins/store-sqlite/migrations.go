@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS issues (
     blocks            TEXT NOT NULL DEFAULT '[]',
     priority          INTEGER NOT NULL DEFAULT 0,
     template          TEXT NOT NULL DEFAULT 'standard',
+    auto_merge        INTEGER NOT NULL DEFAULT 1,
     state             TEXT NOT NULL DEFAULT 'open',
     status            TEXT NOT NULL DEFAULT 'draft',
     pipeline_id       TEXT,
@@ -168,6 +169,8 @@ CREATE TABLE IF NOT EXISTS review_records (
     round      INTEGER NOT NULL,
     reviewer   TEXT NOT NULL,
     verdict    TEXT NOT NULL,
+    summary    TEXT NOT NULL DEFAULT '',
+    raw_output TEXT NOT NULL DEFAULT '',
     issues     TEXT DEFAULT '[]',
     fixes      TEXT DEFAULT '[]',
     score      INTEGER,
@@ -206,6 +209,17 @@ func applyMigrations(db *sql.DB) error {
 	}
 	if err := ensureColumns(db, "chat_sessions", map[string]string{
 		"agent_session_id": "agent_session_id TEXT NOT NULL DEFAULT ''",
+	}); err != nil {
+		return err
+	}
+	if err := ensureColumns(db, "issues", map[string]string{
+		"auto_merge": "auto_merge INTEGER NOT NULL DEFAULT 1",
+	}); err != nil {
+		return err
+	}
+	if err := ensureColumns(db, "review_records", map[string]string{
+		"summary":    "summary TEXT NOT NULL DEFAULT ''",
+		"raw_output": "raw_output TEXT NOT NULL DEFAULT ''",
 	}); err != nil {
 		return err
 	}
@@ -300,6 +314,7 @@ CREATE TABLE IF NOT EXISTS issues (
 	blocks        TEXT NOT NULL DEFAULT '[]',
 	priority      INTEGER NOT NULL DEFAULT 0,
 	template      TEXT NOT NULL DEFAULT 'standard',
+	auto_merge    INTEGER NOT NULL DEFAULT 1,
 	state         TEXT NOT NULL DEFAULT 'open',
 	status        TEXT NOT NULL DEFAULT 'draft',
 	pipeline_id   TEXT,
@@ -373,7 +388,7 @@ func migrateLegacyTaskRowsToIssues(tx *sql.Tx) error {
 	query := fmt.Sprintf(`
 INSERT INTO issues (
 	id, project_id, session_id, title, body, labels, milestone_id, attachments, depends_on, blocks,
-	priority, template, state, status, pipeline_id, version, superseded_by, external_id, fail_policy,
+	priority, template, auto_merge, state, status, pipeline_id, version, superseded_by, external_id, fail_policy,
 	created_at, updated_at, closed_at
 )
 SELECT
@@ -389,6 +404,7 @@ SELECT
 	'[]',
 	0,
 	COALESCE(NULLIF(TRIM(%s), ''), 'standard'),
+	1,
 	'open',
 	COALESCE(NULLIF(TRIM(%s), ''), 'draft'),
 	NULLIF(TRIM(COALESCE(%s, '')), ''),
@@ -624,6 +640,8 @@ CREATE TABLE review_records_wave3 (
 	round      INTEGER NOT NULL,
 	reviewer   TEXT NOT NULL,
 	verdict    TEXT NOT NULL,
+	summary    TEXT NOT NULL DEFAULT '',
+	raw_output TEXT NOT NULL DEFAULT '',
 	issues     TEXT DEFAULT '[]',
 	fixes      TEXT DEFAULT '[]',
 	score      INTEGER,
@@ -635,9 +653,11 @@ CREATE TABLE review_records_wave3 (
 
 	insertQuery := fmt.Sprintf(`
 INSERT INTO review_records_wave3 (
-	id, issue_id, round, reviewer, verdict, issues, fixes, score, created_at
+	id, issue_id, round, reviewer, verdict, summary, raw_output, issues, fixes, score, created_at
 )
 SELECT
+	%s,
+	%s,
 	%s,
 	%s,
 	%s,
@@ -654,6 +674,8 @@ FROM review_records
 		rExpr("round", "0"),
 		rExpr("reviewer", "''"),
 		rExpr("verdict", "''"),
+		rExpr("summary", "''"),
+		rExpr("raw_output", "''"),
 		rExpr("issues", "'[]'"),
 		rExpr("fixes", "'[]'"),
 		rExpr("score", "NULL"),

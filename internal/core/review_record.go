@@ -9,6 +9,8 @@ type ReviewRecord struct {
 	Round     int           `json:"round"`
 	Reviewer  string        `json:"reviewer"`
 	Verdict   string        `json:"verdict"`
+	Summary   string        `json:"summary,omitempty"`
+	RawOutput string        `json:"raw_output,omitempty"`
 	Issues    []ReviewIssue `json:"issues"`
 	Fixes     []ProposedFix `json:"fixes"`
 	Score     *int          `json:"score,omitempty"`

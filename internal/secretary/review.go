@@ -267,12 +267,14 @@ func (r *TwoPhaseReview) runPhase1(ctx context.Context, issues []*core.Issue, ro
 
 		score := normalized.Score
 		record := &core.ReviewRecord{
-			IssueID:  issue.ID,
-			Round:    round,
-			Reviewer: normalizedReviewer(normalized.Reviewer, phase1ReviewerName),
-			Verdict:  normalized.Status,
-			Issues:   append([]core.ReviewIssue(nil), normalized.Issues...),
-			Score:    &score,
+			IssueID:   issue.ID,
+			Round:     round,
+			Reviewer:  normalizedReviewer(normalized.Reviewer, phase1ReviewerName),
+			Verdict:   normalized.Status,
+			Summary:   strings.TrimSpace(normalized.Summary),
+			RawOutput: strings.TrimSpace(normalized.RawOutput),
+			Issues:    append([]core.ReviewIssue(nil), normalized.Issues...),
+			Score:     &score,
 		}
 		if err := r.Store.SaveReviewRecord(record); err != nil {
 			return nil, false, false, fmt.Errorf("persist phase1 review record for issue %s: %w", issue.ID, err)
@@ -302,14 +304,18 @@ func (r *TwoPhaseReview) runPhase2(ctx context.Context, issues []*core.Issue, ro
 			verdict = "issues_found"
 			score = 60
 		}
+		summary := dependencyReviewSummary(verdict, len(analysisIssues))
+		rawOutput := dependencyReviewRawOutput(issueID, verdict, score, analysis, analysisIssues, summary)
 
 		record := &core.ReviewRecord{
-			IssueID:  issueID,
-			Round:    round,
-			Reviewer: phase2ReviewerName,
-			Verdict:  verdict,
-			Issues:   analysisIssues,
-			Score:    &score,
+			IssueID:   issueID,
+			Round:     round,
+			Reviewer:  phase2ReviewerName,
+			Verdict:   verdict,
+			Summary:   summary,
+			RawOutput: rawOutput,
+			Issues:    analysisIssues,
+			Score:     &score,
 		}
 		if err := r.Store.SaveReviewRecord(record); err != nil {
 			return nil, fmt.Errorf("persist phase2 review record for issue %s: %w", issueID, err)
@@ -406,12 +412,22 @@ func normalizeVerdict(issueID string, verdict core.ReviewVerdict) core.ReviewVer
 		}
 		issues = append(issues, item)
 	}
+	summary := strings.TrimSpace(verdict.Summary)
+	if summary == "" {
+		summary = defaultVerdictSummary(status, score, len(issues))
+	}
+	rawOutput := strings.TrimSpace(verdict.RawOutput)
+	if rawOutput == "" {
+		rawOutput = formatReviewRawOutput(summary, status, score, issues)
+	}
 
 	return core.ReviewVerdict{
-		Reviewer: reviewer,
-		Status:   status,
-		Issues:   issues,
-		Score:    score,
+		Reviewer:  reviewer,
+		Status:    status,
+		Summary:   summary,
+		RawOutput: rawOutput,
+		Issues:    issues,
+		Score:     score,
 	}
 }
 
@@ -483,6 +499,134 @@ func dependencyIssuesForIssue(issueID string, analysis *DependencyAnalysis) []co
 		})
 	}
 	return out
+}
+
+func defaultVerdictSummary(status string, score int, issueCount int) string {
+	if issueCount > 0 {
+		return fmt.Sprintf("发现 %d 个待处理问题（score=%d）", issueCount, score)
+	}
+	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
+	if normalizedStatus == "pass" || normalizedStatus == "approved" {
+		return fmt.Sprintf("评审通过（score=%d）", score)
+	}
+	return fmt.Sprintf("评审状态=%s（score=%d）", strings.TrimSpace(status), score)
+}
+
+func formatReviewRawOutput(summary string, status string, score int, issues []core.ReviewIssue) string {
+	lines := make([]string, 0, len(issues)+4)
+	if text := strings.TrimSpace(summary); text != "" {
+		lines = append(lines, "summary: "+text)
+	}
+	lines = append(lines, "status: "+strings.TrimSpace(status))
+	lines = append(lines, fmt.Sprintf("score: %d", score))
+	if len(issues) == 0 {
+		lines = append(lines, "issues: none")
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines, "issues:")
+	for i := range issues {
+		item := issues[i]
+		severity := strings.TrimSpace(item.Severity)
+		if severity == "" {
+			severity = "unknown"
+		}
+		desc := strings.TrimSpace(item.Description)
+		if desc == "" {
+			desc = "(empty)"
+		}
+		line := fmt.Sprintf("%d. [%s] %s", i+1, severity, desc)
+		if suggestion := strings.TrimSpace(item.Suggestion); suggestion != "" {
+			line += " | suggestion: " + suggestion
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func dependencyReviewSummary(verdict string, issueCount int) string {
+	normalizedVerdict := strings.ToLower(strings.TrimSpace(verdict))
+	if issueCount == 0 {
+		if normalizedVerdict != "" && normalizedVerdict != "pass" {
+			return fmt.Sprintf("依赖关系检查状态=%s，可继续执行", normalizedVerdict)
+		}
+		return "依赖关系检查通过，可继续执行"
+	}
+	return fmt.Sprintf("依赖关系检查发现 %d 个问题，建议先修复", issueCount)
+}
+
+func dependencyReviewRawOutput(
+	issueID string,
+	verdict string,
+	score int,
+	analysis *DependencyAnalysis,
+	analysisIssues []core.ReviewIssue,
+	summary string,
+) string {
+	lines := []string{
+		"summary: " + strings.TrimSpace(summary),
+		"verdict: " + strings.TrimSpace(verdict),
+		fmt.Sprintf("score: %d", score),
+		fmt.Sprintf("issue_id: %s", strings.TrimSpace(issueID)),
+	}
+	if len(analysisIssues) > 0 {
+		lines = append(lines, "detected_issues:")
+		for i := range analysisIssues {
+			item := analysisIssues[i]
+			line := fmt.Sprintf("%d. %s", i+1, strings.TrimSpace(item.Description))
+			if suggestion := strings.TrimSpace(item.Suggestion); suggestion != "" {
+				line += " | suggestion: " + suggestion
+			}
+			lines = append(lines, line)
+		}
+	} else {
+		lines = append(lines, "detected_issues: none")
+	}
+
+	if analysis == nil {
+		return strings.Join(lines, "\n")
+	}
+
+	if len(analysis.Edges) > 0 {
+		lines = append(lines, "dependency_edges:")
+		for i := range analysis.Edges {
+			edge := analysis.Edges[i]
+			lines = append(lines, fmt.Sprintf(
+				"%d. %s -> %s | reason: %s",
+				i+1,
+				strings.TrimSpace(edge.From),
+				strings.TrimSpace(edge.To),
+				strings.TrimSpace(edge.Reason),
+			))
+		}
+	}
+	if len(analysis.Conflicts) > 0 {
+		lines = append(lines, "conflicts:")
+		for i := range analysis.Conflicts {
+			conflict := analysis.Conflicts[i]
+			lines = append(lines, fmt.Sprintf(
+				"%d. issues=%s | resource=%s | suggestion=%s",
+				i+1,
+				strings.Join(conflict.IssueIDs, ","),
+				strings.TrimSpace(conflict.Resource),
+				strings.TrimSpace(conflict.Suggestion),
+			))
+		}
+	}
+	if len(analysis.Priorities) > 0 {
+		lines = append(lines, "priority_suggestions:")
+		for i := range analysis.Priorities {
+			priority := analysis.Priorities[i]
+			lines = append(lines, fmt.Sprintf(
+				"%d. issue=%s priority=%d reason=%s",
+				i+1,
+				strings.TrimSpace(priority.IssueID),
+				priority.Priority,
+				strings.TrimSpace(priority.Reason),
+			))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func containsIssueID(ids []string, target string) bool {

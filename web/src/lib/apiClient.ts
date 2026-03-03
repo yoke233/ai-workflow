@@ -37,6 +37,8 @@ import type {
   RepoDiffResponse,
   RepoStatusResponse,
   RepoTreeResponse,
+  SetIssueAutoMergeRequest,
+  SetIssueAutoMergeResponse,
   SubmitPlanReviewResponse,
   TaskActionRequest,
   TaskActionResponse,
@@ -360,6 +362,11 @@ export interface ApiClient {
     planId: string,
     body: PlanActionRequest,
   ): Promise<PlanActionResponse>;
+  setIssueAutoMerge(
+    projectId: string,
+    issueId: string,
+    body: SetIssueAutoMergeRequest,
+  ): Promise<SetIssueAutoMergeResponse>;
   applyTaskAction(
     projectId: string,
     planId: string,
@@ -558,6 +565,12 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
     applyPlanAction: (projectId, planId, body) =>
       request<PlanActionResponse, PlanActionRequest>({
         path: `/projects/${projectId}/plans/${planId}/action`,
+        method: "POST",
+        body,
+      }),
+    setIssueAutoMerge: (projectId, issueId, body) =>
+      request<SetIssueAutoMergeResponse, SetIssueAutoMergeRequest>({
+        path: `/projects/${projectId}/issues/${issueId}/auto-merge`,
         method: "POST",
         body,
       }),

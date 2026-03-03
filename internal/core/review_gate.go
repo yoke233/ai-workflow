@@ -34,10 +34,12 @@ type ReviewResult struct {
 }
 
 type ReviewVerdict struct {
-	Reviewer string        `json:"reviewer"`
-	Status   string        `json:"status"`
-	Issues   []ReviewIssue `json:"issues"`
-	Score    int           `json:"score"`
+	Reviewer  string        `json:"reviewer"`
+	Status    string        `json:"status"`
+	Summary   string        `json:"summary,omitempty"`
+	RawOutput string        `json:"raw_output,omitempty"`
+	Issues    []ReviewIssue `json:"issues"`
+	Score     int           `json:"score"`
 }
 
 type ReviewIssue struct {

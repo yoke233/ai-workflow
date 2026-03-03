@@ -136,6 +136,9 @@ describe("apiClient", () => {
         detail: "补齐异常路径与失败回滚逻辑。",
       },
     });
+    await client.setIssueAutoMerge("proj-1", "plan-1", {
+      auto_merge: false,
+    });
     await client.applyTaskAction("proj-1", "plan-1", "task-1", {
       action: "retry",
     });
@@ -151,12 +154,15 @@ describe("apiClient", () => {
       "http://localhost:8080/api/v1/projects/proj-1/plans/plan-1/action",
     );
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
-      "http://localhost:8080/api/v1/projects/proj-1/plans/plan-1/tasks/task-1/action",
+      "http://localhost:8080/api/v1/projects/proj-1/issues/plan-1/auto-merge",
     );
     expect(fetchMock.mock.calls[3]?.[0]).toBe(
-      "http://localhost:8080/api/v1/projects/proj-1/pipelines/pipe-1/action",
+      "http://localhost:8080/api/v1/projects/proj-1/plans/plan-1/tasks/task-1/action",
     );
     expect(fetchMock.mock.calls[4]?.[0]).toBe(
+      "http://localhost:8080/api/v1/projects/proj-1/pipelines/pipe-1/action",
+    );
+    expect(fetchMock.mock.calls[5]?.[0]).toBe(
       "http://localhost:8080/api/v1/projects/proj-1/pipelines/pipe-1/checkpoints",
     );
 
@@ -169,12 +175,17 @@ describe("apiClient", () => {
       },
     });
 
-    const taskBody = JSON.parse(String((fetchMock.mock.calls[2]?.[1] as RequestInit)?.body));
+    const autoMergeBody = JSON.parse(String((fetchMock.mock.calls[2]?.[1] as RequestInit)?.body));
+    expect(autoMergeBody).toEqual({
+      auto_merge: false,
+    });
+
+    const taskBody = JSON.parse(String((fetchMock.mock.calls[3]?.[1] as RequestInit)?.body));
     expect(taskBody).toEqual({
       action: "retry",
     });
 
-    const pipelineBody = JSON.parse(String((fetchMock.mock.calls[3]?.[1] as RequestInit)?.body));
+    const pipelineBody = JSON.parse(String((fetchMock.mock.calls[4]?.[1] as RequestInit)?.body));
     expect(pipelineBody).toEqual({
       action: "abort",
     });

@@ -52,6 +52,7 @@ type Issue struct {
 	Blocks       []string      `json:"blocks"`
 	Priority     int           `json:"priority"`
 	Template     string        `json:"template"`
+	AutoMerge    bool          `json:"auto_merge"`
 	State        IssueState    `json:"state"`
 	Status       IssueStatus   `json:"status"`
 	PipelineID   string        `json:"pipeline_id"`

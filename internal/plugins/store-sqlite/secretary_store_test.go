@@ -277,10 +277,12 @@ func TestIssueAndReviewRecordCRUD(t *testing.T) {
 
 	score := 88
 	record := &core.ReviewRecord{
-		IssueID:  issue.ID,
-		Round:    1,
-		Reviewer: "completeness",
-		Verdict:  "issues_found",
+		IssueID:   issue.ID,
+		Round:     1,
+		Reviewer:  "completeness",
+		Verdict:   "issues_found",
+		Summary:   "需要补充测试覆盖",
+		RawOutput: "发现问题:\n- 缺少边界条件测试\n建议:\n- 增加失败路径与回滚验证",
 		Issues: []core.ReviewIssue{
 			{
 				Severity:    "warning",
@@ -311,6 +313,12 @@ func TestIssueAndReviewRecordCRUD(t *testing.T) {
 	}
 	if records[0].Reviewer != "completeness" || records[0].Score == nil || *records[0].Score != 88 {
 		t.Fatalf("unexpected review record: %#v", records[0])
+	}
+	if records[0].Summary != "需要补充测试覆盖" {
+		t.Fatalf("expected review summary persisted, got %q", records[0].Summary)
+	}
+	if records[0].RawOutput == "" {
+		t.Fatalf("expected review raw_output persisted")
 	}
 	if len(records[0].Issues) != 1 || len(records[0].Fixes) != 1 {
 		t.Fatalf("unexpected review payload: issues=%d fixes=%d", len(records[0].Issues), len(records[0].Fixes))

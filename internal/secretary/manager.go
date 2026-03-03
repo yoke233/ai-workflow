@@ -26,6 +26,7 @@ type CreateIssueSpec struct {
 	Title       string
 	Body        string
 	Template    string
+	AutoMerge   *bool
 	Labels      []string
 	DependsOn   []string
 	Blocks      []string
@@ -174,6 +175,10 @@ func (m *Manager) CreateIssues(ctx context.Context, input CreateIssuesInput) ([]
 		if failPolicy == "" {
 			failPolicy = core.FailBlock
 		}
+		autoMerge := true
+		if spec.AutoMerge != nil {
+			autoMerge = *spec.AutoMerge
+		}
 
 		issue := &core.Issue{
 			ID:          issueID,
@@ -186,6 +191,7 @@ func (m *Manager) CreateIssues(ctx context.Context, input CreateIssuesInput) ([]
 			Blocks:      normalizeIssueRefs(spec.Blocks),
 			Priority:    spec.Priority,
 			Template:    template,
+			AutoMerge:   autoMerge,
 			State:       core.IssueStateOpen,
 			Status:      core.IssueStatusDraft,
 			MilestoneID: strings.TrimSpace(spec.MilestoneID),
@@ -222,6 +228,15 @@ func (m *Manager) SubmitForReview(ctx context.Context, issueIDs []string) error 
 		return err
 	}
 
+	roundBeforeSubmit := make(map[string]int, len(issues))
+	for _, issue := range issues {
+		records, getErr := m.store.GetReviewRecords(issue.ID)
+		if getErr != nil {
+			return fmt.Errorf("load review records for issue %s before submit: %w", issue.ID, getErr)
+		}
+		roundBeforeSubmit[issue.ID] = maxReviewRound(records)
+	}
+
 	if err := m.submitIssues(ctx, issues); err != nil {
 		return err
 	}
@@ -239,6 +254,19 @@ func (m *Manager) SubmitForReview(ctx context.Context, issueIDs []string) error 
 		}
 		if err := m.saveIssueChange(updated.ID, "status", string(before), string(updated.Status), "submit_for_review"); err != nil {
 			return err
+		}
+		if !updated.AutoMerge {
+			continue
+		}
+		autoApproved, autoApproveErr := m.shouldAutoApproveIssue(updated.ID, roundBeforeSubmit[updated.ID])
+		if autoApproveErr != nil {
+			return autoApproveErr
+		}
+		if !autoApproved {
+			continue
+		}
+		if _, autoApproveErr := m.applyIssueApprove(ctx, updated, "auto approve after review pass"); autoApproveErr != nil {
+			return autoApproveErr
 		}
 	}
 	return nil
@@ -463,6 +491,61 @@ func (m *Manager) saveIssueChange(issueID, field, oldValue, newValue, reason str
 
 func normalizeIssueAction(action string) string {
 	return strings.ToLower(strings.TrimSpace(action))
+}
+
+func maxReviewRound(records []core.ReviewRecord) int {
+	maxRound := 0
+	for i := range records {
+		if records[i].Round > maxRound {
+			maxRound = records[i].Round
+		}
+	}
+	return maxRound
+}
+
+func normalizeReviewVerdict(verdict string) string {
+	normalized := strings.ToLower(strings.TrimSpace(verdict))
+	switch normalized {
+	case "approve":
+		return "approved"
+	case "ok":
+		return "pass"
+	case "canceled":
+		return "cancelled"
+	default:
+		return normalized
+	}
+}
+
+func (m *Manager) shouldAutoApproveIssue(issueID string, baselineRound int) (bool, error) {
+	records, err := m.store.GetReviewRecords(issueID)
+	if err != nil {
+		return false, fmt.Errorf("load review records for issue %s: %w", issueID, err)
+	}
+	latestRound := maxReviewRound(records)
+	if latestRound <= baselineRound {
+		return false, nil
+	}
+
+	foundCurrentRoundRecord := false
+	for i := range records {
+		record := records[i]
+		if record.Round != latestRound {
+			continue
+		}
+		foundCurrentRoundRecord = true
+		if len(record.Issues) > 0 {
+			return false, nil
+		}
+
+		switch normalizeReviewVerdict(record.Verdict) {
+		case "pass", "approved":
+			// keep evaluating, any non-pass verdict in this round should block auto approve.
+		default:
+			return false, nil
+		}
+	}
+	return foundCurrentRoundRecord, nil
 }
 
 func normalizeIssueRefs(refs []string) []string {

@@ -116,11 +116,13 @@ func (g *ReviewGate) Submit(ctx context.Context, issues []*core.Issue) (string, 
 	}
 
 	record := &core.ReviewRecord{
-		IssueID:  issueID,
-		Round:    round,
-		Reviewer: reviewerName,
-		Verdict:  "pending",
-		Fixes:    fixes,
+		IssueID:   issueID,
+		Round:     round,
+		Reviewer:  reviewerName,
+		Verdict:   "pending",
+		Summary:   "已创建 GitHub PR，等待评审结论",
+		RawOutput: strings.TrimSpace(buildPRBody(issue)),
+		Fixes:     fixes,
 	}
 	if err := g.store.SaveReviewRecord(record); err != nil {
 		return "", fmt.Errorf("review-github-pr submit save record: %w", err)
@@ -155,10 +157,12 @@ func (g *ReviewGate) Check(ctx context.Context, reviewID string) (*core.ReviewRe
 		Status: status,
 		Verdicts: []core.ReviewVerdict{
 			{
-				Reviewer: latest.Reviewer,
-				Status:   strings.TrimSpace(latest.Verdict),
-				Issues:   append([]core.ReviewIssue(nil), latest.Issues...),
-				Score:    score,
+				Reviewer:  latest.Reviewer,
+				Status:    strings.TrimSpace(latest.Verdict),
+				Summary:   strings.TrimSpace(latest.Summary),
+				RawOutput: strings.TrimSpace(latest.RawOutput),
+				Issues:    append([]core.ReviewIssue(nil), latest.Issues...),
+				Score:     score,
 			},
 		},
 		Decision: decision,
@@ -202,10 +206,12 @@ func (g *ReviewGate) Cancel(ctx context.Context, reviewID string) error {
 		round = 1
 	}
 	return g.store.SaveReviewRecord(&core.ReviewRecord{
-		IssueID:  issueID,
-		Round:    round,
-		Reviewer: reviewerName,
-		Verdict:  "cancelled",
+		IssueID:   issueID,
+		Round:     round,
+		Reviewer:  reviewerName,
+		Verdict:   "cancelled",
+		Summary:   "GitHub PR 评审已取消",
+		RawOutput: "review-github-pr gate cancelled",
 	})
 }
 

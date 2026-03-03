@@ -302,10 +302,12 @@ func (g *AIReviewGate) persistCancelled(reviewID string, fallbackRound int) erro
 			continue
 		}
 		if err := g.store.SaveReviewRecord(&core.ReviewRecord{
-			IssueID:  issueID,
-			Round:    round,
-			Reviewer: gateReviewer,
-			Verdict:  "cancelled",
+			IssueID:   issueID,
+			Round:     round,
+			Reviewer:  gateReviewer,
+			Verdict:   "cancelled",
+			Summary:   "review 已取消",
+			RawOutput: "review gate cancelled by user or runtime",
 		}); err != nil {
 			return err
 		}
@@ -330,10 +332,12 @@ func (g *AIReviewGate) persistRejected(reviewID string, fallbackRound int, runEr
 		}
 
 		record := &core.ReviewRecord{
-			IssueID:  issueID,
-			Round:    round,
-			Reviewer: gateReviewer,
-			Verdict:  "rejected",
+			IssueID:   issueID,
+			Round:     round,
+			Reviewer:  gateReviewer,
+			Verdict:   "rejected",
+			Summary:   "review 执行失败",
+			RawOutput: strings.TrimSpace(fmt.Sprintf("review gate rejected: %v", runErr)),
 		}
 		if runErr != nil {
 			record.Issues = []core.ReviewIssue{
@@ -492,12 +496,20 @@ func (g *AIReviewGate) saveGateVerdict(issueIDs []string, round int, verdict str
 		}
 		if verdicts != nil {
 			if summary, ok := verdicts[issueID]; ok {
+				record.Summary = strings.TrimSpace(summary.Summary)
+				record.RawOutput = strings.TrimSpace(summary.RawOutput)
 				record.Issues = append([]core.ReviewIssue(nil), summary.Issues...)
 				if summary.Score > 0 {
 					score := summary.Score
 					record.Score = &score
 				}
 			}
+		}
+		if record.Summary == "" {
+			record.Summary = "review gate status=" + strings.TrimSpace(verdict)
+		}
+		if record.RawOutput == "" {
+			record.RawOutput = "review gate verdict=" + strings.TrimSpace(verdict)
 		}
 		if err := g.store.SaveReviewRecord(record); err != nil {
 			return err
@@ -640,10 +652,12 @@ func recordsToVerdicts(records []core.ReviewRecord, round int) []core.ReviewVerd
 			score = *record.Score
 		}
 		out = append(out, core.ReviewVerdict{
-			Reviewer: strings.TrimSpace(record.Reviewer),
-			Status:   strings.TrimSpace(record.Verdict),
-			Issues:   append([]core.ReviewIssue(nil), record.Issues...),
-			Score:    score,
+			Reviewer:  strings.TrimSpace(record.Reviewer),
+			Status:    strings.TrimSpace(record.Verdict),
+			Summary:   strings.TrimSpace(record.Summary),
+			RawOutput: strings.TrimSpace(record.RawOutput),
+			Issues:    append([]core.ReviewIssue(nil), record.Issues...),
+			Score:     score,
 		})
 	}
 	if len(out) > 0 {
@@ -657,10 +671,12 @@ func recordsToVerdicts(records []core.ReviewRecord, round int) []core.ReviewVerd
 	}
 	return []core.ReviewVerdict{
 		{
-			Reviewer: strings.TrimSpace(last.Reviewer),
-			Status:   strings.TrimSpace(last.Verdict),
-			Issues:   append([]core.ReviewIssue(nil), last.Issues...),
-			Score:    score,
+			Reviewer:  strings.TrimSpace(last.Reviewer),
+			Status:    strings.TrimSpace(last.Verdict),
+			Summary:   strings.TrimSpace(last.Summary),
+			RawOutput: strings.TrimSpace(last.RawOutput),
+			Issues:    append([]core.ReviewIssue(nil), last.Issues...),
+			Score:     score,
 		},
 	}
 }

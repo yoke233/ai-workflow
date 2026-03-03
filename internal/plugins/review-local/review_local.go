@@ -87,10 +87,12 @@ func (g *LocalReviewGate) Submit(ctx context.Context, issues []*core.Issue) (str
 	round := nextRound(records)
 
 	record := &core.ReviewRecord{
-		IssueID:  issueID,
-		Round:    round,
-		Reviewer: localReviewer,
-		Verdict:  "pending",
+		IssueID:   issueID,
+		Round:     round,
+		Reviewer:  localReviewer,
+		Verdict:   "pending",
+		Summary:   "等待人工评审",
+		RawOutput: "local review submitted and waiting for human decision",
 	}
 	if err := g.store.SaveReviewRecord(record); err != nil {
 		return "", fmt.Errorf("review-local submit save record: %w", err)
@@ -132,10 +134,12 @@ func (g *LocalReviewGate) Check(ctx context.Context, reviewID string) (*core.Rev
 	}
 
 	verdict := core.ReviewVerdict{
-		Reviewer: latest.Reviewer,
-		Status:   strings.TrimSpace(latest.Verdict),
-		Issues:   append([]core.ReviewIssue(nil), latest.Issues...),
-		Score:    score,
+		Reviewer:  latest.Reviewer,
+		Status:    strings.TrimSpace(latest.Verdict),
+		Summary:   strings.TrimSpace(latest.Summary),
+		RawOutput: strings.TrimSpace(latest.RawOutput),
+		Issues:    append([]core.ReviewIssue(nil), latest.Issues...),
+		Score:     score,
 	}
 
 	return &core.ReviewResult{
@@ -180,10 +184,12 @@ func (g *LocalReviewGate) Cancel(ctx context.Context, reviewID string) error {
 	}
 
 	record := &core.ReviewRecord{
-		IssueID:  issueID,
-		Round:    round,
-		Reviewer: localReviewer,
-		Verdict:  "cancelled",
+		IssueID:   issueID,
+		Round:     round,
+		Reviewer:  localReviewer,
+		Verdict:   "cancelled",
+		Summary:   "人工评审已取消",
+		RawOutput: "local review cancelled",
 	}
 	if err := g.store.SaveReviewRecord(record); err != nil {
 		return fmt.Errorf("review-local cancel save record: %w", err)
