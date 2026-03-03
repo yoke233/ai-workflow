@@ -33,15 +33,19 @@ func TestMCPToolsFromRoleConfig(t *testing.T) {
 	}
 
 	for _, server := range got {
-		wantTool, ok := wantByName[server.Name]
+		if server.Stdio == nil {
+			t.Fatalf("expected stdio server, got %#v", server)
+		}
+
+		wantTool, ok := wantByName[server.Stdio.Name]
 		if !ok {
-			t.Fatalf("unexpected server name: %q", server.Name)
+			t.Fatalf("unexpected server name: %q", server.Stdio.Name)
 		}
-		if server.Command != "internal" {
-			t.Fatalf("server %q command = %q, want %q", server.Name, server.Command, "internal")
+		if server.Stdio.Command != "internal" {
+			t.Fatalf("server %q command = %q, want %q", server.Stdio.Name, server.Stdio.Command, "internal")
 		}
-		if server.Env["AI_WORKFLOW_MCP_TOOL"] != wantTool {
-			t.Fatalf("server %q tool = %q, want %q", server.Name, server.Env["AI_WORKFLOW_MCP_TOOL"], wantTool)
+		if len(server.Stdio.Env) != 1 || server.Stdio.Env[0].Name != "AI_WORKFLOW_MCP_TOOL" || server.Stdio.Env[0].Value != wantTool {
+			t.Fatalf("server %q env = %#v, want AI_WORKFLOW_MCP_TOOL=%q", server.Stdio.Name, server.Stdio.Env, wantTool)
 		}
 	}
 }

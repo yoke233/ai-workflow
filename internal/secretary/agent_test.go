@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
@@ -77,29 +78,29 @@ func (nopWriteCloser) Write(data []byte) (int, error) { return len(data), nil }
 func (nopWriteCloser) Close() error { return nil }
 
 type stubSecretarySessionClient struct {
-	loadReqs []acpclient.LoadSessionRequest
-	newReqs  []acpclient.NewSessionRequest
+	loadReqs []acpproto.LoadSessionRequest
+	newReqs  []acpproto.NewSessionRequest
 	calls    []string
-	loadResp acpclient.SessionInfo
+	loadResp acpproto.SessionId
 	loadErr  error
-	newResp  acpclient.SessionInfo
+	newResp  acpproto.SessionId
 	newErr   error
 }
 
-func (c *stubSecretarySessionClient) LoadSession(_ context.Context, req acpclient.LoadSessionRequest) (acpclient.SessionInfo, error) {
+func (c *stubSecretarySessionClient) LoadSession(_ context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error) {
 	c.calls = append(c.calls, "load")
 	c.loadReqs = append(c.loadReqs, req)
 	if c.loadErr != nil {
-		return acpclient.SessionInfo{}, c.loadErr
+		return "", c.loadErr
 	}
 	return c.loadResp, nil
 }
 
-func (c *stubSecretarySessionClient) NewSession(_ context.Context, req acpclient.NewSessionRequest) (acpclient.SessionInfo, error) {
+func (c *stubSecretarySessionClient) NewSession(_ context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error) {
 	c.calls = append(c.calls, "new")
 	c.newReqs = append(c.newReqs, req)
 	if c.newErr != nil {
-		return acpclient.SessionInfo{}, c.newErr
+		return "", c.newErr
 	}
 	return c.newResp, nil
 }
@@ -346,7 +347,7 @@ func TestSecretaryUsesBoundRole(t *testing.T) {
 	)
 	client := &stubSecretarySessionClient{
 		loadErr: errors.New("session not found"),
-		newResp: acpclient.SessionInfo{SessionID: "sid-new"},
+		newResp: acpproto.SessionId("sid-new"),
 	}
 
 	session, roleID, err := startSecretarySession(
@@ -365,8 +366,8 @@ func TestSecretaryUsesBoundRole(t *testing.T) {
 	if roleID != "secretary_custom" {
 		t.Fatalf("role id = %q, want %q", roleID, "secretary_custom")
 	}
-	if session.SessionID != "sid-new" {
-		t.Fatalf("session id = %q, want %q", session.SessionID, "sid-new")
+	if string(session) != "sid-new" {
+		t.Fatalf("session id = %q, want %q", string(session), "sid-new")
 	}
 	if !reflect.DeepEqual(client.calls, []string{"load", "new"}) {
 		t.Fatalf("call order = %#v, want load->new fallback", client.calls)
@@ -377,17 +378,21 @@ func TestSecretaryUsesBoundRole(t *testing.T) {
 	if len(client.newReqs) != 1 {
 		t.Fatalf("NewSession calls = %d, want 1", len(client.newReqs))
 	}
-	if got := client.loadReqs[0].Metadata["role_id"]; got != "secretary_custom" {
+	if got, _ := client.loadReqs[0].Meta["role_id"].(string); got != "secretary_custom" {
 		t.Fatalf("load metadata role_id = %q, want %q", got, "secretary_custom")
 	}
-	if got := client.newReqs[0].Metadata["role_id"]; got != "secretary_custom" {
+	if got, _ := client.newReqs[0].Meta["role_id"].(string); got != "secretary_custom" {
 		t.Fatalf("new metadata role_id = %q, want %q", got, "secretary_custom")
 	}
-	if len(client.newReqs[0].MCPServers) != 1 {
-		t.Fatalf("new session mcp servers = %d, want 1 from role config", len(client.newReqs[0].MCPServers))
+	if len(client.newReqs[0].McpServers) != 1 {
+		t.Fatalf("new session mcp servers = %d, want 1 from role config", len(client.newReqs[0].McpServers))
 	}
-	if got := client.newReqs[0].MCPServers[0].Env["AI_WORKFLOW_MCP_TOOL"]; got != "query_plans" {
-		t.Fatalf("new session mcp tool = %q, want %q", got, "query_plans")
+	stdio := client.newReqs[0].McpServers[0].Stdio
+	if stdio == nil {
+		t.Fatalf("expected stdio mcp server, got %#v", client.newReqs[0].McpServers[0])
+	}
+	if len(stdio.Env) != 1 || stdio.Env[0].Name != "AI_WORKFLOW_MCP_TOOL" || stdio.Env[0].Value != "query_plans" {
+		t.Fatalf("new session mcp env = %#v, want AI_WORKFLOW_MCP_TOOL=query_plans", stdio.Env)
 	}
 }
 
@@ -420,8 +425,8 @@ func TestStartSecretarySessionSkipsLoadWhenReuseDisabled(t *testing.T) {
 		},
 	)
 	client := &stubSecretarySessionClient{
-		loadResp: acpclient.SessionInfo{SessionID: "sid-loaded"},
-		newResp:  acpclient.SessionInfo{SessionID: "sid-new"},
+		loadResp: acpproto.SessionId("sid-loaded"),
+		newResp:  acpproto.SessionId("sid-new"),
 	}
 
 	session, roleID, err := startSecretarySession(
@@ -440,8 +445,8 @@ func TestStartSecretarySessionSkipsLoadWhenReuseDisabled(t *testing.T) {
 	if roleID != "secretary_custom" {
 		t.Fatalf("role id = %q, want %q", roleID, "secretary_custom")
 	}
-	if session.SessionID != "sid-new" {
-		t.Fatalf("session id = %q, want %q", session.SessionID, "sid-new")
+	if string(session) != "sid-new" {
+		t.Fatalf("session id = %q, want %q", string(session), "sid-new")
 	}
 	if len(client.loadReqs) != 0 {
 		t.Fatalf("LoadSession calls = %d, want 0", len(client.loadReqs))
@@ -480,8 +485,8 @@ func TestStartSecretarySessionSkipsLoadWhenPreferLoadDisabled(t *testing.T) {
 		},
 	)
 	client := &stubSecretarySessionClient{
-		loadResp: acpclient.SessionInfo{SessionID: "sid-loaded"},
-		newResp:  acpclient.SessionInfo{SessionID: "sid-new"},
+		loadResp: acpproto.SessionId("sid-loaded"),
+		newResp:  acpproto.SessionId("sid-new"),
 	}
 
 	session, roleID, err := startSecretarySession(
@@ -500,8 +505,8 @@ func TestStartSecretarySessionSkipsLoadWhenPreferLoadDisabled(t *testing.T) {
 	if roleID != "secretary_custom" {
 		t.Fatalf("role id = %q, want %q", roleID, "secretary_custom")
 	}
-	if session.SessionID != "sid-new" {
-		t.Fatalf("session id = %q, want %q", session.SessionID, "sid-new")
+	if string(session) != "sid-new" {
+		t.Fatalf("session id = %q, want %q", string(session), "sid-new")
 	}
 	if len(client.loadReqs) != 0 {
 		t.Fatalf("LoadSession calls = %d, want 0", len(client.loadReqs))

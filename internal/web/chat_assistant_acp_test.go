@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 )
 
@@ -52,8 +53,8 @@ func TestShouldLoadPersistedChatSession(t *testing.T) {
 
 func TestStartWebChatSessionSkipsLoadWhenReuseDisabled(t *testing.T) {
 	client := &stubACPClient{
-		loadResp: acpclient.SessionInfo{SessionID: "sid-loaded"},
-		newResp:  acpclient.SessionInfo{SessionID: "sid-new"},
+		loadResp: acpproto.SessionId("sid-loaded"),
+		newResp:  acpproto.SessionId("sid-new"),
 	}
 	role := acpclient.RoleProfile{
 		SessionPolicy: acpclient.SessionPolicy{
@@ -73,8 +74,8 @@ func TestStartWebChatSessionSkipsLoadWhenReuseDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("startWebChatSession() error = %v", err)
 	}
-	if session.SessionID != "sid-new" {
-		t.Fatalf("session id = %q, want %q", session.SessionID, "sid-new")
+	if string(session) != "sid-new" {
+		t.Fatalf("session id = %q, want %q", string(session), "sid-new")
 	}
 	if len(client.loadReqs) != 0 {
 		t.Fatalf("LoadSession calls = %d, want 0", len(client.loadReqs))
@@ -86,8 +87,8 @@ func TestStartWebChatSessionSkipsLoadWhenReuseDisabled(t *testing.T) {
 
 func TestStartWebChatSessionSkipsLoadWhenPreferLoadDisabled(t *testing.T) {
 	client := &stubACPClient{
-		loadResp: acpclient.SessionInfo{SessionID: "sid-loaded"},
-		newResp:  acpclient.SessionInfo{SessionID: "sid-new"},
+		loadResp: acpproto.SessionId("sid-loaded"),
+		newResp:  acpproto.SessionId("sid-new"),
 	}
 	role := acpclient.RoleProfile{
 		SessionPolicy: acpclient.SessionPolicy{
@@ -107,8 +108,8 @@ func TestStartWebChatSessionSkipsLoadWhenPreferLoadDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("startWebChatSession() error = %v", err)
 	}
-	if session.SessionID != "sid-new" {
-		t.Fatalf("session id = %q, want %q", session.SessionID, "sid-new")
+	if string(session) != "sid-new" {
+		t.Fatalf("session id = %q, want %q", string(session), "sid-new")
 	}
 	if len(client.loadReqs) != 0 {
 		t.Fatalf("LoadSession calls = %d, want 0", len(client.loadReqs))

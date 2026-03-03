@@ -15,6 +15,7 @@ import (
 	"text/template"
 	"time"
 
+	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
@@ -95,8 +96,8 @@ type Agent struct {
 }
 
 type secretarySessionClient interface {
-	LoadSession(ctx context.Context, req acpclient.LoadSessionRequest) (acpclient.SessionInfo, error)
-	NewSession(ctx context.Context, req acpclient.NewSessionRequest) (acpclient.SessionInfo, error)
+	LoadSession(ctx context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error)
+	NewSession(ctx context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error)
 }
 
 func NewAgent(agent core.AgentPlugin, runtime core.RuntimePlugin) (*Agent, error) {
@@ -616,10 +617,10 @@ func startSecretarySession(
 	boundRole string,
 	persistedSessionID string,
 	cwd string,
-	mcpServers []acpclient.MCPServerConfig,
-) (acpclient.SessionInfo, string, error) {
+	mcpServers []acpproto.McpServer,
+) (acpproto.SessionId, string, error) {
 	if client == nil {
-		return acpclient.SessionInfo{}, "", errors.New("secretary session client is required")
+		return "", "", errors.New("secretary session client is required")
 	}
 
 	roleID := resolveSecretaryRoleID(explicitRole, boundRole)
@@ -627,38 +628,38 @@ func startSecretarySession(
 	if resolver != nil {
 		_, role, err := resolver.Resolve(roleID)
 		if err != nil {
-			return acpclient.SessionInfo{}, "", fmt.Errorf("resolve secretary role %q: %w", roleID, err)
+			return "", "", fmt.Errorf("resolve secretary role %q: %w", roleID, err)
 		}
 		resolvedRole = role
 	}
 
 	trimmedCWD := strings.TrimSpace(cwd)
-	metadata := map[string]string{
+	metadata := map[string]any{
 		"role_id": roleID,
 	}
-	effectiveMCPServers := append([]acpclient.MCPServerConfig(nil), mcpServers...)
+	effectiveMCPServers := append([]acpproto.McpServer(nil), mcpServers...)
 	if len(effectiveMCPServers) == 0 {
 		effectiveMCPServers = MCPToolsFromRoleConfig(resolvedRole)
 	}
 	if sessionID := strings.TrimSpace(persistedSessionID); shouldLoadPersistedSecretarySession(resolvedRole.SessionPolicy, sessionID) {
-		loaded, err := client.LoadSession(ctx, acpclient.LoadSessionRequest{
-			SessionID:  sessionID,
-			CWD:        trimmedCWD,
-			MCPServers: effectiveMCPServers,
-			Metadata:   metadata,
+		loaded, err := client.LoadSession(ctx, acpproto.LoadSessionRequest{
+			SessionId:  acpproto.SessionId(sessionID),
+			Cwd:        trimmedCWD,
+			McpServers: effectiveMCPServers,
+			Meta:       metadata,
 		})
-		if err == nil && strings.TrimSpace(loaded.SessionID) != "" {
+		if err == nil && strings.TrimSpace(string(loaded)) != "" {
 			return loaded, roleID, nil
 		}
 	}
 
-	session, err := client.NewSession(ctx, acpclient.NewSessionRequest{
-		CWD:        trimmedCWD,
-		MCPServers: effectiveMCPServers,
-		Metadata:   metadata,
+	session, err := client.NewSession(ctx, acpproto.NewSessionRequest{
+		Cwd:        trimmedCWD,
+		McpServers: effectiveMCPServers,
+		Meta:       metadata,
 	})
 	if err != nil {
-		return acpclient.SessionInfo{}, "", err
+		return "", "", err
 	}
 	return session, roleID, nil
 }

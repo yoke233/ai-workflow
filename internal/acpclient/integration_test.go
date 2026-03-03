@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	acpproto "github.com/coder/acp-go-sdk"
 )
 
 func TestFullLifecycleWithRoleMetadata(t *testing.T) {
@@ -27,15 +29,20 @@ func TestFullLifecycleWithRoleMetadata(t *testing.T) {
 		t.Fatalf("initialize failed: %v", err)
 	}
 
-	sess, err := c.NewSession(ctx, NewSessionRequest{CWD: t.TempDir()})
+	sess, err := c.NewSession(ctx, acpproto.NewSessionRequest{
+		Cwd:        t.TempDir(),
+		McpServers: []acpproto.McpServer{},
+	})
 	if err != nil {
 		t.Fatalf("new session failed: %v", err)
 	}
 
-	res, err := c.Prompt(ctx, PromptRequest{
-		SessionID: sess.SessionID,
-		Prompt:    "请回复测试完成",
-		Metadata: map[string]string{
+	res, err := c.Prompt(ctx, acpproto.PromptRequest{
+		SessionId: sess,
+		Prompt: []acpproto.ContentBlock{
+			{Text: &acpproto.ContentBlockText{Text: "请回复测试完成"}},
+		},
+		Meta: map[string]any{
 			"role_id": "worker",
 		},
 	})
@@ -67,42 +74,50 @@ type integrationHandler struct {
 	updateHits     int
 }
 
-func (h *integrationHandler) HandleReadFile(context.Context, ReadFileRequest) (ReadFileResult, error) {
-	return ReadFileResult{}, nil
+func (h *integrationHandler) ReadTextFile(context.Context, acpproto.ReadTextFileRequest) (acpproto.ReadTextFileResponse, error) {
+	return acpproto.ReadTextFileResponse{}, nil
 }
 
-func (h *integrationHandler) HandleWriteFile(context.Context, WriteFileRequest) (WriteFileResult, error) {
+func (h *integrationHandler) WriteTextFile(context.Context, acpproto.WriteTextFileRequest) (acpproto.WriteTextFileResponse, error) {
 	h.mu.Lock()
 	h.writeHits++
 	h.mu.Unlock()
-	return WriteFileResult{BytesWritten: 1}, nil
+	return acpproto.WriteTextFileResponse{}, nil
 }
 
-func (h *integrationHandler) HandleRequestPermission(context.Context, PermissionRequest) (PermissionDecision, error) {
+func (h *integrationHandler) RequestPermission(context.Context, acpproto.RequestPermissionRequest) (acpproto.RequestPermissionResponse, error) {
 	h.mu.Lock()
 	h.permissionHits++
 	h.mu.Unlock()
-	return PermissionDecision{Outcome: "allow"}, nil
+	return acpproto.RequestPermissionResponse{
+		Outcome: acpproto.RequestPermissionOutcome{
+			Cancelled: &acpproto.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
+		},
+	}, nil
 }
 
-func (h *integrationHandler) HandleTerminalCreate(context.Context, TerminalCreateRequest) (TerminalCreateResult, error) {
-	return TerminalCreateResult{TerminalID: "it1"}, nil
+func (h *integrationHandler) CreateTerminal(context.Context, acpproto.CreateTerminalRequest) (acpproto.CreateTerminalResponse, error) {
+	return acpproto.CreateTerminalResponse{TerminalId: "it1"}, nil
 }
 
-func (h *integrationHandler) HandleTerminalWrite(context.Context, TerminalWriteRequest) (TerminalWriteResult, error) {
-	return TerminalWriteResult{}, nil
+func (h *integrationHandler) KillTerminalCommand(context.Context, acpproto.KillTerminalCommandRequest) (acpproto.KillTerminalCommandResponse, error) {
+	return acpproto.KillTerminalCommandResponse{}, nil
 }
 
-func (h *integrationHandler) HandleTerminalRead(context.Context, TerminalReadRequest) (TerminalReadResult, error) {
-	return TerminalReadResult{}, nil
+func (h *integrationHandler) TerminalOutput(context.Context, acpproto.TerminalOutputRequest) (acpproto.TerminalOutputResponse, error) {
+	return acpproto.TerminalOutputResponse{}, nil
 }
 
-func (h *integrationHandler) HandleTerminalResize(context.Context, TerminalResizeRequest) (TerminalResizeResult, error) {
-	return TerminalResizeResult{}, nil
+func (h *integrationHandler) ReleaseTerminal(context.Context, acpproto.ReleaseTerminalRequest) (acpproto.ReleaseTerminalResponse, error) {
+	return acpproto.ReleaseTerminalResponse{}, nil
 }
 
-func (h *integrationHandler) HandleTerminalClose(context.Context, TerminalCloseRequest) (TerminalCloseResult, error) {
-	return TerminalCloseResult{}, nil
+func (h *integrationHandler) WaitForTerminalExit(context.Context, acpproto.WaitForTerminalExitRequest) (acpproto.WaitForTerminalExitResponse, error) {
+	return acpproto.WaitForTerminalExitResponse{}, nil
+}
+
+func (h *integrationHandler) SessionUpdate(context.Context, acpproto.SessionNotification) error {
+	return nil
 }
 
 func (h *integrationHandler) HandleSessionUpdate(context.Context, SessionUpdate) error {

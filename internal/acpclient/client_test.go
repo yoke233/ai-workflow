@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	acpproto "github.com/coder/acp-go-sdk"
 )
 
 func TestClientLifecycle(t *testing.T) {
@@ -32,18 +34,23 @@ func TestClientLifecycle(t *testing.T) {
 		t.Fatalf("initialize failed: %v", err)
 	}
 
-	sess, err := c.NewSession(ctx, NewSessionRequest{CWD: t.TempDir()})
+	sess, err := c.NewSession(ctx, acpproto.NewSessionRequest{
+		Cwd:        t.TempDir(),
+		McpServers: []acpproto.McpServer{},
+	})
 	if err != nil {
 		t.Fatalf("new session failed: %v", err)
 	}
-	if sess.SessionID == "" {
+	if sess == "" {
 		t.Fatal("expected non-empty session id")
 	}
 
-	got, err := c.Prompt(ctx, PromptRequest{
-		SessionID: sess.SessionID,
-		Prompt:    "hello",
-		Metadata: map[string]string{
+	got, err := c.Prompt(ctx, acpproto.PromptRequest{
+		SessionId: sess,
+		Prompt: []acpproto.ContentBlock{
+			{Text: &acpproto.ContentBlockText{Text: "hello"}},
+		},
+		Meta: map[string]any{
 			"role_id": "worker",
 		},
 	})
@@ -78,6 +85,31 @@ func TestClientCloseIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestClientNewWithIOCloseHook(t *testing.T) {
+	serverRead, clientWrite := io.Pipe()
+	clientRead, serverWrite := io.Pipe()
+	defer serverRead.Close()
+	defer clientWrite.Close()
+	defer clientRead.Close()
+	defer serverWrite.Close()
+
+	closeCalls := 0
+	c, err := NewWithIO(LaunchConfig{}, &NopHandler{}, clientWrite, clientRead, WithCloseHook(func(context.Context) error {
+		closeCalls++
+		return nil
+	}))
+	if err != nil {
+		t.Fatalf("NewWithIO returned error: %v", err)
+	}
+
+	if err := c.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if closeCalls != 1 {
+		t.Fatalf("close hook calls = %d, want 1", closeCalls)
+	}
+}
+
 func testLaunchConfig(t *testing.T) LaunchConfig {
 	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -100,39 +132,47 @@ type recordingHandler struct {
 	updateHits    int
 }
 
-func (h *recordingHandler) HandleReadFile(context.Context, ReadFileRequest) (ReadFileResult, error) {
-	return ReadFileResult{Content: ""}, nil
+func (h *recordingHandler) ReadTextFile(context.Context, acpproto.ReadTextFileRequest) (acpproto.ReadTextFileResponse, error) {
+	return acpproto.ReadTextFileResponse{Content: ""}, nil
 }
 
-func (h *recordingHandler) HandleWriteFile(context.Context, WriteFileRequest) (WriteFileResult, error) {
+func (h *recordingHandler) WriteTextFile(context.Context, acpproto.WriteTextFileRequest) (acpproto.WriteTextFileResponse, error) {
 	h.mu.Lock()
 	h.writeFileHits++
 	h.mu.Unlock()
-	return WriteFileResult{BytesWritten: 1}, nil
+	return acpproto.WriteTextFileResponse{}, nil
 }
 
-func (h *recordingHandler) HandleRequestPermission(context.Context, PermissionRequest) (PermissionDecision, error) {
-	return PermissionDecision{Outcome: "allow"}, nil
+func (h *recordingHandler) RequestPermission(context.Context, acpproto.RequestPermissionRequest) (acpproto.RequestPermissionResponse, error) {
+	return acpproto.RequestPermissionResponse{
+		Outcome: acpproto.RequestPermissionOutcome{
+			Cancelled: &acpproto.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
+		},
+	}, nil
 }
 
-func (h *recordingHandler) HandleTerminalCreate(context.Context, TerminalCreateRequest) (TerminalCreateResult, error) {
-	return TerminalCreateResult{TerminalID: "t1"}, nil
+func (h *recordingHandler) CreateTerminal(context.Context, acpproto.CreateTerminalRequest) (acpproto.CreateTerminalResponse, error) {
+	return acpproto.CreateTerminalResponse{TerminalId: "t1"}, nil
 }
 
-func (h *recordingHandler) HandleTerminalWrite(context.Context, TerminalWriteRequest) (TerminalWriteResult, error) {
-	return TerminalWriteResult{Written: 0}, nil
+func (h *recordingHandler) KillTerminalCommand(context.Context, acpproto.KillTerminalCommandRequest) (acpproto.KillTerminalCommandResponse, error) {
+	return acpproto.KillTerminalCommandResponse{}, nil
 }
 
-func (h *recordingHandler) HandleTerminalRead(context.Context, TerminalReadRequest) (TerminalReadResult, error) {
-	return TerminalReadResult{}, nil
+func (h *recordingHandler) TerminalOutput(context.Context, acpproto.TerminalOutputRequest) (acpproto.TerminalOutputResponse, error) {
+	return acpproto.TerminalOutputResponse{}, nil
 }
 
-func (h *recordingHandler) HandleTerminalResize(context.Context, TerminalResizeRequest) (TerminalResizeResult, error) {
-	return TerminalResizeResult{}, nil
+func (h *recordingHandler) ReleaseTerminal(context.Context, acpproto.ReleaseTerminalRequest) (acpproto.ReleaseTerminalResponse, error) {
+	return acpproto.ReleaseTerminalResponse{}, nil
 }
 
-func (h *recordingHandler) HandleTerminalClose(context.Context, TerminalCloseRequest) (TerminalCloseResult, error) {
-	return TerminalCloseResult{}, nil
+func (h *recordingHandler) WaitForTerminalExit(context.Context, acpproto.WaitForTerminalExitRequest) (acpproto.WaitForTerminalExitResponse, error) {
+	return acpproto.WaitForTerminalExitResponse{}, nil
+}
+
+func (h *recordingHandler) SessionUpdate(context.Context, acpproto.SessionNotification) error {
+	return nil
 }
 
 func (h *recordingHandler) HandleSessionUpdate(context.Context, SessionUpdate) error {
@@ -207,17 +247,18 @@ func TestClientNewSessionRetriesWithoutMetadataOnInvalidParams(t *testing.T) {
 		transport:  transport,
 		activeText: make(map[string]*strings.Builder),
 	}
-	session, err := client.NewSession(context.Background(), NewSessionRequest{
-		CWD: "D:\\project\\ai-workflow",
-		Metadata: map[string]string{
+	sessionID, err := client.NewSession(context.Background(), acpproto.NewSessionRequest{
+		Cwd:        "D:\\project\\ai-workflow",
+		McpServers: []acpproto.McpServer{},
+		Meta: map[string]any{
 			"role_id": "secretary",
 		},
 	})
 	if err != nil {
 		t.Fatalf("NewSession returned error: %v", err)
 	}
-	if session.SessionID != "sid-new-1" {
-		t.Fatalf("expected sid-new-1, got %q", session.SessionID)
+	if string(sessionID) != "sid-new-1" {
+		t.Fatalf("expected sid-new-1, got %q", string(sessionID))
 	}
 }
 
@@ -276,10 +317,12 @@ func TestClientPromptRetriesWithoutMetadataOnInvalidParams(t *testing.T) {
 		transport:  transport,
 		activeText: make(map[string]*strings.Builder),
 	}
-	result, err := client.Prompt(context.Background(), PromptRequest{
-		SessionID: "sid-1",
-		Prompt:    "hello",
-		Metadata: map[string]string{
+	result, err := client.Prompt(context.Background(), acpproto.PromptRequest{
+		SessionId: "sid-1",
+		Prompt: []acpproto.ContentBlock{
+			{Text: &acpproto.ContentBlockText{Text: "hello"}},
+		},
+		Meta: map[string]any{
 			"role_id": "secretary",
 		},
 	})
@@ -298,7 +341,7 @@ type rpcLine struct {
 	ID     any    `json:"id"`
 	Method string `json:"method"`
 	Params struct {
-		Metadata map[string]string `json:"_meta"`
+		Metadata map[string]any `json:"_meta"`
 	} `json:"params"`
 }
 
@@ -313,4 +356,126 @@ func readRPCLine(t *testing.T, reader *bufio.Reader) rpcLine {
 		t.Fatalf("decode rpc line: %v", err)
 	}
 	return msg
+}
+
+func TestHandleRequestPermissionResponsePassthrough(t *testing.T) {
+	handler := &permissionAllowOnceHandler{}
+	client := &Client{handler: handler}
+	resp, err := client.handleRequest(context.Background(), "session/request_permission", json.RawMessage(`{
+		"sessionId":"sess-1",
+		"toolCall":{"toolCallId":"perm-1"},
+		"options":[
+			{"optionId":"allow_once","kind":"allow_once"},
+			{"optionId":"reject_once","kind":"reject_once"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("handleRequest returned error: %v", err)
+	}
+
+	out, ok := resp.(acpproto.RequestPermissionResponse)
+	if !ok {
+		t.Fatalf("response type = %T, want acpproto.RequestPermissionResponse", resp)
+	}
+	if out.Outcome.Selected == nil || string(out.Outcome.Selected.OptionId) != "allow_once" {
+		t.Fatalf("unexpected permission response: %#v", out)
+	}
+}
+
+func TestHandleRequestTerminalCreateAcceptsCommandStringPlusArgs(t *testing.T) {
+	handler := &compatTerminalHandler{}
+	client := &Client{handler: handler}
+
+	_, err := client.handleRequest(context.Background(), "terminal/create", json.RawMessage(`{
+		"sessionId":"sess-1",
+		"command":"cmd",
+		"args":["/C","echo hi"],
+		"cwd":"D:/repo/demo"
+	}`))
+	if err != nil {
+		t.Fatalf("handleRequest returned error: %v", err)
+	}
+
+	if got := handler.createReq.Command; got != "cmd" {
+		t.Fatalf("create command = %q, want %q", got, "cmd")
+	}
+	if got := strings.Join(handler.createReq.Args, "\x00"); got != strings.Join([]string{"/C", "echo hi"}, "\x00") {
+		t.Fatalf("create args = %v, want %v", handler.createReq.Args, []string{"/C", "echo hi"})
+	}
+	if handler.createReq.Cwd == nil || *handler.createReq.Cwd != "D:/repo/demo" {
+		t.Fatalf("create cwd = %#v, want %q", handler.createReq.Cwd, "D:/repo/demo")
+	}
+}
+
+func TestHandleRequestTerminalLifecycleDispatch(t *testing.T) {
+	handler := &compatTerminalHandler{}
+	client := &Client{handler: handler}
+
+	if _, err := client.handleRequest(context.Background(), "terminal/output", json.RawMessage(`{"terminalId":"t-1"}`)); err != nil {
+		t.Fatalf("terminal/output error: %v", err)
+	}
+	if _, err := client.handleRequest(context.Background(), "terminal/wait_for_exit", json.RawMessage(`{"terminalId":"t-1"}`)); err != nil {
+		t.Fatalf("terminal/wait_for_exit error: %v", err)
+	}
+	if _, err := client.handleRequest(context.Background(), "terminal/kill", json.RawMessage(`{"terminalId":"t-1"}`)); err != nil {
+		t.Fatalf("terminal/kill error: %v", err)
+	}
+	if _, err := client.handleRequest(context.Background(), "terminal/release", json.RawMessage(`{"terminalId":"t-1"}`)); err != nil {
+		t.Fatalf("terminal/release error: %v", err)
+	}
+
+	if handler.outputHits != 1 || handler.waitHits != 1 || handler.killHits != 1 || handler.releaseHits != 1 {
+		t.Fatalf("unexpected lifecycle hits output=%d wait=%d kill=%d release=%d", handler.outputHits, handler.waitHits, handler.killHits, handler.releaseHits)
+	}
+}
+
+type permissionAllowOnceHandler struct {
+	NopHandler
+}
+
+func (h *permissionAllowOnceHandler) RequestPermission(context.Context, acpproto.RequestPermissionRequest) (acpproto.RequestPermissionResponse, error) {
+	return acpproto.RequestPermissionResponse{
+		Outcome: acpproto.RequestPermissionOutcome{
+			Selected: &acpproto.RequestPermissionOutcomeSelected{
+				Outcome:  "selected",
+				OptionId: "allow_once",
+			},
+		},
+	}, nil
+}
+
+type compatTerminalHandler struct {
+	NopHandler
+
+	createReq   acpproto.CreateTerminalRequest
+	outputHits  int
+	waitHits    int
+	killHits    int
+	releaseHits int
+}
+
+func (h *compatTerminalHandler) CreateTerminal(_ context.Context, req acpproto.CreateTerminalRequest) (acpproto.CreateTerminalResponse, error) {
+	h.createReq = req
+	return acpproto.CreateTerminalResponse{TerminalId: "t-1"}, nil
+}
+
+func (h *compatTerminalHandler) TerminalOutput(context.Context, acpproto.TerminalOutputRequest) (acpproto.TerminalOutputResponse, error) {
+	h.outputHits++
+	return acpproto.TerminalOutputResponse{Output: "ok"}, nil
+}
+
+func (h *compatTerminalHandler) WaitForTerminalExit(context.Context, acpproto.WaitForTerminalExitRequest) (acpproto.WaitForTerminalExitResponse, error) {
+	h.waitHits++
+	exitCode := 0
+	return acpproto.WaitForTerminalExitResponse{ExitCode: &exitCode}, nil
+}
+
+func (h *compatTerminalHandler) KillTerminalCommand(context.Context, acpproto.KillTerminalCommandRequest) (acpproto.KillTerminalCommandResponse, error) {
+	h.killHits++
+	return acpproto.KillTerminalCommandResponse{}, nil
+}
+
+func (h *compatTerminalHandler) ReleaseTerminal(context.Context, acpproto.ReleaseTerminalRequest) (acpproto.ReleaseTerminalResponse, error) {
+	h.releaseHits++
+	return acpproto.ReleaseTerminalResponse{}, nil
 }

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/secretary"
@@ -25,16 +26,16 @@ type ChatRoleResolver interface {
 
 // ChatACPClient is the minimal ACP session API used by chat assistant.
 type ChatACPClient interface {
-	LoadSession(ctx context.Context, req acpclient.LoadSessionRequest) (acpclient.SessionInfo, error)
-	NewSession(ctx context.Context, req acpclient.NewSessionRequest) (acpclient.SessionInfo, error)
-	Prompt(ctx context.Context, req acpclient.PromptRequest) (*acpclient.PromptResult, error)
-	Cancel(ctx context.Context, req acpclient.CancelRequest) error
+	LoadSession(ctx context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error)
+	NewSession(ctx context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error)
+	Prompt(ctx context.Context, req acpproto.PromptRequest) (*acpclient.PromptResult, error)
+	Cancel(ctx context.Context, req acpproto.CancelNotification) error
 	Close(ctx context.Context) error
 }
 
 // ChatACPClientFactory creates initialized ACP clients for one chat request.
 type ChatACPClientFactory interface {
-	New(ctx context.Context, cfg acpclient.LaunchConfig, handler acpclient.Handler, capabilities acpclient.ClientCapabilities) (ChatACPClient, error)
+	New(ctx context.Context, cfg acpclient.LaunchConfig, handler acpproto.Client, capabilities acpclient.ClientCapabilities) (ChatACPClient, error)
 }
 
 // ChatEventPublisher receives assistant callback events (e.g. file writes).
@@ -122,6 +123,9 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 	if launchCfg.Command == "" {
 		return ChatAssistantResponse{}, fmt.Errorf("chat role %q resolved empty launch command", roleID)
 	}
+	if isAgentSDKInprocLaunch(launchCfg.Command) && launchCfg.WorkDir == "" {
+		return ChatAssistantResponse{}, errors.New("workdir is required for agentsdk-inproc")
+	}
 
 	runCtx, cancel := withDefaultTimeout(ctx, a.deps.Timeout)
 	defer cancel()
@@ -147,9 +151,9 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 	if err != nil {
 		return ChatAssistantResponse{}, err
 	}
-	handler.SetSessionID(session.SessionID)
+	handler.SetSessionID(string(session))
 	if chatSessionID := strings.TrimSpace(req.ChatSessionID); chatSessionID != "" {
-		agentSessionID := strings.TrimSpace(session.SessionID)
+		agentSessionID := strings.TrimSpace(string(session))
 		if agentSessionID == "" {
 			agentSessionID = strings.TrimSpace(req.AgentSessionID)
 		}
@@ -161,10 +165,12 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 		defer a.clearActiveRun(chatSessionID)
 	}
 
-	result, err := client.Prompt(runCtx, acpclient.PromptRequest{
-		SessionID: session.SessionID,
-		Prompt:    message,
-		Metadata: map[string]string{
+	result, err := client.Prompt(runCtx, acpproto.PromptRequest{
+		SessionId: session,
+		Prompt: []acpproto.ContentBlock{
+			{Text: &acpproto.ContentBlockText{Text: message}},
+		},
+		Meta: map[string]any{
 			"role_id": roleID,
 		},
 	})
@@ -180,7 +186,7 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 		return ChatAssistantResponse{}, errors.New("chat assistant returned empty reply")
 	}
 
-	sessionID := strings.TrimSpace(session.SessionID)
+	sessionID := strings.TrimSpace(string(session))
 	if sessionID == "" {
 		sessionID = strings.TrimSpace(req.AgentSessionID)
 	}
@@ -215,8 +221,8 @@ func (a *ACPChatAssistant) CancelChat(chatSessionID string) error {
 
 	cancelCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	return run.client.Cancel(cancelCtx, acpclient.CancelRequest{
-		SessionID: agentSessionID,
+	return run.client.Cancel(cancelCtx, acpproto.CancelNotification{
+		SessionId: acpproto.SessionId(agentSessionID),
 	})
 }
 
@@ -227,35 +233,35 @@ func startWebChatSession(
 	role acpclient.RoleProfile,
 	persistedSessionID string,
 	cwd string,
-) (acpclient.SessionInfo, error) {
+) (acpproto.SessionId, error) {
 	if client == nil {
-		return acpclient.SessionInfo{}, errors.New("chat acp client is required")
+		return "", errors.New("chat acp client is required")
 	}
 
-	metadata := map[string]string{
+	metadata := map[string]any{
 		"role_id": roleID,
 	}
 	trimmedCWD := strings.TrimSpace(cwd)
 	effectiveMCPServers := secretary.MCPToolsFromRoleConfig(role)
 	if sessionID := strings.TrimSpace(persistedSessionID); shouldLoadPersistedChatSession(role.SessionPolicy, sessionID) {
-		loaded, err := client.LoadSession(ctx, acpclient.LoadSessionRequest{
-			SessionID:  sessionID,
-			CWD:        trimmedCWD,
-			MCPServers: effectiveMCPServers,
-			Metadata:   metadata,
+		loaded, err := client.LoadSession(ctx, acpproto.LoadSessionRequest{
+			SessionId:  acpproto.SessionId(sessionID),
+			Cwd:        trimmedCWD,
+			McpServers: effectiveMCPServers,
+			Meta:       metadata,
 		})
-		if err == nil && strings.TrimSpace(loaded.SessionID) != "" {
+		if err == nil && strings.TrimSpace(string(loaded)) != "" {
 			return loaded, nil
 		}
 	}
 
-	session, err := client.NewSession(ctx, acpclient.NewSessionRequest{
-		CWD:        trimmedCWD,
-		MCPServers: effectiveMCPServers,
-		Metadata:   metadata,
+	session, err := client.NewSession(ctx, acpproto.NewSessionRequest{
+		Cwd:        trimmedCWD,
+		McpServers: effectiveMCPServers,
+		Meta:       metadata,
 	})
 	if err != nil {
-		return acpclient.SessionInfo{}, fmt.Errorf("create chat session: %w", err)
+		return "", fmt.Errorf("create chat session: %w", err)
 	}
 	return session, nil
 }
@@ -278,12 +284,15 @@ type defaultACPClientFactory struct{}
 func (f defaultACPClientFactory) New(
 	ctx context.Context,
 	cfg acpclient.LaunchConfig,
-	handler acpclient.Handler,
+	handler acpproto.Client,
 	capabilities acpclient.ClientCapabilities,
 ) (ChatACPClient, error) {
 	opts := make([]acpclient.Option, 0, 1)
 	if eventHandler, ok := handler.(acpclient.EventHandler); ok {
 		opts = append(opts, acpclient.WithEventHandler(eventHandler))
+	}
+	if isAgentSDKInprocLaunch(cfg.Command) {
+		return newAgentSDKInprocClient(ctx, cfg, handler, capabilities, opts...)
 	}
 	client, err := acpclient.New(cfg, handler, opts...)
 	if err != nil {

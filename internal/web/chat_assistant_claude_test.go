@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
@@ -40,7 +41,7 @@ func TestClaudeChatAssistantReplyUsesLoadSessionThenPrompt(t *testing.T) {
 		},
 	}
 	client := &stubACPClient{
-		loadResp: acpclient.SessionInfo{SessionID: "sid-loaded"},
+		loadResp: acpproto.SessionId("sid-loaded"),
 		promptResp: &acpclient.PromptResult{
 			Text: "hello from acp",
 		},
@@ -93,10 +94,10 @@ func TestClaudeChatAssistantReplyUsesLoadSessionThenPrompt(t *testing.T) {
 	if len(client.promptReqs) != 1 {
 		t.Fatalf("expected one Prompt call, got %d", len(client.promptReqs))
 	}
-	if gotRole := client.loadReqs[0].Metadata["role_id"]; gotRole != "reviewer" {
+	if gotRole, _ := client.loadReqs[0].Meta["role_id"].(string); gotRole != "reviewer" {
 		t.Fatalf("load metadata role_id = %q, want %q", gotRole, "reviewer")
 	}
-	if gotRole := client.promptReqs[0].Metadata["role_id"]; gotRole != "reviewer" {
+	if gotRole, _ := client.promptReqs[0].Meta["role_id"].(string); gotRole != "reviewer" {
 		t.Fatalf("prompt metadata role_id = %q, want %q", gotRole, "reviewer")
 	}
 	if len(resolver.calls) != 1 || resolver.calls[0] != "reviewer" {
@@ -128,7 +129,7 @@ func TestClaudeChatAssistantReplyFallsBackToNewSessionWhenLoadFails(t *testing.T
 	}
 	client := &stubACPClient{
 		loadErr: errors.New("session not found"),
-		newResp: acpclient.SessionInfo{SessionID: "sid-new"},
+		newResp: acpproto.SessionId("sid-new"),
 		promptResp: &acpclient.PromptResult{
 			Text: "new-session-reply",
 		},
@@ -160,10 +161,10 @@ func TestClaudeChatAssistantReplyFallsBackToNewSessionWhenLoadFails(t *testing.T
 	if len(client.promptReqs) != 1 {
 		t.Fatalf("expected one Prompt call, got %d", len(client.promptReqs))
 	}
-	if client.newReqs[0].CWD != "D:/repo/demo" {
-		t.Fatalf("new session cwd = %q, want %q", client.newReqs[0].CWD, "D:/repo/demo")
+	if client.newReqs[0].Cwd != "D:/repo/demo" {
+		t.Fatalf("new session cwd = %q, want %q", client.newReqs[0].Cwd, "D:/repo/demo")
 	}
-	if gotRole := client.newReqs[0].Metadata["role_id"]; gotRole != "secretary" {
+	if gotRole, _ := client.newReqs[0].Meta["role_id"].(string); gotRole != "secretary" {
 		t.Fatalf("new metadata role_id = %q, want %q", gotRole, "secretary")
 	}
 }
@@ -189,11 +190,11 @@ func TestClaudeChatAssistantReplyPublishesWriteFileEventViaACPHandler(t *testing
 		},
 	}
 	client := &stubACPClient{
-		newResp: acpclient.SessionInfo{SessionID: "sid-new"},
+		newResp: acpproto.SessionId("sid-new"),
 		promptResp: &acpclient.PromptResult{
 			Text: "done",
 		},
-		writeReqOnPrompt: &acpclient.WriteFileRequest{
+		writeReqOnPrompt: &acpproto.WriteTextFileRequest{
 			Path:    filepath.Join("plans", "plan-a.md"),
 			Content: "hello",
 		},
@@ -250,7 +251,7 @@ func TestClaudeChatAssistantReplyReturnsPromptError(t *testing.T) {
 		},
 	}
 	client := &stubACPClient{
-		newResp:   acpclient.SessionInfo{SessionID: "sid-new"},
+		newResp:   acpproto.SessionId("sid-new"),
 		promptErr: errors.New("prompt failed"),
 	}
 	factory := &recordingACPClientFactory{client: client}
@@ -295,13 +296,13 @@ type recordingACPClientFactory struct {
 	err      error
 	launches []acpclient.LaunchConfig
 	caps     []acpclient.ClientCapabilities
-	handlers []acpclient.Handler
+	handlers []acpproto.Client
 }
 
 func (f *recordingACPClientFactory) New(
 	_ context.Context,
 	cfg acpclient.LaunchConfig,
-	handler acpclient.Handler,
+	handler acpproto.Client,
 	capabilities acpclient.ClientCapabilities,
 ) (ChatACPClient, error) {
 	f.mu.Lock()
@@ -322,14 +323,14 @@ func (f *recordingACPClientFactory) New(
 type stubACPClient struct {
 	mu sync.Mutex
 
-	handler acpclient.Handler
+	handler acpproto.Client
 
-	loadReqs   []acpclient.LoadSessionRequest
-	newReqs    []acpclient.NewSessionRequest
-	promptReqs []acpclient.PromptRequest
+	loadReqs   []acpproto.LoadSessionRequest
+	newReqs    []acpproto.NewSessionRequest
+	promptReqs []acpproto.PromptRequest
 
-	loadResp   acpclient.SessionInfo
-	newResp    acpclient.SessionInfo
+	loadResp   acpproto.SessionId
+	newResp    acpproto.SessionId
 	promptResp *acpclient.PromptResult
 
 	loadErr   error
@@ -337,36 +338,36 @@ type stubACPClient struct {
 	promptErr error
 	closeErr  error
 
-	writeReqOnPrompt *acpclient.WriteFileRequest
+	writeReqOnPrompt *acpproto.WriteTextFileRequest
 }
 
-func (c *stubACPClient) LoadSession(_ context.Context, req acpclient.LoadSessionRequest) (acpclient.SessionInfo, error) {
+func (c *stubACPClient) LoadSession(_ context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.loadReqs = append(c.loadReqs, req)
 	if c.loadErr != nil {
-		return acpclient.SessionInfo{}, c.loadErr
+		return "", c.loadErr
 	}
-	if strings.TrimSpace(c.loadResp.SessionID) == "" {
-		return acpclient.SessionInfo{SessionID: "sid-load-default"}, nil
+	if strings.TrimSpace(string(c.loadResp)) == "" {
+		return acpproto.SessionId("sid-load-default"), nil
 	}
 	return c.loadResp, nil
 }
 
-func (c *stubACPClient) NewSession(_ context.Context, req acpclient.NewSessionRequest) (acpclient.SessionInfo, error) {
+func (c *stubACPClient) NewSession(_ context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.newReqs = append(c.newReqs, req)
 	if c.newErr != nil {
-		return acpclient.SessionInfo{}, c.newErr
+		return "", c.newErr
 	}
-	if strings.TrimSpace(c.newResp.SessionID) == "" {
-		return acpclient.SessionInfo{SessionID: "sid-new-default"}, nil
+	if strings.TrimSpace(string(c.newResp)) == "" {
+		return acpproto.SessionId("sid-new-default"), nil
 	}
 	return c.newResp, nil
 }
 
-func (c *stubACPClient) Prompt(ctx context.Context, req acpclient.PromptRequest) (*acpclient.PromptResult, error) {
+func (c *stubACPClient) Prompt(ctx context.Context, req acpproto.PromptRequest) (*acpclient.PromptResult, error) {
 	c.mu.Lock()
 	c.promptReqs = append(c.promptReqs, req)
 	writeReq := c.writeReqOnPrompt
@@ -376,7 +377,7 @@ func (c *stubACPClient) Prompt(ctx context.Context, req acpclient.PromptRequest)
 	c.mu.Unlock()
 
 	if writeReq != nil && handler != nil {
-		if _, err := handler.HandleWriteFile(ctx, *writeReq); err != nil {
+		if _, err := handler.WriteTextFile(ctx, *writeReq); err != nil {
 			return nil, err
 		}
 	}
@@ -395,7 +396,7 @@ func (c *stubACPClient) Close(_ context.Context) error {
 	return c.closeErr
 }
 
-func (c *stubACPClient) Cancel(_ context.Context, _ acpclient.CancelRequest) error {
+func (c *stubACPClient) Cancel(_ context.Context, _ acpproto.CancelNotification) error {
 	return nil
 }
 

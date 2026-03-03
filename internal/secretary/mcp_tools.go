@@ -3,6 +3,7 @@ package secretary
 import (
 	"strings"
 
+	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 )
 
@@ -20,12 +21,12 @@ var supportedMCPQueryTools = map[string]struct{}{
 }
 
 // MCPToolsFromRoleConfig maps role.mcp.tools to NewSessionRequest.MCPServers.
-func MCPToolsFromRoleConfig(role acpclient.RoleProfile) []acpclient.MCPServerConfig {
+func MCPToolsFromRoleConfig(role acpclient.RoleProfile) []acpproto.McpServer {
 	if len(role.MCPTools) == 0 {
 		return nil
 	}
 
-	servers := make([]acpclient.MCPServerConfig, 0, len(role.MCPTools))
+	servers := make([]acpproto.McpServer, 0, len(role.MCPTools))
 	seen := make(map[string]struct{}, len(role.MCPTools))
 
 	for _, rawTool := range role.MCPTools {
@@ -41,11 +42,14 @@ func MCPToolsFromRoleConfig(role acpclient.RoleProfile) []acpclient.MCPServerCon
 		}
 		seen[tool] = struct{}{}
 
-		servers = append(servers, acpclient.MCPServerConfig{
-			Name:    "workflow-query-" + tool,
-			Command: internalMCPServerCommand,
-			Env: map[string]string{
-				mcpToolEnvKey: tool,
+		servers = append(servers, acpproto.McpServer{
+			Stdio: &acpproto.McpServerStdio{
+				Name:    "workflow-query-" + tool,
+				Command: internalMCPServerCommand,
+				Args:    []string{},
+				Env: []acpproto.EnvVariable{
+					{Name: mcpToolEnvKey, Value: tool},
+				},
 			},
 		})
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 )
 
@@ -27,7 +28,7 @@ func TestCodexChatAssistantReplyUsesDefaultRoleWhenEmpty(t *testing.T) {
 		},
 	}
 	client := &stubACPClient{
-		newResp: acpclient.SessionInfo{SessionID: "sid-new"},
+		newResp: acpproto.SessionId("sid-new"),
 		promptResp: &acpclient.PromptResult{
 			Text: "hello from codex acp",
 		},
@@ -61,10 +62,10 @@ func TestCodexChatAssistantReplyUsesDefaultRoleWhenEmpty(t *testing.T) {
 	if len(client.promptReqs) != 1 {
 		t.Fatalf("expected one Prompt call, got %d", len(client.promptReqs))
 	}
-	if gotRole := client.newReqs[0].Metadata["role_id"]; gotRole != "secretary" {
+	if gotRole, _ := client.newReqs[0].Meta["role_id"].(string); gotRole != "secretary" {
 		t.Fatalf("new metadata role_id = %q, want %q", gotRole, "secretary")
 	}
-	if gotRole := client.promptReqs[0].Metadata["role_id"]; gotRole != "secretary" {
+	if gotRole, _ := client.promptReqs[0].Meta["role_id"].(string); gotRole != "secretary" {
 		t.Fatalf("prompt metadata role_id = %q, want %q", gotRole, "secretary")
 	}
 }
@@ -93,7 +94,7 @@ func TestCodexChatAssistantReplyUsesResolvedRoleLaunchAndLoadSession(t *testing.
 		},
 	}
 	client := &stubACPClient{
-		loadResp: acpclient.SessionInfo{SessionID: "sid-loaded"},
+		loadResp: acpproto.SessionId("sid-loaded"),
 		promptResp: &acpclient.PromptResult{
 			Text: "continued",
 		},

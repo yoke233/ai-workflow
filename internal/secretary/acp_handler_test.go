@@ -4,10 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
@@ -56,16 +59,13 @@ func TestHandleWriteFilePublishesChangedEvent(t *testing.T) {
 	pub := &recordingACPEventPublisher{}
 	handler := NewACPHandler(cwd, "chat-1", pub)
 
-	req := acpclient.WriteFileRequest{
+	req := acpproto.WriteTextFileRequest{
 		Path:    "./plans/plan-a.md",
 		Content: "hello secretary",
 	}
-	result, err := handler.HandleWriteFile(context.Background(), req)
+	_, err := handler.WriteTextFile(context.Background(), req)
 	if err != nil {
-		t.Fatalf("HandleWriteFile() error = %v", err)
-	}
-	if result.BytesWritten != len([]byte(req.Content)) {
-		t.Fatalf("bytes written = %d, want %d", result.BytesWritten, len([]byte(req.Content)))
+		t.Fatalf("WriteTextFile() error = %v", err)
 	}
 
 	raw, err := os.ReadFile(filepath.Join(cwd, "plans", "plan-a.md"))
@@ -99,13 +99,103 @@ func TestHandleWriteFilePublishesChangedEvent(t *testing.T) {
 	}
 }
 
+func TestHandleReadFileSupportsLineWindow(t *testing.T) {
+	cwd := t.TempDir()
+	pub := &recordingACPEventPublisher{}
+	handler := NewACPHandler(cwd, "chat-1", pub)
+
+	filePath := filepath.Join(cwd, "notes.txt")
+	content := "line-1\nline-2\nline-3\nline-4"
+	if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	start := 2
+	limit := 2
+	got, err := handler.ReadTextFile(context.Background(), acpproto.ReadTextFileRequest{
+		Path:  filePath,
+		Line:  &start,
+		Limit: &limit,
+	})
+	if err != nil {
+		t.Fatalf("ReadTextFile() error = %v", err)
+	}
+	if got.Content != "line-2\nline-3" {
+		t.Fatalf("read content = %q, want %q", got.Content, "line-2\nline-3")
+	}
+}
+
+func TestHandleRequestPermissionChoosesAllowOption(t *testing.T) {
+	handler := NewACPHandler(t.TempDir(), "chat-1", nil)
+	decision, err := handler.RequestPermission(context.Background(), acpproto.RequestPermissionRequest{
+		Options: []acpproto.PermissionOption{
+			{OptionId: "reject_once"},
+			{OptionId: "allow_once"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("RequestPermission() error = %v", err)
+	}
+	if decision.Outcome.Selected == nil || string(decision.Outcome.Selected.OptionId) != "allow_once" {
+		t.Fatalf("decision option id = %#v, want %q", decision.Outcome.Selected, "allow_once")
+	}
+}
+
+func TestHandleTerminalLifecycle(t *testing.T) {
+	handler := NewACPHandler(t.TempDir(), "chat-1", nil)
+
+	command := []string{"sh", "-c", "echo terminal-ok"}
+	if runtime.GOOS == "windows" {
+		command = []string{"cmd", "/C", "echo terminal-ok"}
+	}
+	createReq := acpproto.CreateTerminalRequest{
+		Command: command[0],
+		Args:    command[1:],
+	}
+	createReq.Cwd = &handler.cwd
+	createRes, err := handler.CreateTerminal(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("CreateTerminal() error = %v", err)
+	}
+	if strings.TrimSpace(createRes.TerminalId) == "" {
+		t.Fatalf("expected non-empty terminal id")
+	}
+
+	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	waitRes, err := handler.WaitForTerminalExit(waitCtx, acpproto.WaitForTerminalExitRequest{
+		TerminalId: createRes.TerminalId,
+	})
+	if err != nil {
+		t.Fatalf("WaitForTerminalExit() error = %v", err)
+	}
+	if waitRes.ExitCode == nil || *waitRes.ExitCode != 0 {
+		t.Fatalf("exit code = %#v, want 0", waitRes.ExitCode)
+	}
+
+	outputRes, err := handler.TerminalOutput(context.Background(), acpproto.TerminalOutputRequest{
+		TerminalId: createRes.TerminalId,
+	})
+	if err != nil {
+		t.Fatalf("TerminalOutput() error = %v", err)
+	}
+	if !strings.Contains(outputRes.Output, "terminal-ok") {
+		t.Fatalf("terminal output = %q, want contains %q", outputRes.Output, "terminal-ok")
+	}
+
+	if _, err := handler.ReleaseTerminal(context.Background(), acpproto.ReleaseTerminalRequest{
+		TerminalId: createRes.TerminalId,
+	}); err != nil {
+		t.Fatalf("ReleaseTerminal() error = %v", err)
+	}
+}
+
 func TestHandleWriteFileRejectsPathOutsideScope(t *testing.T) {
 	cwd := t.TempDir()
 	pub := &recordingACPEventPublisher{}
 	handler := NewACPHandler(cwd, "chat-1", pub)
 
 	outsidePath := filepath.Join("..", "escape.md")
-	if _, err := handler.HandleWriteFile(context.Background(), acpclient.WriteFileRequest{
+	if _, err := handler.WriteTextFile(context.Background(), acpproto.WriteTextFileRequest{
 		Path:    outsidePath,
 		Content: "x",
 	}); err == nil {

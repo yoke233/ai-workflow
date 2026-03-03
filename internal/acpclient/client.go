@@ -8,8 +8,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
+
+	acpproto "github.com/coder/acp-go-sdk"
 )
 
 type Option func(*Client)
@@ -20,9 +23,15 @@ func WithEventHandler(h EventHandler) Option {
 	}
 }
 
+func WithCloseHook(hook func(context.Context) error) Option {
+	return func(c *Client) {
+		c.closeHook = hook
+	}
+}
+
 type Client struct {
 	cfg     LaunchConfig
-	handler Handler
+	handler acpproto.Client
 
 	eventHandler EventHandler
 
@@ -31,6 +40,8 @@ type Client struct {
 
 	waitCh chan error
 
+	closeHook func(context.Context) error
+
 	closeOnce sync.Once
 	closeErr  error
 
@@ -38,7 +49,7 @@ type Client struct {
 	activeText map[string]*strings.Builder
 }
 
-func New(cfg LaunchConfig, h Handler, opts ...Option) (*Client, error) {
+func New(cfg LaunchConfig, h acpproto.Client, opts ...Option) (*Client, error) {
 	if strings.TrimSpace(cfg.Command) == "" {
 		return nil, errors.New("launch command is required")
 	}
@@ -94,108 +105,173 @@ func New(cfg LaunchConfig, h Handler, opts ...Option) (*Client, error) {
 	return c, nil
 }
 
+func NewWithIO(cfg LaunchConfig, h acpproto.Client, writer io.WriteCloser, reader io.Reader, opts ...Option) (*Client, error) {
+	if writer == nil || reader == nil {
+		return nil, errors.New("io streams are required")
+	}
+	if h == nil {
+		h = &NopHandler{}
+	}
+
+	c := &Client{
+		cfg:        cfg,
+		handler:    h,
+		activeText: make(map[string]*strings.Builder),
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	c.transport = NewTransport(writer, reader)
+	c.transport.SetRequestHandler(c.handleRequest)
+	c.transport.SetNotificationHandler(c.handleNotification)
+	return c, nil
+}
+
 func (c *Client) Initialize(ctx context.Context, caps ClientCapabilities) error {
-	params := map[string]any{
-		"protocolVersion": 1,
-		"clientCapabilities": map[string]any{
-			"fs": map[string]any{
-				"readTextFile":  caps.FSRead,
-				"writeTextFile": caps.FSWrite,
-			},
-			"terminal": caps.Terminal,
-		},
-		"clientInfo": map[string]any{
-			"name":    "ai-workflow",
-			"title":   "AI Workflow",
-			"version": "0.1.0",
+	params := acpproto.InitializeRequest{
+		ProtocolVersion:    acpproto.ProtocolVersionNumber,
+		ClientCapabilities: toACPClientCapabilities(caps),
+		ClientInfo: &acpproto.Implementation{
+			Name:    "ai-workflow",
+			Title:   acpproto.Ptr("AI Workflow"),
+			Version: "0.1.0",
 		},
 	}
 	_, err := c.transport.Call(ctx, "initialize", params)
 	return err
 }
 
-func (c *Client) NewSession(ctx context.Context, req NewSessionRequest) (SessionInfo, error) {
-	raw, err := c.transport.Call(ctx, "session/new", req.ToParams())
-	if err != nil && len(req.Metadata) > 0 && isInvalidParamsRPCError(err) {
-		reqWithoutMetadata := req
-		reqWithoutMetadata.Metadata = nil
-		raw, err = c.transport.Call(ctx, "session/new", reqWithoutMetadata.ToParams())
+func (c *Client) NewSession(ctx context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error) {
+	if req.McpServers == nil {
+		req.McpServers = []acpproto.McpServer{}
+	}
+
+	raw, err := c.transport.Call(ctx, "session/new", req)
+	if err != nil && len(req.Meta) > 0 && isInvalidParamsRPCError(err) {
+		reqWithoutMeta := req
+		reqWithoutMeta.Meta = nil
+		raw, err = c.transport.Call(ctx, "session/new", reqWithoutMeta)
 	}
 	if err != nil {
-		return SessionInfo{}, err
+		return "", err
 	}
-	var out SessionInfo
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return SessionInfo{}, fmt.Errorf("decode session/new result: %w", err)
+
+	var modern acpproto.NewSessionResponse
+	if err := json.Unmarshal(raw, &modern); err == nil {
+		if trimmed := strings.TrimSpace(string(modern.SessionId)); trimmed != "" {
+			return modern.SessionId, nil
+		}
 	}
-	if out.SessionID == "" {
-		return SessionInfo{}, errors.New("session/new returned empty sessionId")
+
+	var legacy struct {
+		SessionID string `json:"sessionId"`
 	}
-	return out, nil
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return "", fmt.Errorf("decode session/new result: %w", err)
+	}
+	if strings.TrimSpace(legacy.SessionID) == "" {
+		return "", errors.New("session/new returned empty sessionId")
+	}
+	return acpproto.SessionId(strings.TrimSpace(legacy.SessionID)), nil
 }
 
-func (c *Client) LoadSession(ctx context.Context, req LoadSessionRequest) (SessionInfo, error) {
-	raw, err := c.transport.Call(ctx, "session/load", req.ToParams())
-	if err != nil && len(req.Metadata) > 0 && isInvalidParamsRPCError(err) {
-		reqWithoutMetadata := req
-		reqWithoutMetadata.Metadata = nil
-		raw, err = c.transport.Call(ctx, "session/load", reqWithoutMetadata.ToParams())
+func (c *Client) LoadSession(ctx context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error) {
+	if req.McpServers == nil {
+		req.McpServers = []acpproto.McpServer{}
+	}
+
+	raw, err := c.transport.Call(ctx, "session/load", req)
+	if err != nil && len(req.Meta) > 0 && isInvalidParamsRPCError(err) {
+		reqWithoutMeta := req
+		reqWithoutMeta.Meta = nil
+		raw, err = c.transport.Call(ctx, "session/load", reqWithoutMeta)
 	}
 	if err != nil {
-		return SessionInfo{}, err
+		return "", err
 	}
-	var out SessionInfo
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return SessionInfo{}, fmt.Errorf("decode session/load result: %w", err)
+
+	var legacy struct {
+		SessionID string `json:"sessionId"`
 	}
-	if out.SessionID == "" {
-		return SessionInfo{}, errors.New("session/load returned empty sessionId")
+	if err := json.Unmarshal(raw, &legacy); err == nil && strings.TrimSpace(legacy.SessionID) != "" {
+		return acpproto.SessionId(strings.TrimSpace(legacy.SessionID)), nil
 	}
-	return out, nil
+
+	var modern acpproto.LoadSessionResponse
+	if err := json.Unmarshal(raw, &modern); err != nil {
+		return "", fmt.Errorf("decode session/load result: %w", err)
+	}
+	if strings.TrimSpace(string(req.SessionId)) == "" {
+		return "", errors.New("session/load returned empty sessionId")
+	}
+	return req.SessionId, nil
 }
 
-func (c *Client) Prompt(ctx context.Context, req PromptRequest) (*PromptResult, error) {
-	if strings.TrimSpace(req.SessionID) == "" {
+func (c *Client) Prompt(ctx context.Context, req acpproto.PromptRequest) (*PromptResult, error) {
+	if strings.TrimSpace(string(req.SessionId)) == "" {
 		return nil, errors.New("session id is required")
 	}
-	c.startCollect(req.SessionID)
-	defer c.stopCollect(req.SessionID)
+	sessionID := string(req.SessionId)
+	c.startCollect(sessionID)
+	defer c.stopCollect(sessionID)
 
-	raw, err := c.transport.Call(ctx, "session/prompt", req.ToParams())
-	if err != nil && len(req.Metadata) > 0 && isInvalidParamsRPCError(err) {
-		reqWithoutMetadata := req
-		reqWithoutMetadata.Metadata = nil
-		raw, err = c.transport.Call(ctx, "session/prompt", reqWithoutMetadata.ToParams())
+	raw, err := c.transport.Call(ctx, "session/prompt", req)
+	if err != nil && len(req.Meta) > 0 && isInvalidParamsRPCError(err) {
+		reqWithoutMeta := req
+		reqWithoutMeta.Meta = nil
+		raw, err = c.transport.Call(ctx, "session/prompt", reqWithoutMeta)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	var rpcResult struct {
-		RequestID  string     `json:"requestId"`
-		StopReason string     `json:"stopReason"`
-		Usage      TokenUsage `json:"usage"`
-		Text       string     `json:"text"`
+	var modern acpproto.PromptResponse
+	if err := json.Unmarshal(raw, &modern); err == nil && modern.StopReason != "" {
+		text := c.collectedText(sessionID)
+		usage := modern.Usage
+		var compat struct {
+			Text  string          `json:"text"`
+			Usage *acpproto.Usage `json:"usage"`
+		}
+		if err := json.Unmarshal(raw, &compat); err == nil {
+			if text == "" {
+				text = compat.Text
+			}
+			if usage == nil {
+				usage = compat.Usage
+			}
+		}
+		return &PromptResult{
+			Text:       text,
+			Usage:      usage,
+			StopReason: modern.StopReason,
+		}, nil
 	}
-	if err := json.Unmarshal(raw, &rpcResult); err != nil {
+
+	var legacy struct {
+		StopReason string          `json:"stopReason"`
+		Usage      *acpproto.Usage `json:"usage"`
+		Text       string          `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &legacy); err != nil {
 		return nil, fmt.Errorf("decode session/prompt result: %w", err)
 	}
 
-	text := c.collectedText(req.SessionID)
+	text := c.collectedText(sessionID)
 	if text == "" {
-		text = rpcResult.Text
+		text = legacy.Text
 	}
 
 	return &PromptResult{
-		RequestID:  rpcResult.RequestID,
 		Text:       text,
-		Usage:      rpcResult.Usage,
-		StopReason: rpcResult.StopReason,
+		Usage:      legacy.Usage,
+		StopReason: acpproto.StopReason(strings.TrimSpace(legacy.StopReason)),
 	}, nil
 }
 
-func (c *Client) Cancel(_ context.Context, req CancelRequest) error {
-	return c.transport.Notify("session/cancel", req.ToParams())
+func (c *Client) Cancel(_ context.Context, req acpproto.CancelNotification) error {
+	return c.transport.Notify("session/cancel", req)
 }
 
 func (c *Client) Close(ctx context.Context) error {
@@ -204,24 +280,28 @@ func (c *Client) Close(ctx context.Context) error {
 			_ = c.transport.Close()
 		}
 
-		if c.cmd == nil || c.cmd.Process == nil {
-			return
-		}
-
-		select {
-		case err := <-c.waitCh:
-			if err != nil && !isProcessExit(err) {
-				c.closeErr = err
-			}
-		default:
-			_ = c.cmd.Process.Kill()
+		if c.cmd != nil && c.cmd.Process != nil {
 			select {
 			case err := <-c.waitCh:
 				if err != nil && !isProcessExit(err) {
 					c.closeErr = err
 				}
-			case <-ctx.Done():
-				c.closeErr = ctx.Err()
+			default:
+				_ = c.cmd.Process.Kill()
+				select {
+				case err := <-c.waitCh:
+					if err != nil && !isProcessExit(err) {
+						c.closeErr = err
+					}
+				case <-ctx.Done():
+					c.closeErr = ctx.Err()
+				}
+			}
+		}
+
+		if c.closeHook != nil {
+			if err := c.closeHook(ctx); err != nil && c.closeErr == nil {
+				c.closeErr = err
 			}
 		}
 	})
@@ -231,53 +311,57 @@ func (c *Client) Close(ctx context.Context) error {
 func (c *Client) handleRequest(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	switch method {
 	case "fs/read_file", "fs/read_text_file":
-		var req ReadFileRequest
+		var req acpproto.ReadTextFileRequest
 		if err := json.Unmarshal(params, &req); err != nil {
 			return nil, err
 		}
-		return c.handler.HandleReadFile(ctx, req)
+		return c.handler.ReadTextFile(ctx, req)
 	case "fs/write_file", "fs/write_text_file":
-		var req WriteFileRequest
+		var req acpproto.WriteTextFileRequest
 		if err := json.Unmarshal(params, &req); err != nil {
 			return nil, err
 		}
-		return c.handler.HandleWriteFile(ctx, req)
+		return c.handler.WriteTextFile(ctx, req)
 	case "session/request_permission", "request_permission":
-		var req PermissionRequest
+		var req acpproto.RequestPermissionRequest
 		if len(params) > 0 {
 			_ = json.Unmarshal(params, &req)
 		}
-		return c.handler.HandleRequestPermission(ctx, req)
+		resp, err := c.handler.RequestPermission(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		return resp, nil
 	case "terminal/create":
-		var req TerminalCreateRequest
+		req, err := decodeTerminalCreateRequest(params)
+		if err != nil {
+			return nil, err
+		}
+		return c.handler.CreateTerminal(ctx, req)
+	case "terminal/kill":
+		var req acpproto.KillTerminalCommandRequest
 		if err := json.Unmarshal(params, &req); err != nil {
 			return nil, err
 		}
-		return c.handler.HandleTerminalCreate(ctx, req)
-	case "terminal/write":
-		var req TerminalWriteRequest
+		return c.handler.KillTerminalCommand(ctx, req)
+	case "terminal/output":
+		var req acpproto.TerminalOutputRequest
 		if err := json.Unmarshal(params, &req); err != nil {
 			return nil, err
 		}
-		return c.handler.HandleTerminalWrite(ctx, req)
-	case "terminal/read":
-		var req TerminalReadRequest
+		return c.handler.TerminalOutput(ctx, req)
+	case "terminal/release":
+		var req acpproto.ReleaseTerminalRequest
 		if err := json.Unmarshal(params, &req); err != nil {
 			return nil, err
 		}
-		return c.handler.HandleTerminalRead(ctx, req)
-	case "terminal/resize":
-		var req TerminalResizeRequest
+		return c.handler.ReleaseTerminal(ctx, req)
+	case "terminal/wait_for_exit":
+		var req acpproto.WaitForTerminalExitRequest
 		if err := json.Unmarshal(params, &req); err != nil {
 			return nil, err
 		}
-		return c.handler.HandleTerminalResize(ctx, req)
-	case "terminal/close":
-		var req TerminalCloseRequest
-		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, err
-		}
-		return c.handler.HandleTerminalClose(ctx, req)
+		return c.handler.WaitForTerminalExit(ctx, req)
 	default:
 		return nil, fmt.Errorf("unsupported method: %s", method)
 	}
@@ -285,6 +369,16 @@ func (c *Client) handleRequest(ctx context.Context, method string, params json.R
 
 func (c *Client) handleNotification(ctx context.Context, method string, params json.RawMessage) {
 	if method != "session/update" {
+		return
+	}
+
+	if update, ok := decodeACPNotification(params); ok {
+		if c.eventHandler != nil {
+			_ = c.eventHandler.HandleSessionUpdate(ctx, update)
+		}
+		if update.Type == "agent_message_chunk" && update.Text != "" {
+			c.appendText(update.SessionID, update.Text)
+		}
 		return
 	}
 
@@ -372,6 +466,16 @@ func (c *Client) stopCollect(sessionID string) {
 	delete(c.activeText, sessionID)
 }
 
+func toACPClientCapabilities(caps ClientCapabilities) acpproto.ClientCapabilities {
+	return acpproto.ClientCapabilities{
+		Fs: acpproto.FileSystemCapability{
+			ReadTextFile:  caps.FSRead,
+			WriteTextFile: caps.FSWrite,
+		},
+		Terminal: caps.Terminal,
+	}
+}
+
 func mergeEnv(extra map[string]string) []string {
 	env := os.Environ()
 	for k, v := range extra {
@@ -391,4 +495,141 @@ func isInvalidParamsRPCError(err error) bool {
 func isProcessExit(err error) bool {
 	var exitErr *exec.ExitError
 	return errors.As(err, &exitErr)
+}
+
+func decodeACPNotification(params json.RawMessage) (SessionUpdate, bool) {
+	var notification acpproto.SessionNotification
+	if err := json.Unmarshal(params, &notification); err != nil {
+		return SessionUpdate{}, false
+	}
+	return decodeACPNotificationFromStruct(notification)
+}
+
+func decodeACPNotificationFromStruct(notification acpproto.SessionNotification) (SessionUpdate, bool) {
+	sessionID := strings.TrimSpace(string(notification.SessionId))
+	if sessionID == "" {
+		return SessionUpdate{}, false
+	}
+
+	updateType := ""
+	text := ""
+	status := ""
+	rawContent := ""
+	switch {
+	case notification.Update.AgentMessageChunk != nil:
+		updateType = "agent_message_chunk"
+		if tb := notification.Update.AgentMessageChunk.Content.Text; tb != nil {
+			text = tb.Text
+			if raw, err := json.Marshal(notification.Update.AgentMessageChunk.Content); err == nil {
+				rawContent = strings.TrimSpace(string(raw))
+			}
+		}
+	case notification.Update.AgentThoughtChunk != nil:
+		updateType = "agent_thought_chunk"
+	case notification.Update.UserMessageChunk != nil:
+		updateType = "user_message_chunk"
+	case notification.Update.ToolCall != nil:
+		updateType = "tool_call"
+		status = string(notification.Update.ToolCall.Status)
+	case notification.Update.ToolCallUpdate != nil:
+		updateType = "tool_call_update"
+		if notification.Update.ToolCallUpdate.Status != nil {
+			status = string(*notification.Update.ToolCallUpdate.Status)
+		}
+	case notification.Update.Plan != nil:
+		updateType = "plan"
+	case notification.Update.AvailableCommandsUpdate != nil:
+		updateType = "available_commands_update"
+	case notification.Update.CurrentModeUpdate != nil:
+		updateType = "current_mode_update"
+	case notification.Update.ConfigOptionUpdate != nil:
+		updateType = "config_option_update"
+	case notification.Update.SessionInfoUpdate != nil:
+		updateType = "session_info_update"
+	case notification.Update.UsageUpdate != nil:
+		updateType = "usage_update"
+	default:
+		return SessionUpdate{}, false
+	}
+
+	rawUpdate, err := json.Marshal(notification.Update)
+	if err != nil {
+		return SessionUpdate{}, false
+	}
+	return SessionUpdate{
+		SessionID:      sessionID,
+		Type:           updateType,
+		Text:           text,
+		Status:         status,
+		RawUpdateJSON:  strings.TrimSpace(string(rawUpdate)),
+		RawContentJSON: rawContent,
+	}, true
+}
+
+func decodeTerminalCreateRequest(params json.RawMessage) (acpproto.CreateTerminalRequest, error) {
+	type rawTerminalCreateRequest struct {
+		SessionID string            `json:"sessionId,omitempty"`
+		CWD       string            `json:"cwd,omitempty"`
+		Command   json.RawMessage   `json:"command,omitempty"`
+		Args      []string          `json:"args,omitempty"`
+		Env       map[string]string `json:"env,omitempty"`
+	}
+
+	var raw rawTerminalCreateRequest
+	if err := json.Unmarshal(params, &raw); err != nil {
+		return acpproto.CreateTerminalRequest{}, err
+	}
+
+	var commandParts []string
+	if len(raw.Command) > 0 {
+		if err := json.Unmarshal(raw.Command, &commandParts); err != nil {
+			var commandName string
+			if err := json.Unmarshal(raw.Command, &commandName); err != nil {
+				return acpproto.CreateTerminalRequest{}, errors.New("terminal/create command must be string or string[]")
+			}
+			if trimmed := strings.TrimSpace(commandName); trimmed != "" {
+				commandParts = append(commandParts, trimmed)
+			}
+		}
+	}
+	if len(raw.Args) > 0 {
+		commandParts = append(commandParts, raw.Args...)
+	}
+	if len(commandParts) == 0 {
+		return acpproto.CreateTerminalRequest{}, errors.New("terminal/create command is required")
+	}
+	command := strings.TrimSpace(commandParts[0])
+	if command == "" {
+		return acpproto.CreateTerminalRequest{}, errors.New("terminal/create command is required")
+	}
+
+	req := acpproto.CreateTerminalRequest{
+		SessionId: acpproto.SessionId(strings.TrimSpace(raw.SessionID)),
+		Command:   command,
+	}
+	if len(commandParts) > 1 {
+		req.Args = append(req.Args, commandParts[1:]...)
+	}
+	if cwd := strings.TrimSpace(raw.CWD); cwd != "" {
+		req.Cwd = &cwd
+	}
+
+	if len(raw.Env) > 0 {
+		keys := make([]string, 0, len(raw.Env))
+		for k := range raw.Env {
+			if strings.TrimSpace(k) != "" {
+				keys = append(keys, k)
+			}
+		}
+		sort.Strings(keys)
+		req.Env = make([]acpproto.EnvVariable, 0, len(keys))
+		for _, key := range keys {
+			req.Env = append(req.Env, acpproto.EnvVariable{
+				Name:  key,
+				Value: raw.Env[key],
+			})
+		}
+	}
+
+	return req, nil
 }
