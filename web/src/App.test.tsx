@@ -167,6 +167,7 @@ const baseProject = {
 
 describe("App", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/?view=chat");
     mocks.resetState();
     mocks.listProjects.mockReset();
     mocks.createProjectCreateRequest.mockReset();
