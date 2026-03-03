@@ -1,27 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import {
-  Background,
-  BackgroundVariant,
-  Controls,
-  MarkerType,
-  MiniMap,
-  ReactFlow,
-  ReactFlowProvider,
-  type Edge,
-  type Node,
-} from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
+
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../lib/apiClient";
-import type { WsClient } from "../lib/wsClient";
 import type {
   AdminAuditLogItem,
+  ApiTaskPlan,
+  IssueTimelineEntry,
   PlanChangeRecord,
-  PlanDagNode,
-  PlanDagResponse,
   PlanRejectFeedbackCategory,
   PlanReviewRecord,
 } from "../types/api";
-import type { TaskItemStatus, TaskPlan } from "../types/workflow";
+import type { WsClient } from "../lib/wsClient";
 
 interface PlanViewProps {
   apiClient: ApiClient;
@@ -30,64 +18,39 @@ interface PlanViewProps {
   refreshToken: number;
 }
 
-type DagNodeData = {
-  label: string;
-  status: TaskItemStatus;
-};
+type ReviewStepType = "source" | "review" | "change" | "timeline" | "audit";
 
-const NODE_STYLE_MAP: Record<TaskItemStatus, CSSProperties> = {
-  pending: {
-    border: "2px solid #f59e0b",
-    backgroundColor: "#fffbeb",
-  },
-  ready: {
-    border: "2px solid #2563eb",
-    backgroundColor: "#eff6ff",
-  },
-  running: {
-    border: "2px solid #0ea5e9",
-    backgroundColor: "#ecfeff",
-  },
-  done: {
-    border: "2px solid #059669",
-    backgroundColor: "#ecfdf5",
-  },
-  failed: {
-    border: "2px solid #e11d48",
-    backgroundColor: "#fff1f2",
-  },
-  skipped: {
-    border: "2px solid #64748b",
-    backgroundColor: "#f8fafc",
-  },
-  blocked_by_failure: {
-    border: "2px solid #7f1d1d",
-    backgroundColor: "#fef2f2",
-  },
-};
+interface ReviewStep {
+  id: string;
+  type: ReviewStepType;
+  title: string;
+  subtitle: string;
+  createdAt?: string;
+  changedFiles: string[];
+  snapshot: Record<string, string>;
+  review?: PlanReviewRecord;
+  change?: PlanChangeRecord;
+  timeline?: IssueTimelineEntry;
+  audit?: AdminAuditLogItem;
+}
 
-const STATUS_LABELS: Record<TaskItemStatus, string> = {
-  pending: "pending",
-  ready: "ready",
-  running: "running",
-  done: "done",
-  failed: "failed",
-  skipped: "skipped",
-  blocked_by_failure: "blocked_by_failure",
-};
+interface FileUpdate {
+  path: string;
+  oldContent?: string;
+  newContent?: string;
+}
 
 const PAGE_LIMIT = 50;
-const FALLBACK_MINIMAP_COLOR = "#64748b";
 
-const PLAN_REJECT_CATEGORY_OPTIONS: Array<{
+const REJECT_CATEGORIES: Array<{
   value: PlanRejectFeedbackCategory;
   label: string;
 }> = [
-  { value: "coverage_gap", label: "coverage_gap（覆盖缺口）" },
-  { value: "missing_node", label: "missing_node（缺失节点）" },
-  { value: "bad_granularity", label: "bad_granularity（粒度不当）" },
-  { value: "cycle", label: "cycle（循环依赖）" },
-  { value: "other", label: "other（其他）" },
+  { value: "cycle", label: "循环依赖" },
+  { value: "missing_node", label: "缺失节点" },
+  { value: "bad_granularity", label: "粒度不合理" },
+  { value: "coverage_gap", label: "覆盖不足" },
+  { value: "other", label: "其他" },
 ];
 
 const getErrorMessage = (error: unknown): string => {
@@ -97,765 +60,975 @@ const getErrorMessage = (error: unknown): string => {
   return "请求失败，请稍后重试";
 };
 
-export const resolveMiniMapNodeColor = (status: unknown): string => {
-  if (typeof status !== "string") {
-    return FALLBACK_MINIMAP_COLOR;
+const toText = (value: unknown): string => {
+  if (typeof value === "string") {
+    return value;
   }
-  const style = NODE_STYLE_MAP[status as TaskItemStatus];
-  const border = style?.border;
-  if (typeof border !== "string") {
-    return FALLBACK_MINIMAP_COLOR;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
   }
-  const color = border.trim().split(/\s+/).at(-1);
-  return color && color.length > 0 ? color : FALLBACK_MINIMAP_COLOR;
+  return "";
 };
 
-export const buildDagFlowNodes = (
-  dagNodes: PlanDagNode[],
-): Node<DagNodeData>[] => {
-  return dagNodes.map((node, index) => {
-    const row = Math.floor(index / 3);
-    const column = index % 3;
-    return {
-      id: node.id,
-      data: {
-        label: `${node.title}\n${STATUS_LABELS[node.status]}`,
-        status: node.status,
-      },
-      position: {
-        x: column * 260,
-        y: row * 140,
-      },
-      style: {
-        ...NODE_STYLE_MAP[node.status],
-        borderRadius: 12,
-        width: 220,
-        padding: 10,
-        fontSize: 12,
-      },
-    };
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const formatTimestamp = (value?: string): string => {
+  if (!value) {
+    return "时间未知";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString("zh-CN", { hour12: false });
+};
+
+const parseTimestamp = (value?: string): number => {
+  if (!value) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  const date = new Date(value);
+  const time = date.getTime();
+  return Number.isNaN(time) ? Number.NEGATIVE_INFINITY : time;
+};
+
+const uniqueStrings = (values: unknown[]): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  values.forEach((value) => {
+    const normalized = toText(value).trim();
+    if (normalized.length === 0 || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    out.push(normalized);
   });
+  return out;
 };
 
-export const buildDagFlowEdges = (dag: PlanDagResponse): Edge[] => {
-  return dag.edges.map((edge) => ({
-    id: `${edge.from}->${edge.to}`,
-    source: edge.from,
-    target: edge.to,
-    markerEnd: { type: MarkerType.ArrowClosed },
-    animated: false,
-    style: { strokeWidth: 1.5 },
+const asArray = <T,>(value: unknown): T[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value as T[];
+};
+
+const asObjectArray = <T,>(value: unknown): T[] => {
+  return asArray<unknown>(value).filter(isRecord) as unknown as T[];
+};
+
+const normalizeStringList = (value: unknown): string[] => {
+  return uniqueStrings(
+    asArray<unknown>(value).map((item) => toText(item).trim()),
+  );
+};
+
+const normalizeFileContents = (value: unknown): Record<string, string> => {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  Object.entries(value).forEach(([path, content]) => {
+    if (typeof content === "string") {
+      out[path] = content;
+    }
+  });
+  return out;
+};
+
+const normalizePlan = (value: unknown, index: number): ApiTaskPlan | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = toText(value.id).trim() || `plan-${index + 1}`;
+  const name = toText(value.name).trim() || toText(value.title).trim() || id;
+  const status = toText(value.status).trim() || "draft";
+
+  return {
+    ...(value as unknown as ApiTaskPlan),
+    id,
+    name,
+    status: status as ApiTaskPlan["status"],
+    wait_reason: toText(value.wait_reason).trim(),
+    tasks: asObjectArray<ApiTaskPlan["tasks"][number]>(value.tasks),
+    source_files: normalizeStringList(value.source_files),
+    file_contents: normalizeFileContents(value.file_contents),
+  };
+};
+
+const cloneMap = (value: Record<string, string>): Record<string, string> => {
+  return { ...value };
+};
+
+const parseMapText = (raw: string): Record<string, string> | null => {
+  const normalized = raw.trim();
+  if (!normalized.startsWith("{")) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(normalized);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const out: Record<string, string> = {};
+    Object.entries(parsed as Record<string, unknown>).forEach(([key, value]) => {
+      if (typeof value === "string") {
+        out[key] = value;
+      }
+    });
+    return out;
+  } catch {
+    return null;
+  }
+};
+
+const parseFilePathFromField = (field: string): string | null => {
+  const trimmed = field.trim();
+  if (trimmed.startsWith("file_contents.")) {
+    return trimmed.slice("file_contents.".length).trim() || null;
+  }
+  const bracket = trimmed.match(/^file_contents\[(["']?)(.+)\1\]$/);
+  if (bracket && bracket[2]) {
+    return bracket[2].trim() || null;
+  }
+  return null;
+};
+
+const parseFileUpdatesFromChange = (change: PlanChangeRecord): FileUpdate[] => {
+  const field = toText(change.field).trim();
+  const oldValue = toText(change.old_value);
+  const newValue = toText(change.new_value);
+
+  const directPath = parseFilePathFromField(field);
+  if (directPath) {
+    return [
+      {
+        path: directPath,
+        oldContent: oldValue,
+        newContent: newValue,
+      },
+    ];
+  }
+
+  if (field !== "file_contents") {
+    return [];
+  }
+
+  const oldMap = parseMapText(oldValue) ?? {};
+  const newMap = parseMapText(newValue) ?? {};
+  const allPaths = uniqueStrings([...Object.keys(oldMap), ...Object.keys(newMap)]);
+  return allPaths.map((path) => ({
+    path,
+    oldContent: oldMap[path],
+    newContent: newMap[path],
   }));
 };
 
-const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProps) => {
-  const [plans, setPlans] = useState<TaskPlan[]>([]);
-  const [activePlanId, setActivePlanId] = useState<string | null>(null);
-  const [dag, setDag] = useState<PlanDagResponse | null>(null);
-  const [plansLoading, setPlansLoading] = useState(false);
-  const [dagLoading, setDagLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState<string | null>(null);
-  const [reviewRecords, setReviewRecords] = useState<PlanReviewRecord[]>([]);
-  const [changeRecords, setChangeRecords] = useState<PlanChangeRecord[]>([]);
-  const [auditRecords, setAuditRecords] = useState<AdminAuditLogItem[]>([]);
-  const [rejectCategory, setRejectCategory] =
-    useState<PlanRejectFeedbackCategory>("coverage_gap");
-  const [rejectDetail, setRejectDetail] = useState("");
-  const [rejectExpectedDirection, setRejectExpectedDirection] = useState("");
-  const plansRequestIdRef = useRef(0);
-  const dagRequestIdRef = useRef(0);
+const extractFileHintsFromTimeline = (entry: IssueTimelineEntry): string[] => {
+  const candidates = [
+    toText(entry.meta?.file_path),
+    toText(entry.meta?.path),
+    toText(entry.meta?.file),
+    toText(entry.meta?.target_file),
+  ];
+  return uniqueStrings(candidates);
+};
 
-  useEffect(() => {
-    plansRequestIdRef.current += 1;
-    dagRequestIdRef.current += 1;
-    setPlans([]);
-    setActivePlanId(null);
-    setDag(null);
-    setPlansLoading(false);
-    setDagLoading(false);
-    setError(null);
-    setActionLoading(false);
-    setActionMessage(null);
-    setActionError(null);
-    setHistoryLoading(false);
-    setHistoryError(null);
-    setReviewRecords([]);
-    setChangeRecords([]);
-    setAuditRecords([]);
-    setRejectCategory("coverage_gap");
-    setRejectDetail("");
-    setRejectExpectedDirection("");
-  }, [projectId]);
+const sortByCreatedAtAsc = <T extends { created_at?: string }>(items: T[]): T[] => {
+  return [...items].sort((a, b) => {
+    const left = parseTimestamp(a.created_at);
+    const right = parseTimestamp(b.created_at);
+    if (left === right) {
+      return 0;
+    }
+    return left - right;
+  });
+};
 
-  const loadPlans = useCallback(async () => {
-    const requestId = plansRequestIdRef.current + 1;
-    plansRequestIdRef.current = requestId;
-    setPlansLoading(true);
-    setError(null);
-    try {
-      const allPlans: TaskPlan[] = [];
-      let offset = 0;
-      while (true) {
-        const response = await apiClient.listPlans(projectId, {
-          limit: PAGE_LIMIT,
-          offset,
-        });
-        if (plansRequestIdRef.current !== requestId) {
+const buildReviewSteps = (
+  plan: ApiTaskPlan,
+  reviews: PlanReviewRecord[],
+  changes: PlanChangeRecord[],
+  timeline: IssueTimelineEntry[],
+  audits: AdminAuditLogItem[],
+): ReviewStep[] => {
+  const safeReviews = asObjectArray<PlanReviewRecord>(reviews);
+  const safeChanges = asObjectArray<PlanChangeRecord>(changes);
+  const safeTimeline = asObjectArray<IssueTimelineEntry>(timeline);
+  const safeAudits = asObjectArray<AdminAuditLogItem>(audits);
+
+  const sourceFiles = uniqueStrings([
+    ...normalizeStringList(plan.source_files),
+    ...Object.keys(normalizeFileContents(plan.file_contents)),
+  ]);
+  const sourceSnapshot = cloneMap(normalizeFileContents(plan.file_contents));
+
+  const sourceStep: ReviewStep = {
+    id: `${plan.id}:source`,
+    type: "source",
+    title: "步骤 0 · 原始输入文件",
+    subtitle: `创建于 ${formatTimestamp(plan.created_at)}`,
+    createdAt: plan.created_at,
+    changedFiles: sourceFiles,
+    snapshot: cloneMap(sourceSnapshot),
+  };
+
+  const reviewSteps: ReviewStep[] = sortByCreatedAtAsc(safeReviews).map((record) => ({
+    id: `review:${record.id}`,
+    type: "review",
+    title: `Review Round ${toText(record.round) || "N/A"} · ${toText(record.verdict) || "unknown"}`,
+    subtitle: `reviewer=${toText(record.reviewer) || "unknown"} · ${formatTimestamp(record.created_at)}`,
+    createdAt: record.created_at,
+    changedFiles: [],
+    snapshot: {},
+    review: record,
+  }));
+
+  const changeSteps: ReviewStep[] = sortByCreatedAtAsc(safeChanges).map((record) => ({
+    id: `change:${record.id}`,
+    type: "change",
+    title: `Change · ${toText(record.field) || "unknown_field"}`,
+    subtitle: `${toText(record.changed_by) || "system"} · ${formatTimestamp(record.created_at)}`,
+    createdAt: record.created_at,
+    changedFiles: [],
+    snapshot: {},
+    change: record,
+  }));
+
+  const timelineSteps: ReviewStep[] = sortByCreatedAtAsc(safeTimeline).map((entry) => ({
+    id: `timeline:${entry.event_id}`,
+    type: "timeline",
+    title: toText(entry.title) || `Timeline · ${toText(entry.kind)}`,
+    subtitle: `${toText(entry.actor_name) || toText(entry.actor_type) || "system"} · ${formatTimestamp(entry.created_at)}`,
+    createdAt: entry.created_at,
+    changedFiles: extractFileHintsFromTimeline(entry),
+    snapshot: {},
+    timeline: entry,
+  }));
+
+  const auditSteps: ReviewStep[] = sortByCreatedAtAsc(safeAudits).map((item) => ({
+    id: `audit:${item.id}`,
+    type: "audit",
+    title: `Audit · ${toText(item.action) || "unknown_action"}`,
+    subtitle: `${toText(item.user_id) || "system"} · ${formatTimestamp(item.created_at)}`,
+    createdAt: item.created_at,
+    changedFiles: [],
+    snapshot: {},
+    audit: item,
+  }));
+
+  const merged = [...reviewSteps, ...changeSteps, ...timelineSteps, ...auditSteps].sort((a, b) => {
+    const left = parseTimestamp(a.createdAt);
+    const right = parseTimestamp(b.createdAt);
+    if (left !== right) {
+      return left - right;
+    }
+    return a.id.localeCompare(b.id);
+  });
+
+  const out: ReviewStep[] = [sourceStep];
+  let runningSnapshot = cloneMap(sourceSnapshot);
+  merged.forEach((step) => {
+    if (step.type === "change" && step.change) {
+      const updates = parseFileUpdatesFromChange(step.change);
+      const touched: string[] = [];
+      updates.forEach((update) => {
+        const normalizedPath = update.path.trim();
+        if (!normalizedPath) {
           return;
         }
-        allPlans.push(...response.items);
-        const currentCount = response.items.length;
-        if (currentCount === 0) {
-          break;
+        touched.push(normalizedPath);
+        if (typeof update.newContent === "string") {
+          runningSnapshot[normalizedPath] = update.newContent;
         }
-        offset += currentCount;
-        if (currentCount < PAGE_LIMIT) {
-          break;
-        }
-      }
-      setPlans(allPlans);
-      setActivePlanId((current) => {
-        if (current && allPlans.some((plan) => plan.id === current)) {
-          return current;
-        }
-        return allPlans[0]?.id ?? null;
       });
-    } catch (requestError) {
-      if (plansRequestIdRef.current !== requestId) {
-        return;
-      }
-      setError(getErrorMessage(requestError));
-      setPlans([]);
-      setActivePlanId(null);
-    } finally {
-      if (plansRequestIdRef.current === requestId) {
-        setPlansLoading(false);
-      }
+      step.changedFiles = uniqueStrings([...step.changedFiles, ...touched]);
     }
-  }, [apiClient, projectId]);
+    step.snapshot = cloneMap(runningSnapshot);
+    out.push(step);
+  });
+  return out;
+};
 
-  useEffect(() => {
-    void loadPlans();
-  }, [loadPlans, refreshToken]);
+const PlanView = ({ apiClient, wsClient, projectId, refreshToken }: PlanViewProps) => {
+  const [plans, setPlans] = useState<ApiTaskPlan[]>([]);
+  const [loadingPlans, setLoadingPlans] = useState(true);
+  const [loadingArtifacts, setLoadingArtifacts] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
 
-  const loadDag = useCallback(
-    async (planId: string) => {
-      const requestId = dagRequestIdRef.current + 1;
-      dagRequestIdRef.current = requestId;
-      setDagLoading(true);
-      setError(null);
-      try {
-        const response = await apiClient.getPlanDag(projectId, planId);
-        if (dagRequestIdRef.current !== requestId) {
-          return;
-        }
-        setDag(response);
-      } catch (requestError) {
-        if (dagRequestIdRef.current !== requestId) {
-          return;
-        }
-        setDag(null);
-        setError(getErrorMessage(requestError));
-      } finally {
-        if (dagRequestIdRef.current === requestId) {
-          setDagLoading(false);
-        }
-      }
-    },
-    [apiClient, projectId],
-  );
+  const [reviews, setReviews] = useState<PlanReviewRecord[]>([]);
+  const [changes, setChanges] = useState<PlanChangeRecord[]>([]);
+  const [timeline, setTimeline] = useState<IssueTimelineEntry[]>([]);
+  const [audits, setAudits] = useState<AdminAuditLogItem[]>([]);
 
-  useEffect(() => {
-    if (!activePlanId) {
-      dagRequestIdRef.current += 1;
-      setDagLoading(false);
-      setDag(null);
-      return;
-    }
-    void loadDag(activePlanId);
-  }, [activePlanId, loadDag, refreshToken]);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [rejectCategory, setRejectCategory] = useState<PlanRejectFeedbackCategory>("coverage_gap");
+  const [rejectDetail, setRejectDetail] = useState("");
+  const [rejectDirection, setRejectDirection] = useState("");
 
-  useEffect(() => {
-    if (!activePlanId) {
-      return;
-    }
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
 
-    const subscribe = () => {
-      if (wsClient.getStatus() !== "open") {
-        return;
-      }
-      try {
-        wsClient.send({ type: "subscribe_plan", plan_id: activePlanId });
-      } catch {
-        // Ignore: reconnect callback will retry subscribe.
-      }
-    };
-
-    const unsubscribe = () => {
-      if (wsClient.getStatus() !== "open") {
-        return;
-      }
-      try {
-        wsClient.send({ type: "unsubscribe_plan", plan_id: activePlanId });
-      } catch {
-        // No-op.
-      }
-    };
-
-    subscribe();
-    const unsubscribeStatus = wsClient.onStatusChange((status) => {
-      if (status === "open") {
-        subscribe();
-      }
-    });
-
-    return () => {
-      unsubscribeStatus();
-      unsubscribe();
-    };
-  }, [activePlanId, wsClient]);
+  const listRequestIdRef = useRef(0);
+  const artifactRequestIdRef = useRef(0);
 
   const activePlan = useMemo(
-    () => plans.find((plan) => plan.id === activePlanId) ?? null,
-    [plans, activePlanId],
+    () => plans.find((plan) => plan.id === selectedPlanId) ?? null,
+    [plans, selectedPlanId],
   );
 
-  const activePlanGitHubTasks = useMemo(() => {
-    if (!activePlan) {
-      return [];
-    }
-    return activePlan.tasks
-      .map((task) => ({
-        id: task.id,
-        title: task.title,
-        issueNumber: task.github?.issue_number,
-        issueUrl: task.github?.issue_url,
-      }))
-      .filter((task) => task.issueNumber || task.issueUrl);
-  }, [activePlan]);
+  useEffect(() => {
+    listRequestIdRef.current += 1;
+    artifactRequestIdRef.current += 1;
+    setPlans([]);
+    setLoadingPlans(true);
+    setLoadingArtifacts(false);
+    setError(null);
+    setNotice(null);
+    setSelectedPlanId(null);
+    setReviews([]);
+    setChanges([]);
+    setTimeline([]);
+    setAudits([]);
+    setSelectedStepId(null);
+    setSelectedFilePath(null);
+  }, [projectId]);
 
   useEffect(() => {
-    if (!activePlanId) {
-      setHistoryLoading(false);
-      setHistoryError(null);
-      setReviewRecords([]);
-      setChangeRecords([]);
-      setAuditRecords([]);
+    let cancelled = false;
+    const requestId = listRequestIdRef.current + 1;
+    listRequestIdRef.current = requestId;
+    setLoadingPlans(true);
+    setError(null);
+
+    const loadPlans = async () => {
+      try {
+        const all: ApiTaskPlan[] = [];
+        let offset = 0;
+        while (true) {
+          const response = await apiClient.listPlans(projectId, { limit: PAGE_LIMIT, offset });
+          if (cancelled || listRequestIdRef.current !== requestId) {
+            return;
+          }
+          const pageItems = asArray<unknown>((response as { items?: unknown }).items)
+            .map((item, index) => normalizePlan(item, offset + index))
+            .filter((item): item is ApiTaskPlan => Boolean(item));
+          all.push(...pageItems);
+          const currentCount = pageItems.length;
+          if (currentCount < PAGE_LIMIT) {
+            break;
+          }
+          offset += currentCount;
+        }
+        all.sort((a, b) => parseTimestamp(b.updated_at) - parseTimestamp(a.updated_at));
+        if (cancelled || listRequestIdRef.current !== requestId) {
+          return;
+        }
+        setPlans(all);
+        setSelectedPlanId((current) => {
+          if (current && all.some((plan) => plan.id === current)) {
+            return current;
+          }
+          return all[0]?.id ?? null;
+        });
+      } catch (requestError) {
+        if (!cancelled && listRequestIdRef.current === requestId) {
+          console.error("[PlanView] loadPlans failed:", requestError);
+          setError(getErrorMessage(requestError));
+          setPlans([]);
+          setSelectedPlanId(null);
+        }
+      } finally {
+        if (!cancelled && listRequestIdRef.current === requestId) {
+          setLoadingPlans(false);
+        }
+      }
+    };
+
+    void loadPlans();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiClient, projectId, refreshToken]);
+
+  useEffect(() => {
+    if (!activePlan) {
+      return;
+    }
+    let subscribed = false;
+    const subscribePlan = () => {
+      if (subscribed) {
+        return;
+      }
+      try {
+        wsClient.send({
+          type: "subscribe_plan",
+          plan_id: activePlan.id,
+        });
+        subscribed = true;
+      } catch (sendError) {
+        console.warn("[PlanView] subscribe_plan skipped:", sendError);
+      }
+    };
+
+    subscribePlan();
+    const unsubscribe = wsClient.onStatusChange((statusValue) => {
+      if (statusValue === "open") {
+        subscribePlan();
+      }
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [activePlan?.id, wsClient]);
+
+  useEffect(() => {
+    if (!activePlan) {
+      setReviews([]);
+      setChanges([]);
+      setTimeline([]);
+      setAudits([]);
       return;
     }
 
     let cancelled = false;
-    setHistoryLoading(true);
-    setHistoryError(null);
-    const activePipelineID = activePlan?.pipeline_id?.trim() ?? "";
+    const requestId = artifactRequestIdRef.current + 1;
+    artifactRequestIdRef.current = requestId;
+    setLoadingArtifacts(true);
+    setError(null);
 
-    const loadHistory = async () => {
+    const loadArtifacts = async () => {
       try {
-        const [reviews, changes, auditResponse] = await Promise.all([
-          apiClient.listPlanReviews
-            ? apiClient.listPlanReviews(projectId, activePlanId)
-            : Promise.resolve([]),
-          apiClient.listPlanChanges
-            ? apiClient.listPlanChanges(projectId, activePlanId)
-            : Promise.resolve([]),
+        const [
+          reviewResult,
+          changeResult,
+          timelineResult,
+          auditResult,
+        ] = await Promise.allSettled([
+          apiClient.listPlanReviews ? apiClient.listPlanReviews(projectId, activePlan.id) : Promise.resolve([]),
+          apiClient.listPlanChanges ? apiClient.listPlanChanges(projectId, activePlan.id) : Promise.resolve([]),
+          apiClient.listIssueTimeline(projectId, activePlan.id, { limit: 200, offset: 0 }),
           apiClient.listAdminAuditLog
-            ? apiClient.listAdminAuditLog({
-                projectId,
-                limit: 200,
-                offset: 0,
-              })
+            ? apiClient.listAdminAuditLog({ projectId, limit: 200, offset: 0 })
             : Promise.resolve({ items: [], total: 0, offset: 0 }),
         ]);
-        if (cancelled) {
+
+        if (cancelled || artifactRequestIdRef.current !== requestId) {
           return;
         }
-        setReviewRecords(reviews);
-        setChangeRecords(changes);
-        const matchedAudit = (auditResponse.items ?? []).filter((item) => {
-          const byIssueID = (item.issue_id ?? "").trim() === activePlanId;
-          const byPipelineID =
-            activePipelineID.length > 0 &&
-            (item.pipeline_id ?? "").trim() === activePipelineID;
-          return byIssueID || byPipelineID;
+
+        const nextReviews = reviewResult.status === "fulfilled"
+          ? asObjectArray<PlanReviewRecord>(reviewResult.value)
+          : [];
+        const nextChanges = changeResult.status === "fulfilled"
+          ? asObjectArray<PlanChangeRecord>(changeResult.value)
+          : [];
+        const nextTimeline = timelineResult.status === "fulfilled"
+          ? asObjectArray<IssueTimelineEntry>(
+              (timelineResult.value as { items?: unknown }).items ?? timelineResult.value,
+            )
+          : [];
+        const rawAudits = auditResult.status === "fulfilled"
+          ? asObjectArray<AdminAuditLogItem>((auditResult.value as { items?: unknown }).items)
+          : [];
+        const nextAudits = rawAudits.filter((item) => {
+          const issueID = toText(item.issue_id).trim();
+          if (issueID.length > 0 && issueID === activePlan.id) {
+            return true;
+          }
+          const pipelineID = toText(item.pipeline_id).trim();
+          const activePipelineID = toText(activePlan.pipeline_id).trim();
+          if (activePipelineID.length > 0 && pipelineID === activePipelineID) {
+            return true;
+          }
+          return false;
         });
-        setAuditRecords(matchedAudit);
-      } catch (requestError) {
-        if (cancelled) {
-          return;
+
+        setReviews(nextReviews);
+        setChanges(nextChanges);
+        setTimeline(nextTimeline);
+        setAudits(nextAudits);
+
+        const failure = [reviewResult, changeResult, timelineResult, auditResult].find(
+          (result) => result.status === "rejected",
+        );
+        if (failure && failure.status === "rejected") {
+          setError(`部分审阅数据加载失败：${getErrorMessage(failure.reason)}`);
         }
-        setHistoryError(getErrorMessage(requestError));
-        setReviewRecords([]);
-        setChangeRecords([]);
-        setAuditRecords([]);
+      } catch (requestError) {
+        if (!cancelled && artifactRequestIdRef.current === requestId) {
+          console.error("[PlanView] loadArtifacts failed:", requestError);
+          setError(getErrorMessage(requestError));
+          setReviews([]);
+          setChanges([]);
+          setTimeline([]);
+          setAudits([]);
+        }
       } finally {
-        if (!cancelled) {
-          setHistoryLoading(false);
+        if (!cancelled && artifactRequestIdRef.current === requestId) {
+          setLoadingArtifacts(false);
         }
       }
     };
 
-    void loadHistory();
+    void loadArtifacts();
     return () => {
       cancelled = true;
     };
-  }, [
-    activePlan?.pipeline_id,
-    activePlanId,
-    apiClient,
-    projectId,
-    refreshToken,
-  ]);
+  }, [apiClient, projectId, activePlan, refreshToken]);
 
-  const canSubmitReview =
-    !!activePlan &&
-    (activePlan.status === "draft" || activePlan.status === "reviewing") &&
-    !actionLoading;
-  const canApprove =
-    !!activePlan &&
-    activePlan.status === "waiting_human" &&
-    activePlan.wait_reason === "final_approval" &&
-    !actionLoading;
-  const canRetryParse =
-    !!activePlan &&
-    activePlan.status === "waiting_human" &&
-    activePlan.wait_reason === "parse_failed" &&
-    !actionLoading;
-  const canReject =
-    !!activePlan &&
-    activePlan.status === "waiting_human" &&
-    (activePlan.wait_reason === "final_approval" ||
-      activePlan.wait_reason === "feedback_required") &&
-    !actionLoading;
-  const canAbandon =
-    !!activePlan && activePlan.status === "waiting_human" && !actionLoading;
+  const reviewSteps = useMemo(() => {
+    if (!activePlan) {
+      return [] as ReviewStep[];
+    }
+    return buildReviewSteps(activePlan, reviews, changes, timeline, audits);
+  }, [activePlan, reviews, changes, timeline, audits]);
 
-  const refreshActivePlan = useCallback(
-    async (targetPlanId: string) => {
-      await loadPlans();
-      await loadDag(targetPlanId);
-    },
-    [loadPlans, loadDag],
-  );
-
-  const handleSubmitReview = async () => {
-    if (!activePlanId) {
+  useEffect(() => {
+    if (reviewSteps.length === 0) {
+      setSelectedStepId(null);
       return;
     }
-    setActionLoading(true);
-    setActionError(null);
-    setActionMessage(null);
-    try {
-      const response = await apiClient.submitPlanReview(projectId, activePlanId);
-      setActionMessage(`已提交审核，状态：${response.status}`);
-      await refreshActivePlan(activePlanId);
-    } catch (requestError) {
-      setActionError(getErrorMessage(requestError));
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleApplyPlanAction = async (action: "approve" | "reject" | "abort") => {
-    if (!activePlanId) {
-      return;
-    }
-
-    const detail = rejectDetail.trim();
-    const expectedDirection = rejectExpectedDirection.trim();
-    if (action === "reject" && detail.length === 0) {
-      setActionError("驳回说明不能为空。");
-      return;
-    }
-
-    setActionLoading(true);
-    setActionError(null);
-    setActionMessage(null);
-    try {
-      const response = await apiClient.applyPlanAction(projectId, activePlanId, {
-        action,
-        feedback:
-          action === "reject"
-            ? {
-                category: rejectCategory,
-                detail,
-                expected_direction:
-                  expectedDirection.length > 0 ? expectedDirection : undefined,
-              }
-            : undefined,
-      });
-      setActionMessage(`已执行 ${action}，状态：${response.status}`);
-      if (action === "reject") {
-        setRejectDetail("");
-        setRejectExpectedDirection("");
+    setSelectedStepId((current) => {
+      if (current && reviewSteps.some((step) => step.id === current)) {
+        return current;
       }
-      await refreshActivePlan(activePlanId);
+      return reviewSteps[reviewSteps.length - 1]?.id ?? reviewSteps[0]?.id ?? null;
+    });
+  }, [reviewSteps]);
+
+  const selectedStep = useMemo(
+    () => reviewSteps.find((step) => step.id === selectedStepId) ?? null,
+    [reviewSteps, selectedStepId],
+  );
+
+  const filePathsInStep = useMemo(() => {
+    if (!activePlan || !selectedStep) {
+      return [] as string[];
+    }
+    const source = Array.isArray(activePlan.source_files) ? activePlan.source_files : [];
+    return uniqueStrings([
+      ...selectedStep.changedFiles,
+      ...source,
+      ...Object.keys(selectedStep.snapshot),
+    ]);
+  }, [activePlan, selectedStep]);
+
+  useEffect(() => {
+    if (filePathsInStep.length === 0) {
+      setSelectedFilePath(null);
+      return;
+    }
+    setSelectedFilePath((current) => {
+      if (current && filePathsInStep.includes(current)) {
+        return current;
+      }
+      return filePathsInStep[0] ?? null;
+    });
+  }, [filePathsInStep]);
+
+  const selectedFileContent = useMemo(() => {
+    if (!selectedStep || !selectedFilePath) {
+      return "";
+    }
+    return selectedStep.snapshot[selectedFilePath] ?? "";
+  }, [selectedStep, selectedFilePath]);
+
+  const runPlanAction = async (
+    action:
+      | "submit_review"
+      | "approve"
+      | "reject"
+      | "abort",
+  ) => {
+    if (!activePlan || actionLoading) {
+      return;
+    }
+    setActionLoading(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      if (action === "submit_review") {
+        const response = await apiClient.submitPlanReview(projectId, activePlan.id);
+        setNotice(`已提交审核，当前状态：${response.status}`);
+      } else if (action === "approve") {
+        const response = await apiClient.applyPlanAction(projectId, activePlan.id, {
+          action: "approve",
+        });
+        setNotice(`已通过，当前状态：${response.status}`);
+      } else if (action === "abort") {
+        const response = await apiClient.applyPlanAction(projectId, activePlan.id, {
+          action: "abort",
+        });
+        setNotice(`已放弃，当前状态：${response.status}`);
+      } else {
+        const detail = rejectDetail.trim();
+        if (detail.length === 0) {
+          setError("驳回说明不能为空。");
+          return;
+        }
+        const response = await apiClient.applyPlanAction(projectId, activePlan.id, {
+          action: "reject",
+          feedback: {
+            category: rejectCategory,
+            detail,
+            expected_direction: rejectDirection.trim() || undefined,
+          },
+        });
+        setNotice(`已驳回，当前状态：${response.status}`);
+      }
     } catch (requestError) {
-      setActionError(getErrorMessage(requestError));
+      setError(getErrorMessage(requestError));
     } finally {
       setActionLoading(false);
     }
   };
 
-  const flowNodes = useMemo(() => buildDagFlowNodes(dag?.nodes ?? []), [dag]);
-  const flowEdges = useMemo(
-    () => (dag ? buildDagFlowEdges(dag) : []),
-    [dag],
-  );
+  const waitReason = toText(activePlan?.wait_reason).trim().toLowerCase();
+  const status = toText(activePlan?.status).trim().toLowerCase();
+  const canSubmitReview = status === "draft";
+  const canApprove =
+    status === "reviewing" ||
+    (status === "waiting_human" &&
+      (waitReason === "final_approval" ||
+        waitReason === "feedback_required" ||
+        waitReason === "parse_failed"));
+  const canReject =
+    status === "reviewing" ||
+    (status === "waiting_human" &&
+      (waitReason === "final_approval" || waitReason === "feedback_required"));
+  const canAbort = status !== "done" && status !== "failed" && status !== "abandoned";
+  const canRetryParse = status === "waiting_human" && waitReason === "parse_failed";
 
   return (
-    <ReactFlowProvider>
-      <section className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h2 className="text-lg font-semibold">Plan 列表</h2>
-          <p className="mt-1 text-xs text-slate-500">
-            数据来源: GET /api/v1/projects/:projectID/plans
-          </p>
-          {plansLoading ? <p className="mt-3 text-sm text-slate-500">加载中...</p> : null}
-          {plans.length === 0 && !plansLoading ? (
-            <p className="mt-3 text-sm text-slate-500">当前项目暂无计划。</p>
-          ) : null}
-          <div className="mt-3 flex flex-col gap-2">
-            {plans.map((plan) => (
-              <button
-                key={plan.id}
-                type="button"
-                data-testid="plan-item"
-                className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
-                  activePlanId === plan.id
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
-                }`}
-                onClick={() => {
-                  setActivePlanId(plan.id);
-                }}
-              >
-                <p className="font-semibold">{plan.name || plan.id}</p>
-                <p className="mt-1 text-xs opacity-80">
-                  status={plan.status} · tasks={plan.tasks.length}
-                </p>
-              </button>
-            ))}
-          </div>
-        </aside>
-
-        <div className="flex flex-col gap-4">
-          <header className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h1 className="text-xl font-bold">Plan DAG</h1>
-            <p className="mt-1 text-sm text-slate-600">
-              选中计划后调用 GET /plans/:id/dag 展示节点、边与统计。
-            </p>
-            {dag ? (
-              <div className="mt-3 grid gap-2 text-xs text-slate-700 sm:grid-cols-3 lg:grid-cols-6">
-                <span className="rounded bg-slate-100 px-2 py-1">total: {dag.stats.total}</span>
-                <span className="rounded bg-slate-100 px-2 py-1">pending: {dag.stats.pending}</span>
-                <span className="rounded bg-slate-100 px-2 py-1">ready: {dag.stats.ready}</span>
-                <span className="rounded bg-slate-100 px-2 py-1">running: {dag.stats.running}</span>
-                <span className="rounded bg-slate-100 px-2 py-1">done: {dag.stats.done}</span>
-                <span className="rounded bg-slate-100 px-2 py-1">failed: {dag.stats.failed}</span>
-              </div>
-            ) : null}
-            {activePlanGitHubTasks.length > 0 ? (
-              <div data-testid="plan-github-links" className="mt-3 rounded-md border border-slate-200 p-2 text-xs">
-                <p className="font-medium text-slate-700">Task GitHub Issues</p>
-                <ul className="mt-2 space-y-1">
-                  {activePlanGitHubTasks.map((task) => (
-                    <li key={task.id}>
-                      {task.issueUrl ? (
-                        <a
-                          href={task.issueUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-700 underline"
-                        >
-                          {task.issueNumber ? `Issue #${task.issueNumber}` : task.title}
-                        </a>
-                      ) : (
-                        <span className="text-slate-700">
-                          {task.issueNumber ? `Issue #${task.issueNumber}` : task.title}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </header>
-
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-semibold">审核操作区</h3>
-            {activePlan ? (
-              <>
-                <p className="mt-1 text-xs text-slate-600">
-                  当前计划：{activePlan.name || activePlan.id} · status={activePlan.status}
-                  {activePlan.review_round > 0 ? ` · 审查轮次=${activePlan.review_round}` : ""}
-                  {activePlan.wait_reason ? ` · wait_reason=${activePlan.wait_reason}` : ""}
-                </p>
-                {activePlan.status === "waiting_human" &&
-                activePlan.wait_reason === "parse_failed" ? (
-                  <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    解析失败（parse_failed），请修正输入后点击“重试解析”继续。
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <p className="mt-1 text-xs text-slate-500">请选择计划后再操作。</p>
-            )}
-
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-              <button
-                type="button"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!canSubmitReview}
-                onClick={() => {
-                  void handleSubmitReview();
-                }}
-              >
-                提交审核
-              </button>
-              <button
-                type="button"
-                className="rounded-md border border-emerald-300 px-3 py-2 text-sm font-medium text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!canApprove}
-                onClick={() => {
-                  void handleApplyPlanAction("approve");
-                }}
-              >
-                通过
-              </button>
-              <button
-                type="button"
-                className="rounded-md border border-amber-300 px-3 py-2 text-sm font-medium text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!canRetryParse}
-                onClick={() => {
-                  void handleApplyPlanAction("approve");
-                }}
-              >
-                重试解析
-              </button>
-              <button
-                type="button"
-                className="rounded-md border border-rose-300 px-3 py-2 text-sm font-medium text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!canReject}
-                onClick={() => {
-                  void handleApplyPlanAction("reject");
-                }}
-              >
-                驳回
-              </button>
-              <button
-                type="button"
-                className="rounded-md border border-amber-300 px-3 py-2 text-sm font-medium text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={!canAbandon}
-                onClick={() => {
-                  void handleApplyPlanAction("abort");
-                }}
-              >
-                放弃
-              </button>
-            </div>
-
-            <div className="mt-3 grid gap-3 lg:grid-cols-3">
-              <label className="text-xs text-slate-700" htmlFor="plan-reject-category">
-                驳回类型
-                <select
-                  id="plan-reject-category"
-                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
-                  value={rejectCategory}
-                  onChange={(event) => {
-                    setRejectCategory(event.target.value as PlanRejectFeedbackCategory);
+    <section className="grid gap-4 lg:grid-cols-[280px_1fr]">
+      <aside className="rounded-md border border-slate-200 bg-white p-3">
+        <h2 className="text-sm font-semibold text-slate-900">Plans</h2>
+        {loadingPlans ? <p className="mt-2 text-xs text-slate-500">加载中...</p> : null}
+        {!loadingPlans && plans.length === 0 ? (
+          <p className="mt-2 text-xs text-slate-500">暂无计划</p>
+        ) : null}
+        <ul className="mt-2 space-y-2">
+          {plans.map((plan) => {
+            const active = plan.id === selectedPlanId;
+            return (
+              <li key={plan.id}>
+                <button
+                  type="button"
+                  data-testid="plan-item"
+                  className={`w-full rounded-md border px-3 py-2 text-left text-xs ${
+                    active
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                  onClick={() => {
+                    setSelectedPlanId(plan.id);
+                    setNotice(null);
+                    setError(null);
                   }}
-                  disabled={!canReject}
                 >
-                  {PLAN_REJECT_CATEGORY_OPTIONS.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  <p className="truncate text-sm font-semibold">{plan.name || plan.id}</p>
+                  <p className={`mt-1 ${active ? "text-slate-200" : "text-slate-500"}`}>
+                    {plan.status}
+                  </p>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </aside>
 
-              <label className="text-xs text-slate-700 lg:col-span-2" htmlFor="plan-reject-detail">
-                驳回说明
-                <textarea
-                  id="plan-reject-detail"
-                  rows={2}
-                  className="mt-1 w-full resize-y rounded-md border border-slate-300 px-2 py-1 text-sm"
-                  placeholder="请输入驳回原因（建议至少 20 字）"
-                  value={rejectDetail}
+      <div className="space-y-4">
+        {!activePlan ? (
+          <section className="rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-500">
+            请选择一个计划。
+          </section>
+        ) : (
+          <>
+            <section className="rounded-md border border-slate-200 bg-white p-4">
+              <h1 className="text-lg font-semibold text-slate-900">{activePlan.name || activePlan.id}</h1>
+              <p className="mt-1 text-xs text-slate-600">
+                plan_id={activePlan.id} · status={activePlan.status}
+                {activePlan.wait_reason ? ` · wait_reason=${activePlan.wait_reason}` : ""}
+              </p>
+
+              {canRetryParse ? (
+                <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">
+                  解析失败（parse_failed），请修正输入后点击“重试解析”。
+                </p>
+              ) : null}
+
+              <div className="mt-3 grid gap-3 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
+                <button
+                  type="button"
+                  className="rounded-md border border-slate-900 px-3 py-2 text-xs font-medium text-slate-900 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                  disabled={!canSubmitReview || actionLoading}
+                  onClick={() => {
+                    void runPlanAction("submit_review");
+                  }}
+                >
+                  提交审核
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-emerald-700 px-3 py-2 text-xs font-medium text-emerald-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                  disabled={!canApprove || actionLoading}
+                  onClick={() => {
+                    void runPlanAction("approve");
+                  }}
+                >
+                  {canRetryParse ? "重试解析" : "通过"}
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-rose-700 px-3 py-2 text-xs font-medium text-rose-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                  disabled={!canReject || actionLoading}
+                  onClick={() => {
+                    void runPlanAction("reject");
+                  }}
+                >
+                  驳回
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-slate-400 px-3 py-2 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                  disabled={!canAbort || actionLoading}
+                  onClick={() => {
+                    void runPlanAction("abort");
+                  }}
+                >
+                  放弃
+                </button>
+              </div>
+
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <label className="text-xs text-slate-700">
+                  驳回类型
+                  <select
+                    className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    value={rejectCategory}
+                    onChange={(event) => {
+                      setRejectCategory(event.target.value as PlanRejectFeedbackCategory);
+                    }}
+                  >
+                    {REJECT_CATEGORIES.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs text-slate-700 md:col-span-2">
+                  驳回说明
+                  <input
+                    className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    value={rejectDetail}
+                    onChange={(event) => {
+                      setRejectDetail(event.target.value);
+                    }}
+                  />
+                </label>
+              </div>
+              <label className="mt-2 block text-xs text-slate-700">
+                期望方向（可选）
+                <input
+                  className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                  value={rejectDirection}
                   onChange={(event) => {
-                    setRejectDetail(event.target.value);
+                    setRejectDirection(event.target.value);
                   }}
-                  disabled={!canReject}
                 />
               </label>
-            </div>
 
-            <label
-              className="mt-3 block text-xs text-slate-700"
-              htmlFor="plan-reject-expected-direction"
-            >
-              期望方向（可选）
-              <input
-                id="plan-reject-expected-direction"
-                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
-                value={rejectExpectedDirection}
-                onChange={(event) => {
-                  setRejectExpectedDirection(event.target.value);
-                }}
-                disabled={!canReject}
-              />
-            </label>
-
-            {actionMessage ? (
-              <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                {actionMessage}
-              </p>
-            ) : null}
-            {actionError ? (
-              <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                {actionError}
-              </p>
-            ) : null}
-          </section>
-
-          <section className="grid gap-4 lg:grid-cols-3">
-            <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h3 className="text-sm font-semibold">Review 历史</h3>
-              {historyLoading ? <p className="mt-2 text-xs text-slate-500">加载中...</p> : null}
-              {!historyLoading && reviewRecords.length === 0 ? (
-                <p className="mt-2 text-xs text-slate-500">暂无 review 记录。</p>
+              {notice ? (
+                <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700">
+                  {notice}
+                </p>
               ) : null}
-              {reviewRecords.length > 0 ? (
-                <ul className="mt-2 space-y-2 text-xs text-slate-700">
-                  {reviewRecords.map((record) => (
-                    <li key={record.id} className="rounded border border-slate-200 p-2">
-                      <p>
-                        round={record.round} · reviewer={record.reviewer}
-                      </p>
-                      <p>
-                        verdict={record.verdict}
-                        {typeof record.score === "number" ? ` · score=${record.score}` : ""}
-                      </p>
-                      <p>
-                        issues={record.issues.length} · fixes={record.fixes.length}
-                      </p>
-                      <p className="text-slate-500">{record.created_at}</p>
-                    </li>
-                  ))}
-                </ul>
+              {error ? (
+                <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700">
+                  {error}
+                </p>
               ) : null}
-            </article>
+            </section>
 
-            <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h3 className="text-sm font-semibold">修改记录</h3>
-              {historyLoading ? <p className="mt-2 text-xs text-slate-500">加载中...</p> : null}
-              {!historyLoading && changeRecords.length === 0 ? (
-                <p className="mt-2 text-xs text-slate-500">暂无修改记录。</p>
-              ) : null}
-              {changeRecords.length > 0 ? (
-                <ul className="mt-2 space-y-2 text-xs text-slate-700">
-                  {changeRecords.map((change) => (
-                    <li key={change.id} className="rounded border border-slate-200 p-2">
-                      <p>field={change.field}</p>
-                      <p>
-                        {change.old_value || "(empty)"} -&gt; {change.new_value || "(empty)"}
-                      </p>
-                      <p>reason={change.reason || "(none)"}</p>
-                      <p>
-                        by={change.changed_by || "(unknown)"} · {change.created_at}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </article>
+            <section className="rounded-md border border-slate-200 bg-white p-4">
+              <div className="grid gap-4 xl:grid-cols-[280px_1fr]">
+                <aside className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <h3 className="text-sm font-semibold text-slate-900">审阅步骤</h3>
+                  {loadingArtifacts ? <p className="mt-2 text-xs text-slate-500">步骤加载中...</p> : null}
+                  <ol className="mt-2 space-y-2">
+                    {reviewSteps.map((step, index) => {
+                      const active = step.id === selectedStepId;
+                      return (
+                        <li key={step.id}>
+                          <button
+                            type="button"
+                            className={`w-full rounded-md border px-2 py-2 text-left text-xs ${
+                              active
+                                ? "border-slate-900 bg-slate-900 text-white"
+                                : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                            }`}
+                            onClick={() => {
+                              setSelectedStepId(step.id);
+                            }}
+                          >
+                            <p className="font-semibold">
+                              {index}. {step.title}
+                            </p>
+                            <p className={`mt-1 ${active ? "text-slate-200" : "text-slate-500"}`}>
+                              {step.subtitle}
+                            </p>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </aside>
 
-            <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h3 className="text-sm font-semibold">审计记录</h3>
-              {historyLoading ? <p className="mt-2 text-xs text-slate-500">加载中...</p> : null}
-              {!historyLoading && auditRecords.length === 0 ? (
-                <p className="mt-2 text-xs text-slate-500">暂无审计记录。</p>
-              ) : null}
-              {auditRecords.length > 0 ? (
-                <ul className="mt-2 space-y-2 text-xs text-slate-700">
-                  {auditRecords.map((item) => (
-                    <li key={`${item.id}-${item.pipeline_id}`} className="rounded border border-slate-200 p-2">
-                      <p>action={item.action}</p>
-                      <p>source={item.source || "(unknown)"} · user={item.user_id || "(unknown)"}</p>
-                      <p className="break-all">{item.message || "(empty message)"}</p>
-                      <p className="text-slate-500">{item.created_at}</p>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </article>
-          </section>
+                <div className="space-y-4">
+                  {!selectedStep ? (
+                    <p className="text-sm text-slate-500">暂无步骤详情。</p>
+                  ) : (
+                    <>
+                      <header>
+                        <h3 className="text-base font-semibold text-slate-900">{selectedStep.title}</h3>
+                        <p className="text-xs text-slate-500">{selectedStep.subtitle}</p>
+                      </header>
 
-          {historyError ? (
-            <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {historyError}
-            </p>
-          ) : null}
+                      {selectedStep.review ? (
+                        <section className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                          {(() => {
+                            const reviewIssues = asArray<{
+                              issue_id?: string;
+                              description?: string;
+                              severity?: string;
+                            }>(selectedStep.review?.issues);
+                            const reviewFixes = asArray<{
+                              issue_id?: string;
+                              description?: string;
+                            }>(selectedStep.review?.fixes);
+                            return (
+                              <>
+                          <p>verdict={toText(selectedStep.review.verdict) || "unknown"}</p>
+                          <p>score={toText(selectedStep.review.score) || "N/A"}</p>
+                          <p className="mt-2 font-semibold text-slate-900">issues</p>
+                          {reviewIssues.length === 0 ? (
+                            <p className="mt-1 text-slate-500">无 issue</p>
+                          ) : (
+                            <ul className="mt-1 list-disc space-y-1 pl-4">
+                              {reviewIssues.map((item, index) => (
+                                <li key={`${item.issue_id ?? "issue"}-${index}`}>
+                                  [{toText(item.severity) || "unknown"}] {toText(item.description) || "(empty)"}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          <p className="mt-2 font-semibold text-slate-900">fixes</p>
+                          {reviewFixes.length === 0 ? (
+                            <p className="mt-1 text-slate-500">无 fixes</p>
+                          ) : (
+                            <ul className="mt-1 list-disc space-y-1 pl-4">
+                              {reviewFixes.map((item, index) => (
+                                <li key={`${item.issue_id ?? "fix"}-${index}`}>
+                                  {toText(item.description) || "(empty)"}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                              </>
+                            );
+                          })()}
+                        </section>
+                      ) : null}
 
-          {error ? (
-            <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {error}
-            </p>
-          ) : null}
+                      {selectedStep.change ? (
+                        <section className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                          <p>field={selectedStep.change.field}</p>
+                          <p>reason={selectedStep.change.reason || "N/A"}</p>
+                          <p>changed_by={selectedStep.change.changed_by || "system"}</p>
+                          <div className="mt-2 grid gap-2 md:grid-cols-2">
+                            <pre className="max-h-40 overflow-auto rounded border border-slate-200 bg-white p-2">
+                              old:
+                              {"\n"}
+                              {selectedStep.change.old_value || "(empty)"}
+                            </pre>
+                            <pre className="max-h-40 overflow-auto rounded border border-slate-200 bg-white p-2">
+                              new:
+                              {"\n"}
+                              {selectedStep.change.new_value || "(empty)"}
+                            </pre>
+                          </div>
+                        </section>
+                      ) : null}
 
-          <div className="h-[520px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            {!activePlanId ? (
-              <div className="flex h-full items-center justify-center text-sm text-slate-500">
-                请选择一个计划查看 DAG。
+                      {selectedStep.timeline ? (
+                        <section className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                          <p>kind={selectedStep.timeline.kind}</p>
+                          <p>status={selectedStep.timeline.status}</p>
+                          <pre className="mt-2 max-h-40 overflow-auto rounded border border-slate-200 bg-white p-2">
+                            {selectedStep.timeline.body || "(no body)"}
+                          </pre>
+                        </section>
+                      ) : null}
+
+                      {selectedStep.audit ? (
+                        <section className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                          <p>action={selectedStep.audit.action}</p>
+                          <p>source={selectedStep.audit.source}</p>
+                          <p>user={selectedStep.audit.user_id}</p>
+                          <pre className="mt-2 max-h-40 overflow-auto rounded border border-slate-200 bg-white p-2">
+                            {selectedStep.audit.message || "(no message)"}
+                          </pre>
+                        </section>
+                      ) : null}
+
+                      <section className="grid gap-3 xl:grid-cols-[260px_1fr]">
+                        <aside className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                          <h4 className="text-xs font-semibold text-slate-900">
+                            {selectedStep.type === "source" ? "文件原文" : "该步骤后的文件结果"}
+                          </h4>
+                          {filePathsInStep.length === 0 ? (
+                            <p className="mt-2 text-xs text-slate-500">当前步骤没有文件快照。</p>
+                          ) : (
+                            <ul className="mt-2 space-y-1">
+                              {filePathsInStep.map((path) => (
+                                <li key={path}>
+                                  <button
+                                    type="button"
+                                    className={`w-full rounded border px-2 py-1 text-left text-xs ${
+                                      selectedFilePath === path
+                                        ? "border-slate-900 bg-slate-900 text-white"
+                                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                                    }`}
+                                    onClick={() => {
+                                      setSelectedFilePath(path);
+                                    }}
+                                  >
+                                    {path}
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </aside>
+                        <pre className="max-h-[520px] overflow-auto rounded-md border border-slate-200 bg-slate-900 p-3 text-xs text-slate-100">
+                          {selectedFilePath ? selectedFileContent || "(empty)" : "请选择文件查看内容。"}
+                        </pre>
+                      </section>
+                    </>
+                  )}
+                </div>
               </div>
-            ) : dagLoading ? (
-              <div className="flex h-full items-center justify-center text-sm text-slate-500">
-                DAG 加载中...
-              </div>
-            ) : flowNodes.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-sm text-slate-500">
-                当前计划暂无节点。
-              </div>
-            ) : (
-              <ReactFlow
-                nodes={flowNodes}
-                edges={flowEdges}
-                fitView
-                proOptions={{ hideAttribution: true }}
-              >
-                <MiniMap
-                  pannable
-                  zoomable
-                  nodeColor={(node) => {
-                    return resolveMiniMapNodeColor(node.data?.status);
-                  }}
-                />
-                <Controls showInteractive={false} />
-                <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-              </ReactFlow>
-            )}
-          </div>
-
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-semibold">边列表</h3>
-            {dag && dag.edges.length > 0 ? (
-              <ul className="mt-2 space-y-1 text-xs text-slate-700">
-                {dag.edges.map((edge) => (
-                  <li key={`${edge.from}->${edge.to}`}>{edge.from} -&gt; {edge.to}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-2 text-xs text-slate-500">暂无边数据。</p>
-            )}
-          </section>
-        </div>
-      </section>
-    </ReactFlowProvider>
+            </section>
+          </>
+        )}
+      </div>
+    </section>
   );
 };
 

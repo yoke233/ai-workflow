@@ -412,7 +412,6 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatCancelling, setChatCancelling] = useState(false);
-  const [planLoading, setPlanLoading] = useState(false);
   const [planFromFilesLoading, setPlanFromFilesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [planNotice, setPlanNotice] = useState<string | null>(null);
@@ -421,7 +420,6 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   const [chatsError, setChatsError] = useState<string | null>(null);
   const [runEvents, setRunEvents] = useState<RunEventItem[]>([]);
   const chatRequestIdRef = useRef(0);
-  const planRequestIdRef = useRef(0);
   const planFromFilesRequestIdRef = useRef(0);
   const sessionRefreshRequestIdRef = useRef(0);
   const chatListRequestIdRef = useRef(0);
@@ -431,7 +429,6 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
 
   useEffect(() => {
     chatRequestIdRef.current += 1;
-    planRequestIdRef.current += 1;
     planFromFilesRequestIdRef.current += 1;
     setDraft("");
     setFilePathsDraft("");
@@ -449,7 +446,6 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     setRunEvents([]);
     setChatLoading(false);
     setChatCancelling(false);
-    setPlanLoading(false);
     setPlanFromFilesLoading(false);
     sessionRefreshRequestIdRef.current += 1;
     chatListRequestIdRef.current += 1;
@@ -458,7 +454,6 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   }, [projectId]);
 
   const canSubmit = chatLoading ? !!sessionId && !chatCancelling : draft.trim().length > 0;
-  const canCreatePlan = !!sessionId && !planLoading && !chatLoading;
   const filePaths = useMemo(() => parseFilePathsDraft(filePathsDraft), [filePathsDraft]);
   const canCreatePlanFromFiles =
     !!sessionId && filePaths.length > 0 && !planFromFilesLoading && !chatLoading;
@@ -655,38 +650,6 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
       }
       setChatCancelling(false);
       setError(getErrorMessage(requestError));
-    }
-  };
-
-  const handleCreatePlan = async () => {
-    if (!sessionId) {
-      return;
-    }
-
-    setPlanLoading(true);
-    setError(null);
-    setPlanNotice(null);
-    const requestId = planRequestIdRef.current + 1;
-    planRequestIdRef.current = requestId;
-    const targetProjectId = projectId;
-    const targetSessionId = sessionId;
-    try {
-      const createdPlan = await apiClient.createPlan(targetProjectId, {
-        session_id: targetSessionId,
-      });
-      if (planRequestIdRef.current !== requestId) {
-        return;
-      }
-      setPlanNotice(`已创建计划：${createdPlan.id}`);
-    } catch (requestError) {
-      if (planRequestIdRef.current !== requestId) {
-        return;
-      }
-      setError(getErrorMessage(requestError));
-    } finally {
-      if (planRequestIdRef.current === requestId) {
-        setPlanLoading(false);
-      }
     }
   };
 
@@ -1090,18 +1053,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           </div>
         </div>
 
-        <button
-          type="button"
-          className="mt-4 w-full rounded-md border border-slate-900 px-3 py-2 text-sm font-semibold text-slate-900 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
-          disabled={!canCreatePlan}
-          onClick={() => {
-            void handleCreatePlan();
-          }}
-        >
-          {planLoading ? "创建计划中..." : "基于当前会话创建计划"}
-        </button>
-
-        <label className="mt-3 block text-xs text-slate-700" htmlFor="plan-file-paths">
+        <label className="mt-4 block text-xs text-slate-700" htmlFor="plan-file-paths">
           文件路径（逗号分隔）
           <input
             id="plan-file-paths"

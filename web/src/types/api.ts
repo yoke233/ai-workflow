@@ -282,6 +282,51 @@ export interface PlanChangeRecord {
   created_at: string;
 }
 
+export interface PipelineLogEntry {
+  id: number;
+  pipeline_id: string;
+  stage: string;
+  type: string;
+  agent: string;
+  content: string;
+  timestamp: string;
+}
+
+export interface GetPipelineLogsQuery {
+  stage?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export type GetPipelineLogsResponse = PaginatedResponse<PipelineLogEntry>;
+
+export interface IssueTimelineRefs {
+  issue_id: string;
+  pipeline_id?: string;
+  stage?: string;
+}
+
+export interface IssueTimelineEntry {
+  event_id: string;
+  kind: "review" | "change" | "action" | "checkpoint" | "log" | "audit" | string;
+  created_at: string;
+  actor_type: "human" | "agent" | "system" | string;
+  actor_name: string;
+  actor_avatar_seed: string;
+  title: string;
+  body: string;
+  status: "success" | "failed" | "running" | "info" | "warning" | string;
+  refs: IssueTimelineRefs;
+  meta: Record<string, unknown>;
+}
+
+export interface ListIssueTimelineQuery {
+  limit?: number;
+  offset?: number;
+}
+
+export type ListIssueTimelineResponse = PaginatedResponse<IssueTimelineEntry>;
+
 export interface AdminAuditLogItem {
   id: number;
   project_id?: string;

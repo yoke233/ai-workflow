@@ -316,9 +316,41 @@ func (m *Manager) applyIssueApprove(ctx context.Context, issue *core.Issue, feed
 	}
 
 	if err := issueScheduler.StartIssue(ctx, cloneManagerIssue(updated)); err != nil {
+		if markErr := m.markApproveDispatchFailure(updated, err); markErr != nil {
+			return nil, fmt.Errorf("start issue scheduler for %s: %w (mark issue failed: %v)", updated.ID, err, markErr)
+		}
 		return nil, fmt.Errorf("start issue scheduler for %s: %w", updated.ID, err)
 	}
 	return m.loadIssue(updated.ID)
+}
+
+func (m *Manager) markApproveDispatchFailure(issue *core.Issue, dispatchErr error) error {
+	if issue == nil {
+		return nil
+	}
+
+	failed := cloneManagerIssue(issue)
+	before := failed.Status
+	failed.Status = core.IssueStatusFailed
+	failed.State = core.IssueStateOpen
+	failed.PipelineID = ""
+	failed.ClosedAt = nil
+
+	if err := m.store.SaveIssue(failed); err != nil {
+		return fmt.Errorf("save failed issue %s after approve dispatch error: %w", failed.ID, err)
+	}
+
+	reason := "approve dispatch failed"
+	if dispatchErr != nil {
+		detail := strings.TrimSpace(dispatchErr.Error())
+		if detail != "" {
+			reason = reason + ": " + detail
+		}
+	}
+	if err := m.saveIssueChange(failed.ID, "status", string(before), string(failed.Status), reason); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) applyIssueReject(_ context.Context, issue *core.Issue, feedback string) (*core.Issue, error) {

@@ -1,53 +1,31 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import BoardView, { groupBoardTasks, toBoardStatus, type BoardTask } from "./BoardView";
 import type { ApiClient } from "../lib/apiClient";
-import type { ApiTaskItem, ApiTaskPlan } from "../types/api";
+import type { ApiTaskPlan, IssueTimelineEntry } from "../types/api";
 
-const buildTask = (
-  id: string,
-  title: string,
-  status: ApiTaskItem["status"],
-  overrides?: Partial<ApiTaskItem>,
-): ApiTaskItem => ({
-  id,
-  plan_id: "plan-1",
-  title,
-  description: "d",
-  labels: [],
-  depends_on: [],
-  template: "",
-  pipeline_id: "",
-  external_id: "",
-  status,
-  inputs: [],
-  outputs: [],
-  acceptance: [],
-  constraints: [],
-  created_at: "2026-03-01T10:00:00.000Z",
-  updated_at: "2026-03-01T10:00:00.000Z",
-  ...overrides,
-});
-
-const buildPlan = (tasks: ApiTaskPlan["tasks"]): ApiTaskPlan => ({
-  id: "plan-1",
-  project_id: "proj-1",
-  session_id: "chat-1",
-  name: "Plan One",
-  status: "draft",
-  pipeline_id: "",
-  wait_reason: "",
-  tasks,
-  fail_policy: "block",
-  review_round: 0,
-  spec_profile: "default",
-  contract_version: "v1",
-  contract_checksum: "checksum",
-  created_at: "2026-03-01T10:00:00.000Z",
-  updated_at: "2026-03-01T10:00:00.000Z",
-});
+const buildPlan = (overrides?: Partial<ApiTaskPlan>): ApiTaskPlan => {
+  return {
+    id: "plan-1",
+    project_id: "proj-1",
+    session_id: "chat-1",
+    name: "Plan One",
+    status: "draft",
+    pipeline_id: "",
+    wait_reason: "",
+    tasks: [],
+    fail_policy: "block",
+    review_round: 0,
+    spec_profile: "default",
+    contract_version: "v1",
+    contract_checksum: "checksum",
+    created_at: "2026-03-01T10:00:00.000Z",
+    updated_at: "2026-03-01T10:00:00.000Z",
+    ...overrides,
+  };
+};
 
 const createMockApiClient = (): ApiClient => {
   return {
@@ -59,30 +37,40 @@ const createMockApiClient = (): ApiClient => {
     getStats: vi.fn(),
     listProjects: vi.fn(),
     createProject: vi.fn(),
+    createProjectCreateRequest: vi.fn(),
+    getProjectCreateRequest: vi.fn(),
     listPipelines: vi.fn(),
     createPipeline: vi.fn(),
+    listChats: vi.fn(),
+    listChatRunEvents: vi.fn(),
     createChat: vi.fn(),
+    cancelChat: vi.fn(),
     getChat: vi.fn(),
     createPlan: vi.fn(),
-    submitPlanReview: vi.fn(),
-    applyPlanAction: vi.fn(),
-    applyTaskAction: vi.fn().mockImplementation(async () => ({
-      status: "ready",
-    })),
-    getPipeline: vi.fn(),
-    getPipelineCheckpoints: vi.fn(),
-    applyPipelineAction: vi.fn(),
+    submitPlanReview: vi.fn().mockResolvedValue({ status: "reviewing" }),
+    applyPlanAction: vi.fn().mockResolvedValue({ status: "executing" }),
+    applyTaskAction: vi.fn(),
     listPlans: vi.fn().mockResolvedValue({
-      items: [
-        buildPlan([
-          buildTask("task-1", "Task pending", "pending", { description: "d1" }),
-          buildTask("task-2", "Task failed", "blocked_by_failure", { description: "d2" }),
-        ]),
-      ],
+      items: [buildPlan()],
       total: 1,
       offset: 0,
     }),
     getPlanDag: vi.fn(),
+    listPlanReviews: vi.fn(),
+    listPlanChanges: vi.fn(),
+    listIssueTimeline: vi.fn().mockResolvedValue({
+      items: [],
+      total: 0,
+      offset: 0,
+    }),
+    listAdminAuditLog: vi.fn(),
+    getPipeline: vi.fn(),
+    getPipelineLogs: vi.fn(),
+    getPipelineCheckpoints: vi.fn(),
+    getRepoTree: vi.fn(),
+    getRepoStatus: vi.fn(),
+    getRepoDiff: vi.fn(),
+    applyPipelineAction: vi.fn(),
   } as unknown as ApiClient;
 };
 
@@ -95,24 +83,26 @@ const createDeferred = <T,>() => {
 };
 
 describe("BoardView helpers", () => {
-  it("toBoardStatus maps blocked/skipped states into board columns", () => {
+  it("toBoardStatus 兼容 issue/task 状态映射", () => {
+    expect(toBoardStatus("queued")).toBe("ready");
+    expect(toBoardStatus("executing")).toBe("running");
     expect(toBoardStatus("blocked_by_failure")).toBe("failed");
     expect(toBoardStatus("skipped")).toBe("done");
   });
 
-  it("groupBoardTasks returns all five columns", () => {
+  it("groupBoardTasks 返回完整五列", () => {
     const tasks: BoardTask[] = [
       {
-        id: "t1",
-        title: "task",
-        plan_id: "p1",
-        plan_name: "Plan",
+        id: "i-1",
+        plan_id: "i-1",
+        plan_name: "Issue A",
+        title: "Issue A",
         status: "running",
-        raw_status: "running",
-        pipeline_id: "",
+        raw_status: "executing",
+        pipeline_id: "pipe-1",
+        issue_level: true,
       },
     ];
-
     const grouped = groupBoardTasks(tasks);
     expect(Object.keys(grouped)).toEqual([
       "pending",
@@ -131,8 +121,21 @@ describe("BoardView", () => {
     vi.useRealTimers();
   });
 
-  it("从真实 plans/tasks 数据渲染看板列", async () => {
+  it("从 plans 主实体渲染 issue 列表（无 tasks 也可展示）", async () => {
     const apiClient = createMockApiClient();
+    vi.mocked(apiClient.listPlans).mockResolvedValue({
+      items: [
+        buildPlan({
+          id: "issue-1",
+          name: "Issue One",
+          status: "executing",
+          pipeline_id: "pipe-1",
+        }),
+      ],
+      total: 1,
+      offset: 0,
+    });
+
     render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
 
     await waitFor(() => {
@@ -142,10 +145,8 @@ describe("BoardView", () => {
       });
     });
 
-    expect(screen.getByText("Pending")).toBeTruthy();
-    expect(screen.getByText("Failed")).toBeTruthy();
-    expect(screen.getByText("Task pending")).toBeTruthy();
-    expect(screen.getByText("Task failed")).toBeTruthy();
+    expect(screen.getAllByText("Issue One").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Running").length).toBeGreaterThan(0);
   });
 
   it("看板会循环拉取所有分页计划数据", async () => {
@@ -153,25 +154,22 @@ describe("BoardView", () => {
     vi.mocked(apiClient.listPlans)
       .mockResolvedValueOnce({
         items: Array.from({ length: 50 }, (_, index) =>
-          buildPlan([
-            buildTask(`task-${index}`, `Task ${index}`, "pending", {
-              plan_id: `plan-${index}`,
-            }),
-          ]),
+          buildPlan({
+            id: `issue-${index}`,
+            name: `Issue ${index}`,
+            status: "draft",
+          }),
         ),
         total: 51,
         offset: 0,
       })
       .mockResolvedValueOnce({
         items: [
-          {
-            ...buildPlan([
-              buildTask("task-last", "Task Last", "pending", {
-                plan_id: "plan-last",
-              }),
-            ]),
-            id: "plan-last",
-          },
+          buildPlan({
+            id: "issue-last",
+            name: "Issue Last",
+            status: "reviewing",
+          }),
         ],
         total: 51,
         offset: 50,
@@ -190,7 +188,7 @@ describe("BoardView", () => {
       });
     });
 
-    expect(screen.getByText("Task Last")).toBeTruthy();
+    expect(screen.getAllByText("Issue Last").length).toBeGreaterThan(0);
   });
 
   it("项目切换后会忽略旧请求返回，避免脏回写", async () => {
@@ -206,9 +204,11 @@ describe("BoardView", () => {
       }
       return Promise.resolve({
         items: [
-          buildPlan([
-            buildTask("task-fresh", "Task fresh", "ready"),
-          ]),
+          buildPlan({
+            id: "issue-fresh",
+            name: "Issue Fresh",
+            status: "reviewing",
+          }),
         ],
         total: 1,
         offset: 0,
@@ -216,14 +216,15 @@ describe("BoardView", () => {
     });
 
     const { rerender } = render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
-
     rerender(<BoardView apiClient={apiClient} projectId="proj-2" refreshToken={0} />);
 
     staleDeferred.resolve({
       items: [
-        buildPlan([
-          buildTask("task-stale", "Task stale", "pending"),
-        ]),
+        buildPlan({
+          id: "issue-stale",
+          name: "Issue Stale",
+          status: "draft",
+        }),
       ],
       total: 1,
       offset: 0,
@@ -236,8 +237,8 @@ describe("BoardView", () => {
       });
     });
 
-    expect(screen.getByText("Task fresh")).toBeTruthy();
-    expect(screen.queryByText("Task stale")).toBeNull();
+    expect(screen.getAllByText("Issue Fresh").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("Issue Stale")).toHaveLength(0);
   });
 
   it("refreshToken 变化后会立即触发一次刷新", async () => {
@@ -249,70 +250,76 @@ describe("BoardView", () => {
     });
 
     rerender(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={1} />);
-
     await waitFor(() => {
       expect(apiClient.listPlans).toHaveBeenCalledTimes(2);
     });
-    expect(apiClient.listPlans).toHaveBeenNthCalledWith(2, "proj-1", {
-      limit: 50,
-      offset: 0,
-    });
   });
 
-  it("看板视图会通过定时拉取做刷新兜底", async () => {
-    vi.useFakeTimers();
+  it("定时刷新期间保持已渲染 issue 列表，避免闪屏", async () => {
+    const deferred = createDeferred<{
+      items: ApiTaskPlan[];
+      total: number;
+      offset: number;
+    }>();
     const apiClient = createMockApiClient();
+    let callCount = 0;
+    vi.mocked(apiClient.listPlans).mockImplementation(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        return {
+          items: [
+            buildPlan({
+              id: "issue-stable",
+              name: "Issue Stable",
+              status: "executing",
+            }),
+          ],
+          total: 1,
+          offset: 0,
+        };
+      }
+      return deferred.promise;
+    });
+
     render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
 
-    expect(apiClient.listPlans).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(screen.getAllByText("Issue Stable").length).toBeGreaterThan(0);
+    });
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByLabelText("自动静默刷新"));
+    await Promise.resolve();
 
     await vi.advanceTimersByTimeAsync(10_000);
-
     expect(apiClient.listPlans).toHaveBeenCalledTimes(2);
+
+    expect(screen.getAllByText("Issue Stable").length).toBeGreaterThan(0);
+    expect(screen.queryByText("加载中...")).toBeNull();
+
+    deferred.resolve({
+      items: [
+        buildPlan({
+          id: "issue-stable",
+          name: "Issue Stable",
+          status: "executing",
+        }),
+      ],
+      total: 1,
+      offset: 0,
+    });
+    await Promise.resolve();
   });
 
-  it("任务右键菜单包含 retry/skip/abort，并调用 task action API", async () => {
-    const apiClient = createMockApiClient();
-    render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Task pending")).toBeTruthy();
-    });
-
-    const taskCard = screen.getByText("Task pending").closest("button");
-    if (!taskCard) {
-      throw new Error("task card not found");
-    }
-
-    fireEvent.contextMenu(taskCard);
-    expect(screen.getByRole("button", { name: "retry" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "skip" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "abort" })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "skip" }));
-
-    await waitFor(() => {
-      expect(apiClient.applyTaskAction).toHaveBeenCalledWith(
-        "proj-1",
-        "plan-1",
-        "task-1",
-        { action: "skip" },
-      );
-    });
-  });
-
-  it("显示 Task 的 GitHub Issue 图标链接", async () => {
+  it("详情区 Approve 按钮调用 issue action API", async () => {
     const apiClient = createMockApiClient();
     vi.mocked(apiClient.listPlans).mockResolvedValue({
       items: [
-        buildPlan([
-          buildTask("task-gh", "Task with GitHub", "pending", {
-            github: {
-              issue_number: 201,
-              issue_url: "https://github.com/acme/ai-workflow/issues/201",
-            },
-          }),
-        ]),
+        buildPlan({
+          id: "issue-approve",
+          name: "Issue Approve",
+          status: "reviewing",
+        }),
       ],
       total: 1,
       offset: 0,
@@ -321,22 +328,34 @@ describe("BoardView", () => {
     render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Task with GitHub")).toBeTruthy();
+      expect(screen.getAllByText("Issue Approve").length).toBeGreaterThan(0);
     });
 
-    const issueLink = screen.getByTestId("board-github-issue-icon");
-    expect(issueLink.getAttribute("href")).toBe("https://github.com/acme/ai-workflow/issues/201");
-    expect(issueLink.textContent).toContain("GH #201");
+    const approveButton = screen
+      .getAllByTestId("board-task")
+      .find((item) => within(item).queryByText("Issue Approve"));
+    if (!approveButton) {
+      throw new Error("Issue Approve card not found");
+    }
+    fireEvent.click(approveButton);
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => {
+      expect(apiClient.applyPlanAction).toHaveBeenCalledWith("proj-1", "issue-approve", {
+        action: "approve",
+      });
+    });
   });
 
-  it("blocked_by_failure 和 skipped 任务显示对应标签", async () => {
+  it("详情区 Submit review 按钮调用 submitPlanReview", async () => {
     const apiClient = createMockApiClient();
     vi.mocked(apiClient.listPlans).mockResolvedValue({
       items: [
-        buildPlan([
-          buildTask("task-blocked", "Task blocked", "blocked_by_failure"),
-          buildTask("task-skipped", "Task skipped", "skipped"),
-        ]),
+        buildPlan({
+          id: "issue-submit",
+          name: "Issue Submit",
+          status: "draft",
+        }),
       ],
       total: 1,
       offset: 0,
@@ -345,37 +364,199 @@ describe("BoardView", () => {
     render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Task blocked")).toBeTruthy();
+      expect(screen.getAllByText("Issue Submit").length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText("blocked")).toBeTruthy();
-    expect(screen.getByText("skipped")).toBeTruthy();
+    const submitButton = screen
+      .getAllByTestId("board-task")
+      .find((item) => within(item).queryByText("Issue Submit"));
+    if (!submitButton) {
+      throw new Error("Issue Submit card not found");
+    }
+    fireEvent.click(submitButton);
+    fireEvent.click(screen.getByRole("button", { name: "Submit review" }));
+
+    await waitFor(() => {
+      expect(apiClient.submitPlanReview).toHaveBeenCalledWith("proj-1", "issue-submit");
+    });
   });
 
-  it("拖拽到目标列会触发对应 task action API", async () => {
+  it("点击 issue 会调用 timeline API 并渲染事件", async () => {
     const apiClient = createMockApiClient();
+    vi.mocked(apiClient.listPlans).mockResolvedValue({
+      items: [
+        buildPlan({
+          id: "issue-timeline",
+          name: "Issue Timeline",
+          status: "executing",
+          pipeline_id: "pipe-99",
+        }),
+      ],
+      total: 1,
+      offset: 0,
+    });
+    vi.mocked(apiClient.listIssueTimeline).mockResolvedValue({
+      items: [
+        {
+          event_id: "log:1",
+          kind: "log",
+          created_at: "2026-03-03T10:00:00Z",
+          actor_type: "agent",
+          actor_name: "codex",
+          actor_avatar_seed: "codex",
+          title: "log · implement/stage_start",
+          body: "stage started",
+          status: "running",
+          refs: {
+            issue_id: "issue-timeline",
+            pipeline_id: "pipe-99",
+            stage: "implement",
+          },
+          meta: { type: "stage_start" },
+        } as IssueTimelineEntry,
+      ],
+      total: 1,
+      offset: 0,
+    });
+
     render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Task pending")).toBeTruthy();
+      expect(screen.getAllByText("Issue Timeline").length).toBeGreaterThan(0);
     });
 
-    const taskCard = screen.getByText("Task pending").closest("button");
-    if (!taskCard) {
-      throw new Error("task card not found");
+    const timelineButton = screen
+      .getAllByTestId("board-task")
+      .find((item) => within(item).queryByText("Issue Timeline"));
+    if (!timelineButton) {
+      throw new Error("Issue Timeline card not found");
     }
-
-    fireEvent.dragStart(taskCard);
-    fireEvent.dragOver(screen.getByTestId("board-column-ready"));
-    fireEvent.drop(screen.getByTestId("board-column-ready"));
+    fireEvent.click(timelineButton);
 
     await waitFor(() => {
-      expect(apiClient.applyTaskAction).toHaveBeenCalledWith(
-        "proj-1",
-        "plan-1",
-        "task-1",
-        { action: "retry" },
-      );
+      expect(apiClient.listIssueTimeline).toHaveBeenCalledWith("proj-1", "issue-timeline", {
+        limit: 200,
+        offset: 0,
+      });
     });
+    expect(screen.getByText("log · implement/stage_start")).toBeTruthy();
+    expect(screen.getAllByText(/stage started/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("展开完整输出")).toBeNull();
+  });
+
+  it("timeline 会折叠重复事件并生成可读摘要", async () => {
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.listPlans).mockResolvedValue({
+      items: [
+        buildPlan({
+          id: "issue-dedup",
+          name: "Issue Dedup",
+          status: "executing",
+          pipeline_id: "pipe-88",
+        }),
+      ],
+      total: 1,
+      offset: 0,
+    });
+    vi.mocked(apiClient.listIssueTimeline).mockResolvedValue({
+      items: [
+        {
+          event_id: "checkpoint:1",
+          kind: "checkpoint",
+          created_at: "2026-03-03T10:04:00Z",
+          actor_type: "system",
+          actor_name: "system",
+          actor_avatar_seed: "system",
+          title: "checkpoint · implement",
+          body: "",
+          status: "failed",
+          refs: {
+            issue_id: "issue-dedup",
+            pipeline_id: "pipe-88",
+            stage: "implement",
+          },
+          meta: { error: "worktree path is empty" },
+        } as IssueTimelineEntry,
+        {
+          event_id: "checkpoint:2",
+          kind: "checkpoint",
+          created_at: "2026-03-03T10:05:00Z",
+          actor_type: "system",
+          actor_name: "system",
+          actor_avatar_seed: "system",
+          title: "checkpoint · implement",
+          body: "",
+          status: "failed",
+          refs: {
+            issue_id: "issue-dedup",
+            pipeline_id: "pipe-88",
+            stage: "implement",
+          },
+          meta: { error: "worktree path is empty" },
+        } as IssueTimelineEntry,
+      ],
+      total: 2,
+      offset: 0,
+    });
+
+    render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Issue Dedup").length).toBeGreaterThan(0);
+    });
+
+    const detailButton = screen
+      .getAllByTestId("board-task")
+      .find((item) => within(item).queryByText("Issue Dedup"));
+    if (!detailButton) {
+      throw new Error("Issue Dedup card not found");
+    }
+    fireEvent.click(detailButton);
+
+    await waitFor(() => {
+      expect(apiClient.listIssueTimeline).toHaveBeenCalledWith("proj-1", "issue-dedup", {
+        limit: 200,
+        offset: 0,
+      });
+    });
+
+    expect(screen.getAllByText("checkpoint · implement")).toHaveLength(1);
+    expect(screen.getAllByText(/worktree path is empty/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/引用标记：/)).toBeNull();
+    expect(screen.queryByText(/^无详细输出$/)).toBeNull();
+  });
+
+  it("刷新控制区默认关闭自动刷新并支持切换间隔", async () => {
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.listPlans).mockResolvedValue({
+      items: [
+        buildPlan({
+          id: "issue-refresh-controls",
+          name: "Issue Refresh Controls",
+          status: "draft",
+        }),
+      ],
+      total: 1,
+      offset: 0,
+    });
+
+    render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Issue Refresh Controls").length).toBeGreaterThan(0);
+    });
+
+    const toggle = screen.getByLabelText("自动静默刷新") as HTMLInputElement;
+    const interval = screen.getByLabelText("刷新间隔") as HTMLSelectElement;
+
+    expect(toggle.checked).toBe(false);
+    expect(interval.disabled).toBe(true);
+
+    fireEvent.click(toggle);
+    expect(toggle.checked).toBe(true);
+    expect(interval.disabled).toBe(false);
+
+    fireEvent.change(interval, { target: { value: "30000" } });
+    expect(interval.value).toBe("30000");
   });
 });

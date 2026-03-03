@@ -155,10 +155,6 @@ vi.mock("./views/BoardView", () => ({
   default: () => <div>Board View Mock</div>,
 }));
 
-vi.mock("./views/PipelineView", () => ({
-  default: () => <div>Pipeline View Mock</div>,
-}));
-
 import App from "./App";
 
 const baseProject = {
@@ -197,7 +193,7 @@ describe("App", () => {
     vi.clearAllMocks();
   });
 
-  it("加载项目、支持项目切换与四视图切换", async () => {
+  it("加载项目、支持项目切换与三视图切换", async () => {
     render(<App />);
 
     await waitFor(() => {
@@ -212,11 +208,8 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Plan" }));
     expect(screen.getByText("Plan View Mock")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Board" }));
+    fireEvent.click(screen.getByRole("button", { name: "Issues" }));
     expect(screen.getByText("Board View Mock")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Pipeline" }));
-    expect(screen.getByText("Pipeline View Mock")).toBeTruthy();
 
     fireEvent.change(projectSelect, { target: { value: "proj-2" } });
     expect(projectSelect.value).toBe("proj-2");

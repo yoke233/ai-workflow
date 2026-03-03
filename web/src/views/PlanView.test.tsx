@@ -1,37 +1,18 @@
+
 /** @vitest-environment jsdom */
 
-import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import PlanView, { resolveMiniMapNodeColor } from "./PlanView";
+import PlanView from "./PlanView";
 import type { ApiClient } from "../lib/apiClient";
 import type { WsClient } from "../lib/wsClient";
 import type {
   AdminAuditLogItem,
-  ApiTaskItem,
   ApiTaskPlan,
-  ListPlansResponse,
+  IssueTimelineEntry,
   PlanChangeRecord,
   PlanReviewRecord,
 } from "../types/api";
-
-vi.mock("@xyflow/react", () => {
-  return {
-    BackgroundVariant: { Dots: "dots" },
-    MarkerType: { ArrowClosed: "arrowclosed" },
-    ReactFlowProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
-    ReactFlow: ({ nodes }: { nodes: Array<{ id: string; data: { label: string } }> }) => (
-      <div data-testid="mock-react-flow">
-        {nodes.map((node) => (
-          <div key={node.id}>{node.data.label}</div>
-        ))}
-      </div>
-    ),
-    Background: () => <div data-testid="flow-background" />,
-    Controls: () => <div data-testid="flow-controls" />,
-    MiniMap: () => <div data-testid="flow-minimap" />,
-  };
-});
 
 const buildPlan = (
   id: string,
@@ -46,6 +27,8 @@ const buildPlan = (
   pipeline_id: overrides?.pipeline_id ?? "",
   wait_reason: overrides?.wait_reason ?? "",
   tasks: overrides?.tasks ?? [],
+  source_files: overrides?.source_files ?? [],
+  file_contents: overrides?.file_contents ?? {},
   fail_policy: overrides?.fail_policy ?? "block",
   review_round: overrides?.review_round ?? 0,
   spec_profile: overrides?.spec_profile ?? "default",
@@ -55,30 +38,12 @@ const buildPlan = (
   updated_at: overrides?.updated_at ?? "2026-03-01T10:00:00.000Z",
 });
 
-const buildTask = (id: string, overrides?: Partial<ApiTaskItem>): ApiTaskItem => ({
-  id,
-  plan_id: "plan-1",
-  title: `Task ${id}`,
-  description: "task",
-  labels: [],
-  depends_on: [],
-  inputs: [],
-  outputs: [],
-  acceptance: [],
-  constraints: [],
-  template: "standard",
-  pipeline_id: "",
-  external_id: "",
-  status: "pending",
-  created_at: "2026-03-01T10:00:00.000Z",
-  updated_at: "2026-03-01T10:00:00.000Z",
-  ...overrides,
-});
-
 const createMockApiClient = (): ApiClient => {
-  const defaultReviewRecords: PlanReviewRecord[] = [];
-  const defaultChangeRecords: PlanChangeRecord[] = [];
-  const defaultAuditItems: AdminAuditLogItem[] = [];
+  const reviewRecords: PlanReviewRecord[] = [];
+  const changeRecords: PlanChangeRecord[] = [];
+  const timelineRecords: IssueTimelineEntry[] = [];
+  const auditRecords: AdminAuditLogItem[] = [];
+
   return {
     request: vi.fn(),
     get: vi.fn(),
@@ -88,54 +53,51 @@ const createMockApiClient = (): ApiClient => {
     getStats: vi.fn(),
     listProjects: vi.fn(),
     createProject: vi.fn(),
+    createProjectCreateRequest: vi.fn(),
+    getProjectCreateRequest: vi.fn(),
     listPipelines: vi.fn(),
     createPipeline: vi.fn(),
+    listChats: vi.fn(),
+    listChatRunEvents: vi.fn(),
     createChat: vi.fn(),
+    cancelChat: vi.fn(),
     getChat: vi.fn(),
     createPlan: vi.fn(),
     createPlanFromFiles: vi.fn(),
     submitPlanReview: vi.fn().mockResolvedValue({ status: "reviewing" }),
-    applyPlanAction: vi.fn().mockResolvedValue({ status: "executing" }),
+    applyPlanAction: vi.fn().mockResolvedValue({ status: "reviewing" }),
     applyTaskAction: vi.fn(),
-    getPipeline: vi.fn(),
-    getPipelineCheckpoints: vi.fn(),
-    applyPipelineAction: vi.fn(),
     listPlans: vi.fn().mockResolvedValue({
-      items: [buildPlan("plan-1", "Plan One"), buildPlan("plan-2", "Plan Two")],
-      total: 2,
-      offset: 0,
-    }),
-    listPlanReviews: vi.fn().mockResolvedValue(defaultReviewRecords),
-    listPlanChanges: vi.fn().mockResolvedValue(defaultChangeRecords),
-    listAdminAuditLog: vi.fn().mockResolvedValue({
-      items: defaultAuditItems,
-      total: defaultAuditItems.length,
-      offset: 0,
-    }),
-    getPlanDag: vi.fn().mockImplementation(async (_projectID: string, planID: string) => ({
-      nodes: [
-        { id: `${planID}-a`, title: "Task A", status: "pending", pipeline_id: "" },
-        { id: `${planID}-b`, title: "Task B", status: "running", pipeline_id: "" },
+      items: [
+        buildPlan("plan-1", "Plan One", {
+          source_files: ["docs/spec.md"],
+          file_contents: { "docs/spec.md": "original spec content" },
+        }),
       ],
-      edges: [{ from: `${planID}-a`, to: `${planID}-b` }],
-      stats: {
-        total: 2,
-        pending: 1,
-        ready: 0,
-        running: 1,
-        done: 0,
-        failed: 0,
-      },
-    })),
+      total: 1,
+      offset: 0,
+    }),
+    getPlanDag: vi.fn(),
+    listPlanReviews: vi.fn().mockResolvedValue(reviewRecords),
+    listPlanChanges: vi.fn().mockResolvedValue(changeRecords),
+    listIssueTimeline: vi.fn().mockResolvedValue({
+      items: timelineRecords,
+      total: timelineRecords.length,
+      offset: 0,
+    }),
+    listAdminAuditLog: vi.fn().mockResolvedValue({
+      items: auditRecords,
+      total: auditRecords.length,
+      offset: 0,
+    }),
+    getPipeline: vi.fn(),
+    getPipelineLogs: vi.fn(),
+    getPipelineCheckpoints: vi.fn(),
+    getRepoTree: vi.fn(),
+    getRepoStatus: vi.fn(),
+    getRepoDiff: vi.fn(),
+    applyPipelineAction: vi.fn(),
   } as unknown as ApiClient;
-};
-
-const createDeferred = <T,>() => {
-  let resolve: (value: T | PromiseLike<T>) => void = () => {};
-  const promise = new Promise<T>((r) => {
-    resolve = r;
-  });
-  return { promise, resolve };
 };
 
 const createMockWsClient = (): WsClient => {
@@ -154,7 +116,7 @@ describe("PlanView", () => {
     cleanup();
   });
 
-  it("加载计划列表并获取默认计划 DAG", async () => {
+  it("加载计划后展示步骤审阅与文件原文", async () => {
     const apiClient = createMockApiClient();
     const wsClient = createMockWsClient();
 
@@ -172,23 +134,27 @@ describe("PlanView", () => {
         limit: 50,
         offset: 0,
       });
-      expect(apiClient.getPlanDag).toHaveBeenCalledWith("proj-1", "plan-1");
+    });
+
+    await waitFor(() => {
       expect(wsClient.send).toHaveBeenCalledWith({
         type: "subscribe_plan",
         plan_id: "plan-1",
       });
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId("mock-react-flow")).toBeTruthy();
-    });
-    expect(screen.getByText("Plan One")).toBeTruthy();
-    expect(screen.getByText("total: 2")).toBeTruthy();
+    expect(screen.getByText("步骤 0 · 原始输入文件")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "docs/spec.md" })).toBeTruthy();
+    expect(screen.getAllByText(/original spec content/).length).toBeGreaterThan(0);
   });
 
-  it("切换计划后拉取新 DAG", async () => {
+  it("ws 未连接时订阅失败不应导致白屏", async () => {
     const apiClient = createMockApiClient();
     const wsClient = createMockWsClient();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(wsClient.send).mockImplementation(() => {
+      throw new Error("WebSocket is not connected");
+    });
 
     render(
       <PlanView
@@ -200,101 +166,88 @@ describe("PlanView", () => {
     );
 
     await waitFor(() => {
-      expect(apiClient.getPlanDag).toHaveBeenCalledWith("proj-1", "plan-1");
+      expect(screen.getByText("审阅步骤")).toBeTruthy();
+      expect(screen.getByText("步骤 0 · 原始输入文件")).toBeTruthy();
     });
 
-    fireEvent.click(screen.getAllByTestId("plan-item")[1]);
-
-    await waitFor(() => {
-      expect(apiClient.getPlanDag).toHaveBeenCalledWith("proj-1", "plan-2");
-    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[PlanView] subscribe_plan skipped:",
+      expect.any(Error),
+    );
+    warnSpy.mockRestore();
   });
 
-  it("第一页满 50 条时会继续拉取第二页并渲染补齐数据", async () => {
+  it("计划列表含异常项时仍可渲染有效计划", async () => {
     const apiClient = createMockApiClient();
     const wsClient = createMockWsClient();
-    vi.mocked(apiClient.listPlans)
-      .mockResolvedValueOnce({
-        items: Array.from({ length: 50 }, (_, index) => buildPlan(`plan-${index}`, `Plan ${index}`)),
-        total: 50,
-        offset: 0,
-      })
-      .mockResolvedValueOnce({
-        items: [buildPlan("plan-50", "Plan 50")],
-        total: 51,
-        offset: 50,
-      });
 
-    render(
-      <PlanView
-        apiClient={apiClient}
-        wsClient={wsClient}
-        projectId="proj-1"
-        refreshToken={0}
-      />,
-    );
-
-    await waitFor(() => {
-      expect(apiClient.listPlans).toHaveBeenNthCalledWith(1, "proj-1", {
-        limit: 50,
-        offset: 0,
-      });
-      expect(apiClient.listPlans).toHaveBeenNthCalledWith(2, "proj-1", {
-        limit: 50,
-        offset: 50,
-      });
-    });
-
-    expect(screen.getByText("Plan 50")).toBeTruthy();
-  });
-
-  it("项目切换后会忽略旧请求返回，避免脏回写", async () => {
-    const oldProjectDeferred = createDeferred<ListPlansResponse>();
-    const apiClient = createMockApiClient();
-    const wsClient = createMockWsClient();
-    vi.mocked(apiClient.listPlans).mockImplementation((projectId) => {
-      if (projectId === "proj-1") {
-        return oldProjectDeferred.promise;
-      }
-      return Promise.resolve({
-        items: [buildPlan("plan-2", "Plan Two")],
-        total: 1,
-        offset: 0,
-      });
-    });
-
-    const { rerender } = render(
-      <PlanView
-        apiClient={apiClient}
-        wsClient={wsClient}
-        projectId="proj-1"
-        refreshToken={0}
-      />,
-    );
-
-    rerender(
-      <PlanView
-        apiClient={apiClient}
-        wsClient={wsClient}
-        projectId="proj-2"
-        refreshToken={0}
-      />,
-    );
-
-    oldProjectDeferred.resolve({
-      items: [buildPlan("plan-1", "Plan One")],
-      total: 1,
+    vi.mocked(apiClient.listPlans).mockResolvedValue({
+      items: [
+        null as unknown as ApiTaskPlan,
+        {
+          id: "plan-bad-shape",
+          title: "Legacy Plan Title",
+          status: "executing",
+          tasks: null,
+          source_files: null,
+          file_contents: null,
+        } as unknown as ApiTaskPlan,
+      ],
+      total: 2,
       offset: 0,
     });
 
+    render(
+      <PlanView
+        apiClient={apiClient}
+        wsClient={wsClient}
+        projectId="proj-1"
+        refreshToken={0}
+      />,
+    );
+
     await waitFor(() => {
-      expect(apiClient.getPlanDag).toHaveBeenCalledWith("proj-2", "plan-2");
+      expect(screen.getAllByText("Legacy Plan Title").length).toBeGreaterThan(0);
+      expect(screen.getByText("步骤 0 · 原始输入文件")).toBeTruthy();
     });
-    expect(screen.getByText("Plan Two")).toBeTruthy();
-    expect(screen.queryByText("Plan One")).toBeNull();
   });
 
-  it("可提交审核并调用 submitPlanReview API", async () => {
+  it("按步骤切换后可查看步骤后的文件结果", async () => {
+    const apiClient = createMockApiClient();
+    const wsClient = createMockWsClient();
+    vi.mocked(apiClient.listPlanChanges!).mockResolvedValue([
+      {
+        id: "change-1",
+        issue_id: "plan-1",
+        field: "file_contents.docs/spec.md",
+        old_value: "original spec content",
+        new_value: "reviewed spec content",
+        reason: "apply_review_fix",
+        changed_by: "system",
+        created_at: "2026-03-01T10:05:00.000Z",
+      },
+    ]);
+
+    render(
+      <PlanView
+        apiClient={apiClient}
+        wsClient={wsClient}
+        projectId="proj-1"
+        refreshToken={0}
+      />,
+    );
+
+    const changeStepButton = await screen.findByRole("button", {
+      name: /Change · file_contents\.docs\/spec\.md/,
+    });
+    fireEvent.click(changeStepButton);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/reviewed spec content/).length).toBeGreaterThan(0);
+    });
+  });
+
+  it("支持提交审核动作", async () => {
     const apiClient = createMockApiClient();
     const wsClient = createMockWsClient();
 
@@ -308,7 +261,7 @@ describe("PlanView", () => {
     );
 
     await waitFor(() => {
-      expect(apiClient.getPlanDag).toHaveBeenCalledWith("proj-1", "plan-1");
+      expect(screen.getByRole("button", { name: "提交审核" })).toBeTruthy();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "提交审核" }));
@@ -318,19 +271,20 @@ describe("PlanView", () => {
     });
   });
 
-  it("可执行通过/驳回/放弃动作并调用 applyPlanAction API", async () => {
+  it("reviewing 状态支持通过与驳回", async () => {
     const apiClient = createMockApiClient();
+    const wsClient = createMockWsClient();
     vi.mocked(apiClient.listPlans).mockResolvedValue({
       items: [
         buildPlan("plan-1", "Plan One", {
-          status: "waiting_human",
-          wait_reason: "final_approval",
+          status: "reviewing",
+          source_files: ["docs/spec.md"],
+          file_contents: { "docs/spec.md": "content" },
         }),
       ],
       total: 1,
       offset: 0,
     });
-    const wsClient = createMockWsClient();
 
     render(
       <PlanView
@@ -342,7 +296,7 @@ describe("PlanView", () => {
     );
 
     await waitFor(() => {
-      expect(apiClient.getPlanDag).toHaveBeenCalledWith("proj-1", "plan-1");
+      expect(screen.getByRole("button", { name: "通过" })).toBeTruthy();
     });
 
     fireEvent.click(screen.getByRole("button", { name: "通过" }));
@@ -357,11 +311,12 @@ describe("PlanView", () => {
       target: { value: "coverage_gap" },
     });
     fireEvent.change(screen.getByLabelText("驳回说明"), {
-      target: { value: "缺少关键回滚路径与异常分支覆盖，请补齐后再提交审核。" },
+      target: { value: "缺少关键错误路径，请补充。" },
     });
     fireEvent.change(screen.getByLabelText("期望方向（可选）"), {
-      target: { value: "补齐异常流并拆分任务颗粒度" },
+      target: { value: "补齐失败分支" },
     });
+
     fireEvent.click(screen.getByRole("button", { name: "驳回" }));
 
     await waitFor(() => {
@@ -369,34 +324,28 @@ describe("PlanView", () => {
         action: "reject",
         feedback: {
           category: "coverage_gap",
-          detail: "缺少关键回滚路径与异常分支覆盖，请补齐后再提交审核。",
-          expected_direction: "补齐异常流并拆分任务颗粒度",
+          detail: "缺少关键错误路径，请补充。",
+          expected_direction: "补齐失败分支",
         },
-      });
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "放弃" }));
-
-    await waitFor(() => {
-      expect(apiClient.applyPlanAction).toHaveBeenCalledWith("proj-1", "plan-1", {
-        action: "abort",
       });
     });
   });
 
-  it("parse_failed 场景展示重试解析并触发 approve 动作", async () => {
+  it("parse_failed 时展示重试解析并调用 approve", async () => {
     const apiClient = createMockApiClient();
+    const wsClient = createMockWsClient();
     vi.mocked(apiClient.listPlans).mockResolvedValue({
       items: [
         buildPlan("plan-1", "Plan One", {
           status: "waiting_human",
           wait_reason: "parse_failed",
+          source_files: ["docs/spec.md"],
+          file_contents: { "docs/spec.md": "content" },
         }),
       ],
       total: 1,
       offset: 0,
     });
-    const wsClient = createMockWsClient();
 
     render(
       <PlanView
@@ -408,15 +357,11 @@ describe("PlanView", () => {
     );
 
     await waitFor(() => {
-      expect(apiClient.getPlanDag).toHaveBeenCalledWith("proj-1", "plan-1");
+      expect(screen.getByText("解析失败（parse_failed），请修正输入后点击“重试解析”。")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "重试解析" })).toBeTruthy();
     });
 
-    expect(screen.getByText("解析失败（parse_failed），请修正输入后点击“重试解析”继续。")).toBeTruthy();
-    const retryParseButton = screen.getByRole("button", { name: "重试解析" });
-    expect(retryParseButton).toBeTruthy();
-    expect((retryParseButton as HTMLButtonElement).disabled).toBe(false);
-
-    fireEvent.click(retryParseButton);
+    fireEvent.click(screen.getByRole("button", { name: "重试解析" }));
 
     await waitFor(() => {
       expect(apiClient.applyPlanAction).toHaveBeenCalledWith("proj-1", "plan-1", {
@@ -425,95 +370,88 @@ describe("PlanView", () => {
     });
   });
 
-  it("展示 Task 的 GitHub Issue 链接", async () => {
+  it("按时间线展示多步骤审阅（review/change/timeline/audit）", async () => {
     const apiClient = createMockApiClient();
-    vi.mocked(apiClient.listPlans).mockResolvedValue({
-      items: [
-        buildPlan("plan-1", "Plan One", {
-          tasks: [
-            buildTask("task-1", {
-              github: {
-                issue_number: 201,
-                issue_url: "https://github.com/acme/ai-workflow/issues/201",
-              },
-            }),
-          ],
-        }),
-      ],
-      total: 1,
-      offset: 0,
-    });
     const wsClient = createMockWsClient();
 
-    render(
-      <PlanView
-        apiClient={apiClient}
-        wsClient={wsClient}
-        projectId="proj-1"
-        refreshToken={0}
-      />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId("plan-github-links")).toBeTruthy();
-    });
-    expect(screen.getByText("Issue #201")).toBeTruthy();
-  });
-
-  it("会加载并展示 review/修改/审计历史区块", async () => {
-    const apiClient = createMockApiClient();
     vi.mocked(apiClient.listPlanReviews!).mockResolvedValue([
       {
-        id: 1,
+        id: 11,
         issue_id: "plan-1",
-        round: 2,
+        round: 1,
         reviewer: "demand_reviewer",
-        verdict: "pass",
-        issues: [],
-        fixes: [],
-        score: 96,
-        created_at: "2026-03-03T01:00:00Z",
+        verdict: "fix",
+        issues: [
+          {
+            severity: "high",
+            issue_id: "i-1",
+            description: "缺少回滚计划",
+            suggestion: "补充 rollback 步骤",
+          },
+        ],
+        fixes: [
+          {
+            issue_id: "i-1",
+            description: "新增 rollback 章节",
+            suggestion: "覆盖失败路径",
+          },
+        ],
+        score: 70,
+        created_at: "2026-03-01T10:02:00.000Z",
       },
     ]);
+
     vi.mocked(apiClient.listPlanChanges!).mockResolvedValue([
       {
-        id: "1",
+        id: "c-1",
         issue_id: "plan-1",
         field: "status",
         old_value: "draft",
         new_value: "reviewing",
         reason: "submit_for_review",
         changed_by: "system",
-        created_at: "2026-03-03T01:05:00Z",
+        created_at: "2026-03-01T10:03:00.000Z",
       },
     ]);
-    vi.mocked(apiClient.listAdminAuditLog!).mockResolvedValue({
+
+    vi.mocked(apiClient.listIssueTimeline).mockResolvedValue({
       items: [
         {
-          id: 9,
-          project_id: "proj-1",
-          issue_id: "plan-1",
-          pipeline_id: "pipe-1",
-          action: "force_ready",
-          message: "trace_id=trace-1",
-          source: "admin",
-          user_id: "admin",
-          created_at: "2026-03-03T01:08:00Z",
+          event_id: "log-1",
+          kind: "log",
+          created_at: "2026-03-01T10:04:00.000Z",
+          actor_type: "agent",
+          actor_name: "worker",
+          actor_avatar_seed: "worker",
+          title: "log · review phase",
+          body: "review log output",
+          status: "success",
+          refs: { issue_id: "plan-1" },
+          meta: {},
         },
       ],
       total: 1,
       offset: 0,
     });
-    vi.mocked(apiClient.listPlans).mockResolvedValue({
+
+    vi.mocked(apiClient.listAdminAuditLog!).mockResolvedValue({
       items: [
-        buildPlan("plan-1", "Plan One", {
-          pipeline_id: "pipe-1",
-        }),
+        {
+          id: 99,
+          project_id: "proj-1",
+          issue_id: "plan-1",
+          pipeline_id: "",
+          stage: "review",
+          action: "human_reject",
+          message: "manual feedback",
+          source: "web",
+          user_id: "admin",
+          created_at: "2026-03-01T10:05:00.000Z",
+        },
       ],
       total: 1,
       offset: 0,
     });
-    const wsClient = createMockWsClient();
 
     render(
       <PlanView
@@ -525,27 +463,42 @@ describe("PlanView", () => {
     );
 
     await waitFor(() => {
-      expect(apiClient.listPlanReviews!).toHaveBeenCalledWith("proj-1", "plan-1");
-      expect(apiClient.listPlanChanges!).toHaveBeenCalledWith("proj-1", "plan-1");
-      expect(apiClient.listAdminAuditLog!).toHaveBeenCalledWith({
-        projectId: "proj-1",
-        limit: 200,
-        offset: 0,
-      });
+      expect(screen.getByRole("button", { name: /Review Round 1 · fix/ })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Change · status/ })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /log · review phase/ })).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Audit · human_reject/ })).toBeTruthy();
+    });
+  });
+
+  it("后端返回空数组/异常结构时不白屏", async () => {
+    const apiClient = createMockApiClient();
+    const wsClient = createMockWsClient();
+
+    vi.mocked(apiClient.listPlanReviews!).mockResolvedValue(null as unknown as PlanReviewRecord[]);
+    vi.mocked(apiClient.listPlanChanges!).mockResolvedValue(null as unknown as PlanChangeRecord[]);
+    vi.mocked(apiClient.listIssueTimeline).mockResolvedValue({
+      items: null as unknown as IssueTimelineEntry[],
+      total: 0,
+      offset: 0,
+    });
+    vi.mocked(apiClient.listAdminAuditLog!).mockResolvedValue({
+      items: null as unknown as AdminAuditLogItem[],
+      total: 0,
+      offset: 0,
     });
 
-    expect(screen.getByText("Review 历史")).toBeTruthy();
-    expect(screen.getByText("round=2 · reviewer=demand_reviewer")).toBeTruthy();
-    expect(screen.getByText("修改记录")).toBeTruthy();
-    expect(screen.getByText("field=status")).toBeTruthy();
-    expect(screen.getByText("审计记录")).toBeTruthy();
-    expect(screen.getByText("action=force_ready")).toBeTruthy();
-  });
-});
+    render(
+      <PlanView
+        apiClient={apiClient}
+        wsClient={wsClient}
+        projectId="proj-1"
+        refreshToken={0}
+      />,
+    );
 
-describe("PlanView mini map color fallback", () => {
-  it("未知状态时返回兜底色值", () => {
-    expect(resolveMiniMapNodeColor(undefined)).toBe("#64748b");
-    expect(resolveMiniMapNodeColor("not_supported_status")).toBe("#64748b");
+    await waitFor(() => {
+      expect(screen.getByText("审阅步骤")).toBeTruthy();
+      expect(screen.getByText("步骤 0 · 原始输入文件")).toBeTruthy();
+    });
   });
 });

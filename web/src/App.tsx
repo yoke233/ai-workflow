@@ -3,7 +3,6 @@ import ChatView from "./views/ChatView";
 import A2AChatView from "./views/A2AChatView";
 import PlanView from "./views/PlanView";
 import BoardView from "./views/BoardView";
-import PipelineView from "./views/PipelineView";
 import ProjectAdminPanel from "./components/ProjectAdminPanel";
 import { createApiClient, type ApiClient } from "./lib/apiClient";
 import { createA2AClient, type A2AClient } from "./lib/a2aClient";
@@ -11,13 +10,12 @@ import { createWsClient, type WsClient } from "./lib/wsClient";
 import type { WsEnvelope } from "./types/ws";
 import type { Project } from "./types/workflow";
 
-type AppView = "chat" | "plan" | "board" | "pipeline";
+type AppView = "chat" | "plan" | "board";
 
 const VIEW_LABELS: Record<AppView, string> = {
   chat: "Chat",
   plan: "Plan",
-  board: "Board",
-  pipeline: "Pipeline",
+  board: "Issues",
 };
 
 const PLAN_TASK_EVENT_TYPES = new Set([
@@ -36,6 +34,21 @@ const PLAN_TASK_EVENT_TYPES = new Set([
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 const API_TOKEN = import.meta.env.VITE_API_TOKEN || "";
+
+const parseViewFromLocation = (): AppView => {
+  if (typeof window === "undefined") {
+    return "chat";
+  }
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get("view");
+  if (view === "chat" || view === "plan" || view === "board") {
+    return view;
+  }
+  if (params.get("issue")) {
+    return "board";
+  }
+  return "chat";
+};
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -73,14 +86,6 @@ const renderView = ({ apiClient, a2aClient, wsClient, projectId, refreshToken, a
     case "board":
       return (
         <BoardView
-          apiClient={apiClient}
-          projectId={projectId}
-          refreshToken={refreshToken}
-        />
-      );
-    case "pipeline":
-      return (
-        <PipelineView
           apiClient={apiClient}
           projectId={projectId}
           refreshToken={refreshToken}
@@ -126,7 +131,7 @@ const App = ({ a2aEnabledOverride }: AppProps = {}) => {
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<AppView>("chat");
+  const [activeView, setActiveView] = useState<AppView>(() => parseViewFromLocation());
   const [refreshToken, setRefreshToken] = useState(0);
   const [wsStatus, setWsStatus] = useState(wsClient.getStatus());
 
@@ -195,6 +200,35 @@ const App = ({ a2aEnabledOverride }: AppProps = {}) => {
       wsClient.disconnect(1000, "app_unmount");
     };
   }, [wsClient]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const onPopState = () => {
+      setActiveView(parseViewFromLocation());
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const url = new URL(window.location.href);
+    const current = url.searchParams.get("view");
+    if (current === activeView) {
+      return;
+    }
+    url.searchParams.set("view", activeView);
+    if (activeView !== "board") {
+      url.searchParams.delete("issue");
+    }
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [activeView]);
 
   const selectedProject = selectedProjectId
     ? projects.find((project) => project.id === selectedProjectId) ?? null

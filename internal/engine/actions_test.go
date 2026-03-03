@@ -140,6 +140,27 @@ func TestActionReject_InvalidateFollowingCheckpoints(t *testing.T) {
 	if after[2].Status != core.CheckpointInvalidated {
 		t.Fatalf("expected third checkpoint invalidated, got %s", after[2].Status)
 	}
+
+	logs, total, err := store.GetLogs(p.ID, "", 50, 0)
+	if err != nil {
+		t.Fatalf("get logs: %v", err)
+	}
+	if total == 0 || len(logs) == 0 {
+		t.Fatalf("expected action_applied log entry, got total=%d len=%d", total, len(logs))
+	}
+	found := false
+	for i := range logs {
+		if logs[i].Type == string(core.EventActionApplied) {
+			found = true
+			if logs[i].Stage != string(core.StageFixup) {
+				t.Fatalf("expected action_applied log stage=%s, got %s", core.StageFixup, logs[i].Stage)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected action_applied log, got logs=%#v", logs)
+	}
 }
 
 func TestActionPauseResume_ReRunCurrentStage(t *testing.T) {

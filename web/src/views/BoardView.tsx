@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../lib/apiClient";
-import type { TaskItemStatus, TaskPlan } from "../types/workflow";
+import type { IssueTimelineEntry } from "../types/api";
+import type { TaskPlan } from "../types/workflow";
 
 interface BoardViewProps {
   apiClient: ApiClient;
@@ -9,6 +10,7 @@ interface BoardViewProps {
 }
 
 export type BoardStatus = "pending" | "ready" | "running" | "done" | "failed";
+type BoardStatusFilter = "all" | BoardStatus;
 
 export interface BoardTask {
   id: string;
@@ -20,14 +22,22 @@ export interface BoardTask {
   pipeline_id: string;
   github_issue_number?: number;
   github_issue_url?: string;
+  created_at?: string;
+  updated_at?: string;
+  issue_level: boolean;
 }
 
-type TaskActionType = "retry" | "skip" | "abort";
+type TaskActionType = "submit_review" | "approve" | "abort";
 
-interface ContextMenuState {
-  taskId: string;
-  x: number;
-  y: number;
+interface TimelineItem {
+  id: string;
+  title: string;
+  executor: string;
+  timestamp: string;
+  resultSummary: string;
+  resultDetail: string;
+  referenceTag: string;
+  tone: "neutral" | "success" | "warning" | "danger";
 }
 
 export const BOARD_COLUMNS: BoardStatus[] = [
@@ -37,6 +47,7 @@ export const BOARD_COLUMNS: BoardStatus[] = [
   "done",
   "failed",
 ];
+const BOARD_FILTERS: BoardStatusFilter[] = ["all", ...BOARD_COLUMNS];
 
 const BOARD_STATUS_LABELS: Record<BoardStatus, string> = {
   pending: "Pending",
@@ -46,51 +57,77 @@ const BOARD_STATUS_LABELS: Record<BoardStatus, string> = {
   failed: "Failed",
 };
 
-const DROP_ACTION_MAP: Record<BoardStatus, TaskActionType | null> = {
-  pending: null,
-  ready: "retry",
-  running: "retry",
-  done: "skip",
-  failed: "abort",
+const BOARD_FILTER_LABELS: Record<BoardStatusFilter, string> = {
+  all: "All",
+  pending: "Pending",
+  ready: "Ready",
+  running: "Running",
+  done: "Done",
+  failed: "Failed",
 };
 
-const TASK_ACTIONS: TaskActionType[] = ["retry", "skip", "abort"];
+const STATUS_BADGE_CLASS: Record<BoardStatus, string> = {
+  pending: "border-[#d0d7de] bg-[#f6f8fa] text-[#57606a]",
+  ready: "border-[#2f81f7] bg-[#ddf4ff] text-[#0969da]",
+  running: "border-[#d4a72c] bg-[#fff8c5] text-[#9a6700]",
+  done: "border-[#1a7f37] bg-[#dafbe1] text-[#1a7f37]",
+  failed: "border-[#cf222e] bg-[#ffebe9] text-[#cf222e]",
+};
 
-export const toBoardStatus = (status: TaskItemStatus): BoardStatus => {
-  switch (status) {
+const TIMELINE_TONE_CLASS: Record<TimelineItem["tone"], string> = {
+  neutral: "border-[#d0d7de] bg-white text-[#24292f]",
+  success: "border-[#1a7f37] bg-[#dafbe1] text-[#1a7f37]",
+  warning: "border-[#bf8700] bg-[#fff8c5] text-[#9a6700]",
+  danger: "border-[#cf222e] bg-[#ffebe9] text-[#cf222e]",
+};
+
+const TASK_ACTION_CONFIG: Record<
+  TaskActionType,
+  { label: string; description: string }
+> = {
+  submit_review: {
+    label: "Submit review",
+    description: "提交进入 review 阶段",
+  },
+  approve: {
+    label: "Approve",
+    description: "批准并推进到下一步",
+  },
+  abort: {
+    label: "Abandon",
+    description: "终止当前 issue 流程",
+  },
+};
+
+export const toBoardStatus = (status: string): BoardStatus => {
+  switch (status.trim().toLowerCase()) {
+    case "draft":
     case "pending":
       return "pending";
+    case "reviewing":
+      return "ready";
+    case "queued":
     case "ready":
       return "ready";
+    case "executing":
     case "running":
       return "running";
+    case "partially_done":
+      return "running";
+    case "success":
+    case "completed":
     case "done":
       return "done";
-    case "failed":
-      return "failed";
-    case "blocked_by_failure":
-      return "failed";
     case "skipped":
       return "done";
+    case "waiting_human":
+    case "failed":
+    case "abandoned":
+    case "blocked_by_failure":
+      return "failed";
     default:
       return "pending";
   }
-};
-
-const toBoardStatusFromUnknown = (status: string, fallback: BoardStatus): BoardStatus => {
-  const known: TaskItemStatus[] = [
-    "pending",
-    "ready",
-    "running",
-    "done",
-    "failed",
-    "skipped",
-    "blocked_by_failure",
-  ];
-  if (!known.includes(status as TaskItemStatus)) {
-    return fallback;
-  }
-  return toBoardStatus(status as TaskItemStatus);
 };
 
 export const groupBoardTasks = (
@@ -116,19 +153,309 @@ const getErrorMessage = (error: unknown): string => {
   return "请求失败，请稍后重试";
 };
 
+const formatTimestamp = (value?: string): string => {
+  if (!value) {
+    return "时间未知";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleString("zh-CN", {
+    hour12: false,
+  });
+};
+
+const formatRelativeTimestamp = (value?: string): string => {
+  if (!value) {
+    return "time unknown";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const getExecutor = (task: BoardTask): string => {
+  if (task.pipeline_id.trim().length > 0) {
+    return `pipeline/${task.pipeline_id}`;
+  }
+  return "workflow-engine";
+};
+
+const getReferenceTag = (task: BoardTask): string => {
+  if (task.github_issue_number) {
+    return `issue#${task.github_issue_number}`;
+  }
+  return `issue/${task.id}`;
+};
+
+const getIssueNumberLabel = (task: BoardTask): string => {
+  if (typeof task.github_issue_number === "number") {
+    return `#${task.github_issue_number}`;
+  }
+  return `#${task.id.slice(0, 8)}`;
+};
+
+const getAvatarPlaceholder = (value: string): string => {
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    return "AI";
+  }
+  return normalized.slice(0, 2).toUpperCase();
+};
+
+const extractIssueNumber = (value: string): number | undefined => {
+  const match = value.match(/issues\/(\d+)/i);
+  if (!match) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(match[1] ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+};
+
+const normalizeText = (value: unknown): string => {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
+};
+
+const parseTimelineTimestamp = (item: IssueTimelineEntry): string => {
+  return normalizeText(item.created_at);
+};
+
+const summarizeText = (value: string, maxLength = 160): string => {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength)}...`;
+};
+
+const stringifyTimelineMeta = (meta: Record<string, unknown>): string => {
+  const keys = Object.keys(meta);
+  if (keys.length === 0) {
+    return "";
+  }
+  try {
+    return JSON.stringify(meta, null, 2);
+  } catch {
+    return "";
+  }
+};
+
+const pickTimelineDetail = (entry: IssueTimelineEntry): string => {
+  const body = normalizeText(entry.body).trim();
+  if (body.length > 0) {
+    return body;
+  }
+
+  const meta = entry.meta ?? {};
+  const candidates = [
+    normalizeText(meta.message).trim(),
+    normalizeText(meta.error).trim(),
+    normalizeText(meta.content).trim(),
+    normalizeText(meta.verdict).trim(),
+    normalizeText(meta.action).trim(),
+    normalizeText(meta.type).trim(),
+  ];
+  for (const candidate of candidates) {
+    if (candidate.length > 0) {
+      return candidate;
+    }
+  }
+
+  const metaJSON = stringifyTimelineMeta(meta);
+  if (metaJSON.length > 0) {
+    return metaJSON;
+  }
+
+  const status = normalizeText(entry.status).trim();
+  if (status.length > 0) {
+    return `status=${status}`;
+  }
+  return "无详细输出";
+};
+
+const pickTimelineSummary = (entry: IssueTimelineEntry): string => {
+  return summarizeText(pickTimelineDetail(entry));
+};
+
+const dedupeTimelineItems = (items: TimelineItem[]): TimelineItem[] => {
+  const out: TimelineItem[] = [];
+  let previousSignature = "";
+  items.forEach((item) => {
+    const signature = [
+      item.title.trim().toLowerCase(),
+      item.executor.trim().toLowerCase(),
+      item.referenceTag.trim().toLowerCase(),
+      item.resultSummary.trim().toLowerCase(),
+      item.tone,
+    ].join("|");
+    if (signature === previousSignature) {
+      return;
+    }
+    previousSignature = signature;
+    out.push(item);
+  });
+  return out;
+};
+
+const toTimelineTone = (status: unknown): TimelineItem["tone"] => {
+  switch (normalizeText(status).trim().toLowerCase()) {
+    case "success":
+      return "success";
+    case "failed":
+      return "danger";
+    case "warning":
+      return "warning";
+    default:
+      return "neutral";
+  }
+};
+
+const buildTimeline = (task: BoardTask, entries: IssueTimelineEntry[]): TimelineItem[] => {
+  if (entries.length === 0) {
+    return [];
+  }
+
+  const fallbackReference = getReferenceTag(task);
+  const mapped = entries.map((entry, index) => {
+    const stage = normalizeText(entry.refs?.stage).trim();
+    const referenceTag = stage
+      ? `${entry.refs?.issue_id ? `issue/${normalizeText(entry.refs.issue_id)}` : fallbackReference}-${stage}`
+      : entry.refs?.issue_id
+        ? `issue/${normalizeText(entry.refs.issue_id)}`
+        : fallbackReference;
+    const executor =
+      normalizeText(entry.actor_name).trim() ||
+      normalizeText(entry.actor_type).trim() ||
+      "system";
+    return {
+      id: normalizeText(entry.event_id) || `${task.id}-${normalizeText(entry.kind)}-${index}`,
+      title: normalizeText(entry.title).trim() || normalizeText(entry.kind) || "event",
+      executor,
+      timestamp: parseTimelineTimestamp(entry),
+      resultSummary: pickTimelineSummary(entry),
+      resultDetail: pickTimelineDetail(entry),
+      referenceTag,
+      tone: toTimelineTone(entry.status),
+    };
+  });
+  return dedupeTimelineItems(mapped);
+};
+
 const PAGE_LIMIT = 50;
-const REFRESH_INTERVAL_MS = 10_000;
+const DEFAULT_AUTO_REFRESH_INTERVAL_MS = 10_000;
+const AUTO_REFRESH_INTERVAL_OPTIONS = [
+  { label: "5 秒", value: 5_000 },
+  { label: "10 秒", value: 10_000 },
+  { label: "30 秒", value: 30_000 },
+  { label: "60 秒", value: 60_000 },
+];
+
+const readRouteIssueID = (): string | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const params = new URLSearchParams(window.location.search);
+  const issueID = params.get("issue");
+  if (!issueID) {
+    return null;
+  }
+  const normalized = issueID.trim();
+  return normalized.length > 0 ? normalized : null;
+};
+
+const writeRouteIssueID = (issueID: string | null, historyMode: "push" | "replace" = "push") => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.set("view", "board");
+  if (issueID && issueID.trim().length > 0) {
+    url.searchParams.set("issue", issueID.trim());
+  } else {
+    url.searchParams.delete("issue");
+  }
+  const nextURL = `${url.pathname}${url.search}${url.hash}`;
+  if (historyMode === "replace") {
+    window.history.replaceState(null, "", nextURL);
+    return;
+  }
+  window.history.pushState(null, "", nextURL);
+};
+
+const resolveRouteIssueTaskID = (routeIssueID: string | null, tasks: BoardTask[]): string | null => {
+  const candidate = normalizeText(routeIssueID).trim();
+  if (candidate.length === 0) {
+    return null;
+  }
+  const byID = tasks.find((task) => task.id === candidate);
+  if (byID) {
+    return byID.id;
+  }
+  const byPlanID = tasks.find((task) => task.plan_id === candidate);
+  return byPlanID ? byPlanID.id : null;
+};
 
 const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
   const [tasks, setTasks] = useState<BoardTask[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [routeIssueID, setRouteIssueID] = useState<string | null>(() => readRouteIssueID());
+  const [statusFilter, setStatusFilter] = useState<BoardStatusFilter>("all");
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
+  const [autoRefreshIntervalMs, setAutoRefreshIntervalMs] = useState(
+    DEFAULT_AUTO_REFRESH_INTERVAL_MS,
+  );
+  const [manualReloadToken, setManualReloadToken] = useState(0);
   const [actionLoadingTaskId, setActionLoadingTaskId] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineError, setTimelineError] = useState<string | null>(null);
+  const [timelineEntries, setTimelineEntries] = useState<IssueTimelineEntry[]>([]);
+  const [timelineReloadToken, setTimelineReloadToken] = useState(0);
+  const hasLoadedTasksRef = useRef(false);
+  const hasLoadedTimelineRef = useRef(false);
+  const timelineIssueRef = useRef("");
+
+  useEffect(() => {
+    hasLoadedTasksRef.current = false;
+    hasLoadedTimelineRef.current = false;
+    timelineIssueRef.current = "";
+    setRouteIssueID(readRouteIssueID());
+    setLoading(true);
+    setBackgroundRefreshing(false);
+    setTimelineLoading(false);
+    setTimelineError(null);
+    setTimelineEntries([]);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const onPopState = () => {
+      setRouteIssueID(readRouteIssueID());
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,7 +465,12 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
         return;
       }
       inFlight = true;
-      setLoading(true);
+      const isBackground = hasLoadedTasksRef.current;
+      if (isBackground) {
+        setBackgroundRefreshing(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
       try {
         const allPlans: TaskPlan[] = [];
@@ -161,24 +493,70 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
             break;
           }
         }
-        const flattened: BoardTask[] = allPlans.flatMap((plan) =>
-          (plan.tasks ?? []).map((task) => ({
-            id: task.id,
-            plan_id: plan.id,
-            plan_name: plan.name || plan.id,
-            title: task.title,
-            status: toBoardStatus(task.status),
-            raw_status: task.status,
-            pipeline_id: task.pipeline_id,
-            github_issue_number: task.github?.issue_number,
-            github_issue_url: task.github?.issue_url,
-          })),
-        );
+        const flattened: BoardTask[] = allPlans.flatMap((plan) => {
+          const tasksInPlan = Array.isArray(plan.tasks) ? plan.tasks : [];
+          if (tasksInPlan.length > 0) {
+            return tasksInPlan.map((task) => ({
+              id: task.id,
+              plan_id: plan.id,
+              plan_name: plan.name || plan.id,
+              title: task.title,
+              status: toBoardStatus(String(task.status ?? "")),
+              raw_status: String(task.status ?? ""),
+              pipeline_id: task.pipeline_id ?? plan.pipeline_id ?? "",
+              github_issue_number: task.github?.issue_number,
+              github_issue_url: task.github?.issue_url,
+              created_at: task.created_at,
+              updated_at: task.updated_at,
+              issue_level: false as boolean,
+            } as BoardTask));
+          }
+
+          const externalID = String((plan as { external_id?: string }).external_id ?? "");
+          const githubIssueURL = externalID.startsWith("http") ? externalID : undefined;
+          const githubIssueNumber = extractIssueNumber(externalID);
+          const rawStatus = String((plan as { status?: string }).status ?? "");
+          const titleCandidate =
+            (plan as { title?: string }).title || plan.name || plan.id;
+          return [
+            {
+              id: plan.id,
+              plan_id: plan.id,
+              plan_name: titleCandidate,
+              title: titleCandidate,
+              status: toBoardStatus(rawStatus),
+              raw_status: rawStatus,
+              pipeline_id: plan.pipeline_id ?? "",
+              github_issue_number: githubIssueNumber,
+              github_issue_url: githubIssueURL,
+              created_at: plan.created_at,
+              updated_at: plan.updated_at,
+              issue_level: true as boolean,
+            } as BoardTask,
+          ];
+        });
+        flattened.sort((left, right) => {
+          const leftTime = new Date(left.updated_at ?? left.created_at ?? 0).getTime();
+          const rightTime = new Date(right.updated_at ?? right.created_at ?? 0).getTime();
+          if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) {
+            return left.title.localeCompare(right.title);
+          }
+          if (Number.isNaN(leftTime)) {
+            return 1;
+          }
+          if (Number.isNaN(rightTime)) {
+            return -1;
+          }
+          return rightTime - leftTime;
+        });
         if (!cancelled) {
           setTasks(flattened);
           setSelectedTaskId((current) =>
-            current && flattened.some((task) => task.id === current) ? current : null,
+            current && flattened.some((task) => task.id === current)
+              ? current
+              : flattened[0]?.id ?? null,
           );
+          hasLoadedTasksRef.current = true;
         }
       } catch (requestError) {
         if (!cancelled) {
@@ -188,59 +566,214 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
         }
       } finally {
         if (!cancelled) {
-          setLoading(false);
+          if (isBackground) {
+            setBackgroundRefreshing(false);
+          } else {
+            setLoading(false);
+          }
         }
         inFlight = false;
       }
     };
 
     void loadTasks();
-    // Fallback refresh for non-PlanView scenarios where plan-scoped WS events may be missed.
-    const intervalId = setInterval(() => {
-      void loadTasks();
-    }, REFRESH_INTERVAL_MS);
+    const intervalId = autoRefreshEnabled
+      ? setInterval(() => {
+          void loadTasks();
+        }, autoRefreshIntervalMs)
+      : null;
     return () => {
       cancelled = true;
-      clearInterval(intervalId);
+      if (intervalId !== null) {
+        clearInterval(intervalId);
+      }
     };
-  }, [apiClient, projectId, refreshToken]);
+  }, [apiClient, projectId, refreshToken, autoRefreshEnabled, autoRefreshIntervalMs, manualReloadToken]);
 
   useEffect(() => {
-    const closeMenu = () => {
-      setContextMenu(null);
+    const timelineIssueID = selectedTaskId
+      ? tasks.find((item) => item.id === selectedTaskId)?.plan_id ?? selectedTaskId
+      : "";
+    if (!timelineIssueID) {
+      setTimelineLoading(false);
+      setTimelineError(null);
+      setTimelineEntries([]);
+      hasLoadedTimelineRef.current = false;
+      timelineIssueRef.current = "";
+      return;
+    }
+
+    const issueChanged = timelineIssueRef.current !== timelineIssueID;
+    if (issueChanged) {
+      timelineIssueRef.current = timelineIssueID;
+      hasLoadedTimelineRef.current = false;
+    }
+    const showTimelineLoading = !hasLoadedTimelineRef.current;
+    if (showTimelineLoading) {
+      setTimelineLoading(true);
+    }
+
+    let cancelled = false;
+    setTimelineError(null);
+    const loadTimeline = async () => {
+      try {
+        const response = await apiClient.listIssueTimeline(projectId, timelineIssueID, {
+          limit: 200,
+          offset: 0,
+        });
+        if (cancelled) {
+          return;
+        }
+        const sorted = [...response.items].sort((a, b) => {
+          const left = new Date(parseTimelineTimestamp(a)).getTime();
+          const right = new Date(parseTimelineTimestamp(b)).getTime();
+          if (Number.isNaN(left) && Number.isNaN(right)) {
+            return 0;
+          }
+          if (Number.isNaN(left)) {
+            return 1;
+          }
+          if (Number.isNaN(right)) {
+            return -1;
+          }
+          return right - left;
+        });
+        setTimelineEntries(sorted);
+        hasLoadedTimelineRef.current = true;
+      } catch (requestError) {
+        if (!cancelled) {
+          setTimelineError(getErrorMessage(requestError));
+          setTimelineEntries([]);
+          hasLoadedTimelineRef.current = false;
+        }
+      } finally {
+        if (!cancelled && showTimelineLoading) {
+          setTimelineLoading(false);
+        }
+      }
     };
-    window.addEventListener("click", closeMenu);
+    void loadTimeline();
     return () => {
-      window.removeEventListener("click", closeMenu);
+      cancelled = true;
     };
-  }, []);
+  }, [apiClient, projectId, selectedTaskId, tasks, refreshToken, timelineReloadToken]);
 
   const groupedTasks = useMemo(() => groupBoardTasks(tasks), [tasks]);
+  const visibleTasks = useMemo(() => {
+    if (statusFilter === "all") {
+      return tasks;
+    }
+    return groupedTasks[statusFilter];
+  }, [groupedTasks, statusFilter, tasks]);
   const selectedTask = selectedTaskId
     ? tasks.find((task) => task.id === selectedTaskId) ?? null
     : null;
+  const activeIssueTaskID = resolveRouteIssueTaskID(routeIssueID, tasks);
+  const detailTask = activeIssueTaskID
+    ? tasks.find((task) => task.id === activeIssueTaskID) ?? selectedTask
+    : null;
+  const isIssueDetailOpen = routeIssueID !== null;
+  const timelineItems = useMemo(
+    () => (detailTask ? buildTimeline(detailTask, timelineEntries) : []),
+    [detailTask, timelineEntries],
+  );
+
+  useEffect(() => {
+    const routeTaskID = resolveRouteIssueTaskID(routeIssueID, tasks);
+    if (routeTaskID) {
+      setSelectedTaskId((current) => (current === routeTaskID ? current : routeTaskID));
+      return;
+    }
+    if (routeIssueID && tasks.length > 0) {
+      setRouteIssueID(null);
+      writeRouteIssueID(null, "replace");
+    }
+  }, [routeIssueID, tasks]);
+
+  const canRunAction = (
+    task: BoardTask | null,
+    action: TaskActionType,
+  ): boolean => {
+    if (!task || actionLoadingTaskId === task.id) {
+      return false;
+    }
+    const rawStatus = task.raw_status.trim().toLowerCase();
+    if (action === "submit_review") {
+      return rawStatus === "draft" || task.status === "pending";
+    }
+    if (action === "approve") {
+      return (
+        rawStatus === "reviewing" ||
+        rawStatus === "waiting_human" ||
+        task.status === "ready" ||
+        task.status === "running"
+      );
+    }
+    if (action === "abort") {
+      return task.status !== "done";
+    }
+    return false;
+  };
+
+  const getNextActionHint = (task: BoardTask | null): string => {
+    if (!task) {
+      return "选择一个 issue 后可查看推荐下一步操作。";
+    }
+    switch (task.status) {
+      case "pending":
+        return "建议先执行 Submit review，让 issue 进入审核链路。";
+      case "ready":
+        return "建议执行 Approve，推进到 pipeline 执行阶段。";
+      case "running":
+        return "建议观察 timeline 输出；若方向错误可使用 Abandon。";
+      case "done":
+        return "当前已完成，可在 timeline 中复核每一步执行记录。";
+      case "failed":
+        return "建议先定位失败节点，再决定重新 review 还是 Abandon。";
+      default:
+        return "请结合当前状态选择下一步动作。";
+    }
+  };
 
   const runTaskAction = async (task: BoardTask, action: TaskActionType) => {
     setActionLoadingTaskId(task.id);
     setActionError(null);
     setActionNotice(null);
     try {
-      const response = await apiClient.applyTaskAction(projectId, task.plan_id, task.id, {
-        action,
-      });
-      const nextStatus = toBoardStatusFromUnknown(String(response.status), task.status);
+      let responseStatus = task.raw_status;
+      if (action === "submit_review") {
+        const response = await apiClient.submitPlanReview(projectId, task.plan_id);
+        responseStatus = String(response.status ?? "");
+      } else if (action === "approve") {
+        const response = await apiClient.applyPlanAction(projectId, task.plan_id, {
+          action: "approve",
+        });
+        responseStatus = String(response.status ?? "");
+      } else {
+        const response = await apiClient.applyPlanAction(projectId, task.plan_id, {
+          action: "abort",
+        });
+        responseStatus = String(response.status ?? "");
+      }
+
+      const nextStatus = toBoardStatus(responseStatus);
       setTasks((current) =>
         current.map((item) =>
           item.id === task.id
             ? {
                 ...item,
                 status: nextStatus,
+                raw_status: responseStatus,
+                updated_at: new Date().toISOString(),
               }
             : item,
         ),
       );
       setSelectedTaskId(task.id);
-      setActionNotice(`任务 ${task.title} 已执行 ${action}，当前状态：${nextStatus}`);
+      setTimelineReloadToken((current) => current + 1);
+      setActionNotice(
+        `Issue ${task.title} 已执行 ${TASK_ACTION_CONFIG[action].label}，当前状态：${nextStatus}`,
+      );
     } catch (requestError) {
       setActionError(getErrorMessage(requestError));
     } finally {
@@ -248,194 +781,307 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
     }
   };
 
-  const handleColumnDrop = (column: BoardStatus) => {
-    if (!draggingTaskId) {
-      return;
-    }
-    const task = tasks.find((item) => item.id === draggingTaskId);
-    setDraggingTaskId(null);
-    if (!task) {
-      return;
-    }
-    const action = DROP_ACTION_MAP[column];
-    if (!action) {
-      setActionNotice("拖拽仅支持到 Ready/Running（retry）、Done（skip）、Failed（abort）。");
-      return;
-    }
-    void runTaskAction(task, action);
+  const openIssueDetail = (task: BoardTask) => {
+    setSelectedTaskId(task.id);
+    setRouteIssueID(task.id);
+    writeRouteIssueID(task.id);
+  };
+
+  const closeIssueDetail = () => {
+    setRouteIssueID(null);
+    writeRouteIssueID(null);
   };
 
   return (
     <section className="flex flex-col gap-4">
-      <header className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h1 className="text-xl font-bold">Board</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          基于真实 plans/tasks 的看板分组（pending / ready / running / done / failed）。
-        </p>
-        <p className="mt-2 text-xs text-slate-500">
-          数据来源: GET /api/v1/projects/:projectID/plans
-        </p>
+      <header className="rounded-md border border-[#d0d7de] bg-white p-4">
+        <h1 className="text-xl font-semibold text-[#24292f]">Issues</h1>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <button
+            type="button"
+            className="rounded-md border border-[#d0d7de] bg-[#f6f8fa] px-2 py-1 text-[#24292f] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={loading || backgroundRefreshing}
+            onClick={() => {
+              setManualReloadToken((current) => current + 1);
+            }}
+          >
+            立即刷新
+          </button>
+          <label className="inline-flex items-center gap-2 rounded-md border border-[#d0d7de] bg-[#f6f8fa] px-2 py-1 text-[#24292f]">
+            <input
+              type="checkbox"
+              checked={autoRefreshEnabled}
+              onChange={(event) => {
+                setAutoRefreshEnabled(event.target.checked);
+              }}
+            />
+            <span>自动静默刷新</span>
+          </label>
+          <label className="inline-flex items-center gap-2 rounded-md border border-[#d0d7de] bg-[#f6f8fa] px-2 py-1 text-[#24292f]">
+            <span>刷新间隔</span>
+            <select
+              value={String(autoRefreshIntervalMs)}
+              disabled={!autoRefreshEnabled}
+              className="rounded border border-[#d0d7de] bg-white px-1 py-0.5 text-xs text-[#24292f] disabled:cursor-not-allowed disabled:bg-[#f6f8fa]"
+              onChange={(event) => {
+                const nextValue = Number.parseInt(event.target.value, 10);
+                if (Number.isFinite(nextValue) && nextValue > 0) {
+                  setAutoRefreshIntervalMs(nextValue);
+                }
+              }}
+            >
+              {AUTO_REFRESH_INTERVAL_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {backgroundRefreshing ? (
+            <span className="text-[#57606a]">后台刷新中...</span>
+          ) : null}
+        </div>
       </header>
 
       {error ? (
-        <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <p className="rounded-md border border-[#cf222e] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">
           {error}
         </p>
       ) : null}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        {loading ? (
-          <p className="text-sm text-slate-500">加载中...</p>
-        ) : selectedTask ? (
-          <div className="text-sm text-slate-700">
-            <span className="font-semibold text-slate-900">当前选中：</span>
-            {selectedTask.title} · plan={selectedTask.plan_name} · status=
-            {selectedTask.status}
-          </div>
-        ) : (
-          <p className="text-sm text-slate-500">点击任务卡片查看详情。</p>
-        )}
-        {actionNotice ? (
-          <p className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700">
-            {actionNotice}
-          </p>
-        ) : null}
-        {actionError ? (
-          <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700">
-            {actionError}
-          </p>
-        ) : null}
-      </section>
+      {isIssueDetailOpen ? (
+        <section className="rounded-md border border-[#d0d7de] bg-white">
+          {!detailTask ? (
+            <div className="p-6">
+              <p className="text-sm text-[#57606a]">当前 issue 不存在或已被删除。</p>
+              <button
+                type="button"
+                className="mt-3 rounded-md border border-[#d0d7de] bg-[#f6f8fa] px-3 py-1.5 text-xs text-[#24292f] hover:bg-white"
+                onClick={closeIssueDetail}
+              >
+                返回 Issues 列表
+              </button>
+            </div>
+          ) : (
+            <>
+              <header className="border-b border-[#d8dee4] p-4">
+                <button
+                  type="button"
+                  className="rounded-md border border-[#d0d7de] bg-[#f6f8fa] px-2 py-1 text-xs text-[#24292f] hover:bg-white"
+                  onClick={closeIssueDetail}
+                >
+                  ← 返回 Issues
+                </button>
+                <div className="mt-3 space-y-1 text-xs text-[#57606a]">
+                  <p className="text-xl font-semibold text-[#24292f]">{detailTask.title}</p>
+                  <p className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE_CLASS[detailTask.status]}`}
+                    >
+                      {BOARD_STATUS_LABELS[detailTask.status]}
+                    </span>
+                    <span>{detailTask.raw_status || detailTask.status}</span>
+                    <span>{getExecutor(detailTask)}</span>
+                    <span>{formatTimestamp(detailTask.updated_at ?? detailTask.created_at)}</span>
+                  </p>
+                  <p className="pt-1 text-[#24292f]">{getNextActionHint(detailTask)}</p>
+                </div>
+              </header>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        {BOARD_COLUMNS.map((column) => (
-          <article
-            key={column}
-            data-testid={`board-column-${column}`}
-            className={`flex min-h-72 flex-col rounded-xl border bg-white p-3 shadow-sm ${
-              draggingTaskId ? "border-slate-400" : "border-slate-200"
-            }`}
-            onDragOver={(event) => {
-              if (DROP_ACTION_MAP[column]) {
-                event.preventDefault();
-              }
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              handleColumnDrop(column);
-            }}
-          >
-            <header className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold">{BOARD_STATUS_LABELS[column]}</h2>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
-                {groupedTasks[column].length}
-              </span>
-            </header>
-            <div className="flex flex-1 flex-col gap-2">
-              {groupedTasks[column].length === 0 ? (
-                <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-2 py-3 text-xs text-slate-500">
-                  空列
-                </p>
-              ) : (
-                groupedTasks[column].map((task) => (
-                  <button
-                    key={task.id}
-                    type="button"
-                    data-testid="board-task"
-                    draggable
-                    className={`rounded-lg border px-2 py-2 text-left text-xs transition ${
-                      selectedTaskId === task.id
-                        ? "border-slate-900 bg-slate-900 text-white"
-                        : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
-                    } ${actionLoadingTaskId === task.id ? "opacity-60" : ""}`}
-                    onClick={() => {
-                      setSelectedTaskId((current) =>
-                        current === task.id ? null : task.id,
+              <div className="space-y-3 p-4">
+                <section className="rounded-md border border-[#d0d7de] bg-[#f6f8fa] p-3">
+                  <p className="text-xs font-semibold text-[#24292f]">Next step actions</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(["submit_review", "approve", "abort"] as TaskActionType[]).map((action) => (
+                      <button
+                        key={action}
+                        type="button"
+                        disabled={!canRunAction(detailTask, action)}
+                        className={`rounded-md border px-3 py-1.5 text-xs font-medium transition ${
+                          action === "approve"
+                            ? "border-[#1a7f37] bg-[#dafbe1] text-[#1a7f37] enabled:hover:bg-[#c4f1cf]"
+                            : action === "abort"
+                              ? "border-[#cf222e] bg-[#ffebe9] text-[#cf222e] enabled:hover:bg-[#ffd8d3]"
+                              : "border-[#0969da] bg-[#ddf4ff] text-[#0969da] enabled:hover:bg-[#c2e9ff]"
+                        } disabled:cursor-not-allowed disabled:opacity-50`}
+                        onClick={() => {
+                          void runTaskAction(detailTask, action);
+                        }}
+                      >
+                        {TASK_ACTION_CONFIG[action].label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-[11px] text-[#57606a]">
+                    {TASK_ACTION_CONFIG.submit_review.description} /{" "}
+                    {TASK_ACTION_CONFIG.approve.description} /{" "}
+                    {TASK_ACTION_CONFIG.abort.description}
+                  </p>
+                </section>
+
+                {actionNotice ? (
+                  <p className="rounded-md border border-[#1a7f37] bg-[#dafbe1] px-2 py-1 text-xs text-[#1a7f37]">
+                    {actionNotice}
+                  </p>
+                ) : null}
+                {actionError ? (
+                  <p className="rounded-md border border-[#cf222e] bg-[#ffebe9] px-2 py-1 text-xs text-[#cf222e]">
+                    {actionError}
+                  </p>
+                ) : null}
+                {timelineError ? (
+                  <p className="rounded-md border border-[#cf222e] bg-[#ffebe9] px-2 py-1 text-xs text-[#cf222e]">
+                    {timelineError}
+                  </p>
+                ) : null}
+
+                {timelineLoading && timelineItems.length === 0 ? (
+                  <p className="text-xs text-[#57606a]">timeline 加载中...</p>
+                ) : timelineItems.length === 0 ? (
+                  <p className="text-xs text-[#57606a]">暂无 timeline 记录。</p>
+                ) : (
+                  <ol className="space-y-3">
+                    {timelineItems.map((item) => {
+                      const hasDetail =
+                        item.resultDetail.trim().length > 0 && item.resultDetail !== "无详细输出";
+                      return (
+                        <li
+                          key={item.id}
+                          className={`rounded-md border p-3 ${TIMELINE_TONE_CLASS[item.tone]}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#d0d7de] bg-white text-[10px] font-semibold text-[#57606a]">
+                              {getAvatarPlaceholder(item.executor)}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-sm font-semibold text-[#24292f]">{item.title}</p>
+                                <time className="text-[11px] opacity-80">
+                                  {formatTimestamp(item.timestamp)}
+                                </time>
+                              </div>
+                              <p className="mt-1 text-xs text-[#57606a]">{item.executor}</p>
+                              {hasDetail ? (
+                                <pre className="mt-2 max-h-[360px] overflow-auto rounded-md border border-[#d0d7de] bg-[#f6f8fa] p-3 text-xs text-[#24292f]">
+                                  {item.resultDetail}
+                                </pre>
+                              ) : null}
+                            </div>
+                          </div>
+                        </li>
                       );
-                    }}
-                    onDragStart={() => {
-                      setDraggingTaskId(task.id);
-                      setSelectedTaskId(task.id);
-                    }}
-                    onDragEnd={() => {
-                      setDraggingTaskId(null);
-                    }}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      setSelectedTaskId(task.id);
-                      setContextMenu({
-                        taskId: task.id,
-                        x: event.clientX,
-                        y: event.clientY,
-                      });
+                    })}
+                  </ol>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+      ) : (
+        <section className="overflow-hidden rounded-md border border-[#d0d7de] bg-white">
+          <header className="border-b border-[#d8dee4] bg-[#f6f8fa] px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {BOARD_FILTERS.map((filterKey) => {
+                const count =
+                  filterKey === "all" ? tasks.length : groupedTasks[filterKey].length;
+                const active = filterKey === statusFilter;
+                return (
+                  <button
+                    key={filterKey}
+                    type="button"
+                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition ${
+                      active
+                        ? "border-[#0969da] bg-white text-[#0969da]"
+                        : "border-transparent text-[#57606a] hover:border-[#d0d7de] hover:bg-white"
+                    }`}
+                    onClick={() => {
+                      setStatusFilter(filterKey);
                     }}
                   >
-                    <p className="font-semibold">{task.title}</p>
-                    {task.raw_status === "blocked_by_failure" ? (
-                      <span className="mt-1 inline-block rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-700">
-                        blocked
-                      </span>
-                    ) : task.raw_status === "skipped" ? (
-                      <span className="mt-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                        skipped
-                      </span>
-                    ) : null}
-                    <p className="mt-1 opacity-80">plan={task.plan_name}</p>
-                    {task.pipeline_id ? (
-                      <p className="mt-1 opacity-80">pipeline={task.pipeline_id}</p>
-                    ) : null}
-                    {task.github_issue_url ? (
-                      <a
-                        href={task.github_issue_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        data-testid="board-github-issue-icon"
-                        className="mt-1 inline-flex rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700"
-                      >
-                        {task.github_issue_number ? `GH #${task.github_issue_number}` : "GH Issue"}
-                      </a>
-                    ) : null}
+                    <span>{BOARD_FILTER_LABELS[filterKey]}</span>
+                    <span className="rounded-full bg-[#eaeef2] px-1.5 py-0.5 text-[11px] text-[#57606a]">
+                      {count}
+                    </span>
                   </button>
-                ))
-              )}
+                );
+              })}
             </div>
-          </article>
-        ))}
-      </section>
+            <p className="mt-2 text-xs text-[#57606a]">
+              点击 issue 进入详情页（全宽展示 timeline 与操作面板）。
+            </p>
+          </header>
 
-      {contextMenu ? (
-        <div
-          role="menu"
-          className="fixed z-50 min-w-28 rounded-md border border-slate-300 bg-white p-1 shadow-lg"
-          style={{
-            left: contextMenu.x,
-            top: contextMenu.y,
-          }}
-          onClick={(event) => {
-            event.stopPropagation();
-          }}
-        >
-          {TASK_ACTIONS.map((action) => {
-            const task = tasks.find((item) => item.id === contextMenu.taskId);
-            return (
-              <button
-                key={action}
-                type="button"
-                className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-slate-100"
-                onClick={() => {
-                  setContextMenu(null);
-                  if (!task) {
-                    return;
-                  }
-                  void runTaskAction(task, action);
-                }}
-              >
-                {action}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
+          {loading && tasks.length === 0 ? (
+            <p className="px-4 py-6 text-sm text-[#57606a]">加载中...</p>
+          ) : visibleTasks.length === 0 ? (
+            <p className="px-4 py-6 text-sm text-[#57606a]">暂无 issue</p>
+          ) : (
+            <ul className="divide-y divide-[#d8dee4]">
+              {visibleTasks.map((task) => (
+                <li key={task.id}>
+                  <button
+                    type="button"
+                    data-testid="board-task"
+                    className={`w-full bg-white px-4 py-3 text-left transition hover:bg-[#f6f8fa] ${
+                      actionLoadingTaskId === task.id ? "opacity-60" : ""
+                    }`}
+                    onClick={() => {
+                      openIssueDetail(task);
+                    }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span
+                        className={`mt-1 inline-flex h-4 w-4 shrink-0 rounded-full border ${
+                          task.status === "failed"
+                            ? "border-[#cf222e] bg-[#cf222e]"
+                            : task.status === "done"
+                              ? "border-[#1a7f37] bg-[#1a7f37]"
+                              : task.status === "running"
+                                ? "border-[#9a6700] bg-[#fff8c5]"
+                                : task.status === "ready"
+                                  ? "border-[#0969da] bg-[#0969da]"
+                                  : "border-[#57606a] bg-[#57606a]"
+                        }`}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="truncate text-[15px] font-semibold text-[#0969da]">
+                            {task.title}
+                          </span>
+                          {task.issue_level ? (
+                            <span className="rounded-full border border-[#d0d7de] bg-[#f6f8fa] px-2 py-0.5 text-[11px] text-[#57606a]">
+                              issue
+                            </span>
+                          ) : null}
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE_CLASS[task.status]}`}
+                          >
+                            {BOARD_STATUS_LABELS[task.status]}
+                          </span>
+                          {task.raw_status === "blocked_by_failure" ? (
+                            <span className="rounded-full border border-[#cf222e] bg-[#ffebe9] px-2 py-0.5 text-[11px] text-[#cf222e]">
+                              blocked
+                            </span>
+                          ) : null}
+                          {task.raw_status === "skipped" ? (
+                            <span className="rounded-full border border-[#d0d7de] bg-[#f6f8fa] px-2 py-0.5 text-[11px] text-[#57606a]">
+                              skipped
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-xs text-[#57606a]">
+                          {getIssueNumberLabel(task)} opened on{" "}
+                          {formatRelativeTimestamp(task.created_at)} by workflow-engine
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
     </section>
   );
 };

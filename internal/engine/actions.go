@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -75,7 +76,9 @@ func (e *Executor) applyApprove(ctx context.Context, p *core.Pipeline, action co
 	if err := e.store.SavePipeline(p); err != nil {
 		return err
 	}
-	e.publishActionApplied(p, action, stage)
+	if err := e.publishActionApplied(p, action, stage); err != nil {
+		return err
+	}
 	return e.RunScheduled(ctx, p.ID)
 }
 
@@ -92,7 +95,9 @@ func (e *Executor) applyReject(p *core.Pipeline, action core.PipelineAction, sta
 	if err := e.store.SavePipeline(p); err != nil {
 		return err
 	}
-	e.publishActionApplied(p, action, stage)
+	if err := e.publishActionApplied(p, action, stage); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -111,7 +116,9 @@ func (e *Executor) applyModify(ctx context.Context, p *core.Pipeline, action cor
 	if err := e.store.SavePipeline(p); err != nil {
 		return err
 	}
-	e.publishActionApplied(p, action, stage)
+	if err := e.publishActionApplied(p, action, stage); err != nil {
+		return err
+	}
 	return e.RunScheduled(ctx, p.ID)
 }
 
@@ -128,7 +135,9 @@ func (e *Executor) applySkip(ctx context.Context, p *core.Pipeline, action core.
 		if err := e.store.SavePipeline(p); err != nil {
 			return err
 		}
-		e.publishActionApplied(p, action, stage)
+		if err := e.publishActionApplied(p, action, stage); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -138,7 +147,9 @@ func (e *Executor) applySkip(ctx context.Context, p *core.Pipeline, action core.
 	if err := e.store.SavePipeline(p); err != nil {
 		return err
 	}
-	e.publishActionApplied(p, action, stage)
+	if err := e.publishActionApplied(p, action, stage); err != nil {
+		return err
+	}
 	return e.RunScheduled(ctx, p.ID)
 }
 
@@ -148,7 +159,9 @@ func (e *Executor) applyRerun(ctx context.Context, p *core.Pipeline, action core
 	if err := e.store.SavePipeline(p); err != nil {
 		return err
 	}
-	e.publishActionApplied(p, action, stage)
+	if err := e.publishActionApplied(p, action, stage); err != nil {
+		return err
+	}
 	return e.RunScheduled(ctx, p.ID)
 }
 
@@ -182,7 +195,9 @@ func (e *Executor) applyAbort(p *core.Pipeline, action core.PipelineAction, stag
 	if err := e.store.SavePipeline(p); err != nil {
 		return err
 	}
-	e.publishActionApplied(p, action, stage)
+	if err := e.publishActionApplied(p, action, stage); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -196,7 +211,9 @@ func (e *Executor) applyPause(p *core.Pipeline, action core.PipelineAction, stag
 	if err := e.store.SavePipeline(p); err != nil {
 		return err
 	}
-	e.publishActionApplied(p, action, stage)
+	if err := e.publishActionApplied(p, action, stage); err != nil {
+		return err
+	}
 	e.bus.Publish(core.Event{
 		Type:       core.EventPipelinePaused,
 		PipelineID: p.ID,
@@ -217,7 +234,9 @@ func (e *Executor) applyResume(ctx context.Context, p *core.Pipeline, action cor
 	if err := e.store.SavePipeline(p); err != nil {
 		return err
 	}
-	e.publishActionApplied(p, action, stage)
+	if err := e.publishActionApplied(p, action, stage); err != nil {
+		return err
+	}
 	e.bus.Publish(core.Event{
 		Type:       core.EventPipelineResumed,
 		PipelineID: p.ID,
@@ -228,7 +247,32 @@ func (e *Executor) applyResume(ctx context.Context, p *core.Pipeline, action cor
 	return e.RunScheduled(ctx, p.ID)
 }
 
-func (e *Executor) publishActionApplied(p *core.Pipeline, action core.PipelineAction, stage core.StageID) {
+func (e *Executor) publishActionApplied(p *core.Pipeline, action core.PipelineAction, stage core.StageID) error {
+	now := time.Now()
+	logPayload := map[string]string{
+		"action": string(action.Type),
+	}
+	if action.Message != "" {
+		logPayload["message"] = action.Message
+	}
+	if action.Role != "" {
+		logPayload["role"] = action.Role
+	}
+	logContent, err := json.Marshal(logPayload)
+	if err != nil {
+		return fmt.Errorf("marshal action_applied log payload: %w", err)
+	}
+	if err := e.appendEventLog(
+		p.ID,
+		stage,
+		core.EventActionApplied,
+		"manual",
+		string(logContent),
+		now,
+	); err != nil {
+		return err
+	}
+
 	data := map[string]string{
 		"action": string(action.Type),
 	}
@@ -248,6 +292,7 @@ func (e *Executor) publishActionApplied(p *core.Pipeline, action core.PipelineAc
 		ProjectID:  p.ProjectID,
 		Stage:      stage,
 		Data:       data,
-		Timestamp:  time.Now(),
+		Timestamp:  now,
 	})
+	return nil
 }

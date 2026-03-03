@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -50,6 +51,39 @@ type issueListResponse struct {
 
 type issueStatusResponse struct {
 	Status string `json:"status"`
+}
+
+type issueTimelineResponse struct {
+	Items  []issueTimelineItem `json:"items"`
+	Total  int                 `json:"total"`
+	Offset int                 `json:"offset"`
+}
+
+type issueTimelineRefs struct {
+	IssueID    string `json:"issue_id"`
+	PipelineID string `json:"pipeline_id,omitempty"`
+	Stage      string `json:"stage,omitempty"`
+}
+
+type issueTimelineItem struct {
+	EventID         string            `json:"event_id"`
+	Kind            string            `json:"kind"`
+	CreatedAt       string            `json:"created_at"`
+	ActorType       string            `json:"actor_type"`
+	ActorName       string            `json:"actor_name"`
+	ActorAvatarSeed string            `json:"actor_avatar_seed"`
+	Title           string            `json:"title"`
+	Body            string            `json:"body"`
+	Status          string            `json:"status"`
+	Refs            issueTimelineRefs `json:"refs"`
+	Meta            map[string]any    `json:"meta"`
+}
+
+type issueTimelineEvent struct {
+	item    issueTimelineItem
+	at      time.Time
+	hasTime bool
+	seq     int
 }
 
 type issueDAGNode struct {
@@ -99,6 +133,15 @@ var allowedIssueFeedbackCategories = map[string]struct{}{
 	"other":           {},
 }
 
+var issueTimelineKinds = map[string]struct{}{
+	"review":     {},
+	"action":     {},
+	"checkpoint": {},
+	"log":        {},
+	"change":     {},
+	"audit":      {},
+}
+
 func registerIssueRoutes(r chi.Router, store core.Store, issueManager IssueManager, issueParserRoleID string) {
 	h := &issueHandlers{
 		store:        store,
@@ -114,6 +157,7 @@ func registerIssueRoutes(r chi.Router, store core.Store, issueManager IssueManag
 		r.Get(base+"/{id}/dag", h.getIssueDAG)
 		r.Get(base+"/{id}/reviews", h.listIssueReviews)
 		r.Get(base+"/{id}/changes", h.listIssueChanges)
+		r.Get(base+"/{id}/timeline", h.getIssueTimeline)
 		r.Post(base+"/{id}/review", h.submitForReview)
 		r.Post(base+"/{id}/action", h.applyIssueAction)
 	}
@@ -644,6 +688,71 @@ func (h *issueHandlers) listIssueChanges(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, changes)
 }
 
+func (h *issueHandlers) getIssueTimeline(w http.ResponseWriter, r *http.Request) {
+	issue, ok := h.loadIssueForProject(w, r)
+	if !ok {
+		return
+	}
+
+	limit, offset, err := parsePaginationParams(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error(), "INVALID_QUERY_PARAM")
+		return
+	}
+
+	kinds, err := parseIssueTimelineKinds(r.URL.Query()["kinds"])
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error(), "INVALID_QUERY_PARAM")
+		return
+	}
+
+	events, err := h.collectIssueTimelineEvents(issue, kinds)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error(), "GET_ISSUE_TIMELINE_FAILED")
+		return
+	}
+
+	sort.Slice(events, func(i, j int) bool {
+		left := events[i]
+		right := events[j]
+		switch {
+		case left.hasTime && right.hasTime && !left.at.Equal(right.at):
+			return left.at.Before(right.at)
+		case left.hasTime != right.hasTime:
+			return left.hasTime
+		case left.item.Kind != right.item.Kind:
+			return left.item.Kind < right.item.Kind
+		default:
+			return left.seq < right.seq
+		}
+	})
+
+	total := len(events)
+	if offset >= total {
+		writeJSON(w, http.StatusOK, issueTimelineResponse{
+			Items:  []issueTimelineItem{},
+			Total:  total,
+			Offset: offset,
+		})
+		return
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+
+	items := make([]issueTimelineItem, 0, end-offset)
+	for i := offset; i < end; i++ {
+		items = append(items, events[i].item)
+	}
+
+	writeJSON(w, http.StatusOK, issueTimelineResponse{
+		Items:  items,
+		Total:  total,
+		Offset: offset,
+	})
+}
+
 func (h *issueHandlers) applyIssueAction(w http.ResponseWriter, r *http.Request) {
 	issue, ok := h.loadIssueForProject(w, r)
 	if !ok {
@@ -858,6 +967,541 @@ func feedbackErrorCode(err error) string {
 	default:
 		return "INVALID_FEEDBACK"
 	}
+}
+
+func parseIssueTimelineKinds(rawKinds []string) (map[string]struct{}, error) {
+	if len(rawKinds) == 0 {
+		out := make(map[string]struct{}, len(issueTimelineKinds))
+		for kind := range issueTimelineKinds {
+			out[kind] = struct{}{}
+		}
+		return out, nil
+	}
+
+	selected := make(map[string]struct{}, len(issueTimelineKinds))
+	for i := range rawKinds {
+		for _, part := range strings.Split(rawKinds[i], ",") {
+			kind := strings.ToLower(strings.TrimSpace(part))
+			if kind == "" {
+				continue
+			}
+			if _, ok := issueTimelineKinds[kind]; !ok {
+				return nil, fmt.Errorf("unsupported timeline kind %q", kind)
+			}
+			selected[kind] = struct{}{}
+		}
+	}
+	if len(selected) == 0 {
+		return nil, fmt.Errorf("kinds must include at least one valid kind")
+	}
+	return selected, nil
+}
+
+func (h *issueHandlers) collectIssueTimelineEvents(issue *core.Issue, kinds map[string]struct{}) ([]issueTimelineEvent, error) {
+	events := make([]issueTimelineEvent, 0)
+	seq := 0
+	pipelineID := strings.TrimSpace(issue.PipelineID)
+
+	appendEvent := func(item issueTimelineItem, at time.Time, hasTime bool) {
+		if item.Meta == nil {
+			item.Meta = map[string]any{}
+		}
+		if strings.TrimSpace(item.CreatedAt) == "" {
+			item.CreatedAt = formatIssueTimelineTime(at, hasTime)
+		}
+		if strings.TrimSpace(item.ActorName) == "" {
+			item.ActorName = "system"
+		}
+		if strings.TrimSpace(item.ActorAvatarSeed) == "" {
+			item.ActorAvatarSeed = item.ActorName
+		}
+		item.ActorType = normalizeTimelineActorType(item.ActorType)
+		if strings.TrimSpace(item.Status) == "" {
+			item.Status = "info"
+		}
+		events = append(events, issueTimelineEvent{
+			item:    item,
+			at:      at,
+			hasTime: hasTime,
+			seq:     seq,
+		})
+		seq++
+	}
+
+	if _, include := kinds["review"]; include {
+		records, err := h.store.GetReviewRecords(issue.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load review records")
+		}
+		for i := range records {
+			record := records[i]
+			parsedTime := record.CreatedAt.UTC()
+			hasTime := !record.CreatedAt.IsZero()
+
+			reviewer := normalizeTimelineActorName(record.Reviewer, "reviewer")
+			body := "verdict=" + issueTimelineStringOrFallback(record.Verdict, "unknown")
+			if record.Score != nil {
+				body += fmt.Sprintf(" · score=%d", *record.Score)
+			}
+			meta := map[string]any{
+				"round":        record.Round,
+				"verdict":      record.Verdict,
+				"issues_count": len(record.Issues),
+				"fixes_count":  len(record.Fixes),
+			}
+			if record.Score != nil {
+				meta["score"] = *record.Score
+			}
+			appendEvent(issueTimelineItem{
+				EventID:         numericTimelineEventID("review", record.ID, seq),
+				Kind:            "review",
+				CreatedAt:       formatIssueTimelineTime(parsedTime, hasTime),
+				ActorType:       "agent",
+				ActorName:       reviewer,
+				ActorAvatarSeed: reviewer,
+				Title:           "review · " + reviewer,
+				Body:            body,
+				Status:          issueTimelineStatusFromReview(record.Verdict),
+				Refs: issueTimelineRefs{
+					IssueID:    issue.ID,
+					PipelineID: pipelineID,
+				},
+				Meta: meta,
+			}, parsedTime, hasTime)
+		}
+	}
+
+	if _, include := kinds["change"]; include {
+		changes, err := h.store.GetIssueChanges(issue.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load issue changes")
+		}
+		for i := range changes {
+			change := changes[i]
+			parsedTime, hasTime := parseIssueTimelineTimestamp(change.CreatedAt)
+
+			oldValue := timelineDisplayValue(change.OldValue)
+			newValue := timelineDisplayValue(change.NewValue)
+			body := oldValue + " -> " + newValue
+			if reason := strings.TrimSpace(change.Reason); reason != "" {
+				body += " · " + reason
+			}
+			actorName := normalizeTimelineActorName(change.ChangedBy, "system")
+			appendEvent(issueTimelineItem{
+				EventID:         stringTimelineEventID("change", change.ID, seq),
+				Kind:            "change",
+				CreatedAt:       formatIssueTimelineTime(parsedTime, hasTime),
+				ActorType:       timelineActorTypeFromName(actorName),
+				ActorName:       actorName,
+				ActorAvatarSeed: actorName,
+				Title:           "change · " + issueTimelineStringOrFallback(change.Field, "field"),
+				Body:            body,
+				Status:          issueTimelineStatusFromChange(change.Field, change.NewValue),
+				Refs: issueTimelineRefs{
+					IssueID:    issue.ID,
+					PipelineID: pipelineID,
+				},
+				Meta: map[string]any{
+					"field":      change.Field,
+					"old_value":  change.OldValue,
+					"new_value":  change.NewValue,
+					"reason":     change.Reason,
+					"changed_by": change.ChangedBy,
+				},
+			}, parsedTime, hasTime)
+		}
+	}
+
+	includeAction := hasIssueTimelineKind(kinds, "action")
+	includeAudit := hasIssueTimelineKind(kinds, "audit")
+	if includeAction || includeAudit {
+		if pipelineID != "" {
+			actions, err := h.store.GetActions(pipelineID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load pipeline actions")
+			}
+			for i := range actions {
+				action := actions[i]
+				isAudit := isIssueTimelineAuditAction(action)
+				if isAudit && !includeAudit {
+					continue
+				}
+				if !isAudit && !includeAction {
+					continue
+				}
+
+				kind := "action"
+				if isAudit {
+					kind = "audit"
+				}
+				parsedTime, hasTime := parseIssueTimelineTimestamp(action.CreatedAt)
+				defaultActor := "human"
+				if isAudit {
+					defaultActor = "admin"
+				}
+				actorName := normalizeTimelineActorName(action.UserID, defaultActor)
+				stage := strings.TrimSpace(action.Stage)
+				refs := issueTimelineRefs{
+					IssueID:    issue.ID,
+					PipelineID: pipelineID,
+				}
+				if stage != "" {
+					refs.Stage = stage
+				}
+				appendEvent(issueTimelineItem{
+					EventID:         numericTimelineEventID(kind, action.ID, seq),
+					Kind:            kind,
+					CreatedAt:       formatIssueTimelineTime(parsedTime, hasTime),
+					ActorType:       timelineActorTypeFromAction(action, isAudit),
+					ActorName:       actorName,
+					ActorAvatarSeed: actorName,
+					Title:           kind + " · " + issueTimelineStringOrFallback(action.Action, "unknown"),
+					Body:            issueTimelineBodyWithFallback(action.Message, "人工操作已执行"),
+					Status:          issueTimelineStatusFromAction(action.Action, isAudit),
+					Refs:            refs,
+					Meta: map[string]any{
+						"action":  action.Action,
+						"source":  action.Source,
+						"user_id": action.UserID,
+						"message": action.Message,
+					},
+				}, parsedTime, hasTime)
+			}
+		}
+	}
+
+	if pipelineID == "" {
+		return events, nil
+	}
+
+	if _, include := kinds["checkpoint"]; include {
+		checkpoints, err := h.store.GetCheckpoints(pipelineID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load checkpoints")
+		}
+		for i := range checkpoints {
+			checkpoint := checkpoints[i]
+			parsedTime, hasTime := issueTimelineCheckpointTime(checkpoint)
+
+			stage := strings.TrimSpace(string(checkpoint.StageName))
+			body := "状态=" + issueTimelineStringOrFallback(string(checkpoint.Status), "unknown")
+			if errText := strings.TrimSpace(checkpoint.Error); errText != "" {
+				body += " · " + errText
+			}
+			actorName := normalizeTimelineActorName(checkpoint.AgentUsed, "system")
+			appendEvent(issueTimelineItem{
+				EventID:         checkpointTimelineEventID(checkpoint, seq),
+				Kind:            "checkpoint",
+				CreatedAt:       formatIssueTimelineTime(parsedTime, hasTime),
+				ActorType:       timelineActorTypeFromCheckpoint(checkpoint),
+				ActorName:       actorName,
+				ActorAvatarSeed: actorName,
+				Title:           "checkpoint · " + issueTimelineStringOrFallback(stage, "stage"),
+				Body:            body,
+				Status:          issueTimelineStatusFromCheckpoint(checkpoint.Status),
+				Refs: issueTimelineRefs{
+					IssueID:    issue.ID,
+					PipelineID: pipelineID,
+					Stage:      stage,
+				},
+				Meta: map[string]any{
+					"status":      string(checkpoint.Status),
+					"retry_count": checkpoint.RetryCount,
+					"tokens_used": checkpoint.TokensUsed,
+					"error":       checkpoint.Error,
+				},
+			}, parsedTime, hasTime)
+		}
+	}
+
+	if _, include := kinds["log"]; include {
+		logs, err := listAllPipelineLogs(h.store, pipelineID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load pipeline logs")
+		}
+		for i := range logs {
+			logEntry := logs[i]
+			parsedTime, hasTime := parseIssueTimelineTimestamp(logEntry.Timestamp)
+			stage := issueTimelineStringOrFallback(logEntry.Stage, "unknown")
+			logType := issueTimelineStringOrFallback(logEntry.Type, "output")
+			actorName := normalizeTimelineActorName(logEntry.Agent, "system")
+			appendEvent(issueTimelineItem{
+				EventID:         numericTimelineEventID("log", logEntry.ID, seq),
+				Kind:            "log",
+				CreatedAt:       formatIssueTimelineTime(parsedTime, hasTime),
+				ActorType:       timelineActorTypeFromLog(logEntry),
+				ActorName:       actorName,
+				ActorAvatarSeed: actorName,
+				Title:           "log · " + stage + "/" + logType,
+				Body:            issueTimelineBodyWithFallback(logEntry.Content, "log 输出为空"),
+				Status:          issueTimelineStatusFromLog(logEntry.Type),
+				Refs: issueTimelineRefs{
+					IssueID:    issue.ID,
+					PipelineID: pipelineID,
+					Stage:      strings.TrimSpace(logEntry.Stage),
+				},
+				Meta: map[string]any{
+					"type":    logEntry.Type,
+					"agent":   logEntry.Agent,
+					"content": logEntry.Content,
+				},
+			}, parsedTime, hasTime)
+		}
+	}
+
+	return events, nil
+}
+
+func hasIssueTimelineKind(kinds map[string]struct{}, key string) bool {
+	_, ok := kinds[key]
+	return ok
+}
+
+func issueTimelineBodyWithFallback(body string, fallback string) string {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return fallback
+	}
+	return trimmed
+}
+
+func issueTimelineStringOrFallback(value string, fallback string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fallback
+	}
+	return trimmed
+}
+
+func timelineDisplayValue(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "(empty)"
+	}
+	return trimmed
+}
+
+func normalizeTimelineActorName(value string, fallback string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fallback
+	}
+	return trimmed
+}
+
+func normalizeTimelineActorType(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "human", "agent", "system":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return "system"
+	}
+}
+
+func timelineActorTypeFromName(name string) string {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	switch normalized {
+	case "", "system", "scheduler", "engine", "workflow-engine":
+		return "system"
+	case "human", "admin", "user":
+		return "human"
+	}
+	if strings.Contains(normalized, "agent") ||
+		strings.Contains(normalized, "reviewer") ||
+		strings.Contains(normalized, "codex") ||
+		strings.Contains(normalized, "claude") ||
+		strings.Contains(normalized, "secretary") {
+		return "agent"
+	}
+	return "human"
+}
+
+func timelineActorTypeFromCheckpoint(checkpoint core.Checkpoint) string {
+	if strings.TrimSpace(checkpoint.AgentUsed) != "" {
+		return "agent"
+	}
+	return "system"
+}
+
+func timelineActorTypeFromLog(logEntry core.LogEntry) string {
+	agent := strings.ToLower(strings.TrimSpace(logEntry.Agent))
+	if agent == "" || agent == "system" {
+		return "system"
+	}
+	return "agent"
+}
+
+func timelineActorTypeFromAction(action core.HumanAction, isAudit bool) string {
+	if isAudit {
+		return "human"
+	}
+	source := strings.ToLower(strings.TrimSpace(action.Source))
+	if source == "system" {
+		return "system"
+	}
+	return "human"
+}
+
+func isIssueTimelineAuditAction(action core.HumanAction) bool {
+	return strings.EqualFold(strings.TrimSpace(action.Source), "admin")
+}
+
+func issueTimelineStatusFromReview(verdict string) string {
+	switch strings.ToLower(strings.TrimSpace(verdict)) {
+	case "pass", "approved":
+		return "success"
+	case "changes_requested", "fail", "rejected":
+		return "warning"
+	default:
+		return "info"
+	}
+}
+
+func issueTimelineStatusFromChange(field string, newValue string) string {
+	if strings.EqualFold(strings.TrimSpace(field), "status") {
+		switch strings.ToLower(strings.TrimSpace(newValue)) {
+		case "failed", "blocked_by_failure":
+			return "failed"
+		case "done", "completed", "success":
+			return "success"
+		case "running", "executing":
+			return "running"
+		}
+	}
+	return "info"
+}
+
+func issueTimelineStatusFromAction(action string, isAudit bool) string {
+	if isAudit {
+		return "info"
+	}
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "abort", "abandon", "reject":
+		return "warning"
+	case "approve", "resume", "retry", "change_role":
+		return "success"
+	default:
+		return "info"
+	}
+}
+
+func issueTimelineStatusFromCheckpoint(status core.CheckpointStatus) string {
+	switch status {
+	case core.CheckpointSuccess:
+		return "success"
+	case core.CheckpointFailed:
+		return "failed"
+	case core.CheckpointInProgress:
+		return "running"
+	case core.CheckpointSkipped, core.CheckpointInvalidated:
+		return "warning"
+	default:
+		return "info"
+	}
+}
+
+func issueTimelineStatusFromLog(logType string) string {
+	switch strings.ToLower(strings.TrimSpace(logType)) {
+	case "stage_complete":
+		return "success"
+	case "stage_failed":
+		return "failed"
+	case "stage_start":
+		return "running"
+	case "human_required":
+		return "warning"
+	case "action_applied":
+		return "success"
+	default:
+		return "info"
+	}
+}
+
+func stringTimelineEventID(prefix string, rawID string, fallback int) string {
+	trimmed := strings.TrimSpace(rawID)
+	if trimmed != "" {
+		return prefix + ":" + trimmed
+	}
+	return fmt.Sprintf("%s:%d", prefix, fallback)
+}
+
+func numericTimelineEventID(prefix string, rawID int64, fallback int) string {
+	if rawID > 0 {
+		return fmt.Sprintf("%s:%d", prefix, rawID)
+	}
+	return fmt.Sprintf("%s:%d", prefix, fallback)
+}
+
+func checkpointTimelineEventID(checkpoint core.Checkpoint, fallback int) string {
+	stage := issueTimelineStringOrFallback(string(checkpoint.StageName), "stage")
+	if !checkpoint.FinishedAt.IsZero() {
+		return fmt.Sprintf("checkpoint:%s:%d", stage, checkpoint.FinishedAt.UTC().UnixNano())
+	}
+	if !checkpoint.StartedAt.IsZero() {
+		return fmt.Sprintf("checkpoint:%s:%d", stage, checkpoint.StartedAt.UTC().UnixNano())
+	}
+	return fmt.Sprintf("checkpoint:%s:%d", stage, fallback)
+}
+
+func listAllPipelineLogs(store core.Store, pipelineID string) ([]core.LogEntry, error) {
+	const pageSize = 200
+	offset := 0
+	out := make([]core.LogEntry, 0)
+	for {
+		items, total, err := store.GetLogs(pipelineID, "", pageSize, offset)
+		if err != nil {
+			return nil, err
+		}
+		if len(items) == 0 {
+			break
+		}
+		out = append(out, items...)
+		offset += len(items)
+		if offset >= total {
+			break
+		}
+	}
+	return out, nil
+}
+
+func issueTimelineCheckpointTime(checkpoint core.Checkpoint) (time.Time, bool) {
+	switch {
+	case !checkpoint.FinishedAt.IsZero():
+		return checkpoint.FinishedAt.UTC(), true
+	case !checkpoint.StartedAt.IsZero():
+		return checkpoint.StartedAt.UTC(), true
+	default:
+		return time.Time{}, false
+	}
+}
+
+func formatIssueTimelineTime(value time.Time, ok bool) string {
+	if !ok || value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func parseIssueTimelineTimestamp(raw string) (time.Time, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Time{}, false
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
+	}
+	for i := range layouts {
+		parsed, err := time.Parse(layouts[i], trimmed)
+		if err == nil {
+			return parsed.UTC(), true
+		}
+	}
+	return time.Time{}, false
 }
 
 type planFilesValidationError struct {

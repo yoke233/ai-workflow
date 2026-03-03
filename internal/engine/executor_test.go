@@ -1,6 +1,9 @@
 package engine
 
 import (
+	"context"
+	"errors"
+	"io"
 	"os"
 	"reflect"
 	"strings"
@@ -9,6 +12,23 @@ import (
 
 	"github.com/yoke233/ai-workflow/internal/core"
 )
+
+type singleStreamEventParser struct {
+	event   core.StreamEvent
+	emitted bool
+}
+
+func (p *singleStreamEventParser) Next() (*core.StreamEvent, error) {
+	if p.emitted {
+		return nil, io.EOF
+	}
+	p.emitted = true
+	evt := p.event
+	if evt.Timestamp.IsZero() {
+		evt.Timestamp = time.Now()
+	}
+	return &evt, nil
+}
 
 func TestNewPipelineID(t *testing.T) {
 	id := NewPipelineID()
@@ -204,5 +224,124 @@ func TestRenderPrompt_ImplementWorksWithoutLegacyFields(t *testing.T) {
 	}
 	if !strings.Contains(got, "实现用户登录接口") {
 		t.Fatalf("rendered prompt should contain requirements, got: %s", got)
+	}
+}
+
+func TestExecutorRun_AppendsLogsForStageLifecycleAndAgentOutput(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close()
+
+	workDir := t.TempDir()
+	runtime := &fakeRuntime{waitResults: []error{nil}}
+	agent := &fakeAgent{
+		name: "codex",
+		parserFn: func(io.Reader) core.StreamParser {
+			return &singleStreamEventParser{
+				event: core.StreamEvent{
+					Type:      "stdout",
+					Content:   "agent says hello",
+					Timestamp: time.Now(),
+				},
+			}
+		},
+	}
+
+	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+		{
+			Name:         core.StageImplement,
+			Agent:        "codex",
+			OnFailure:    core.OnFailureAbort,
+			MaxRetries:   0,
+			RequireHuman: true,
+		},
+	})
+	p.WorktreePath = workDir
+	if err := store.SavePipeline(p); err != nil {
+		t.Fatalf("save pipeline: %v", err)
+	}
+
+	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	if err := execEngine.Run(context.Background(), p.ID); err != nil {
+		t.Fatalf("run should stop at human gate without error, got: %v", err)
+	}
+
+	logs, total, err := store.GetLogs(p.ID, "", 100, 0)
+	if err != nil {
+		t.Fatalf("get logs: %v", err)
+	}
+	if total != 4 {
+		t.Fatalf("expected 4 logs, got total=%d entries=%d", total, len(logs))
+	}
+	if len(logs) != 4 {
+		t.Fatalf("expected 4 log entries, got %d", len(logs))
+	}
+
+	gotTypes := []string{logs[0].Type, logs[1].Type, logs[2].Type, logs[3].Type}
+	wantTypes := []string{
+		string(core.EventStageStart),
+		string(core.EventAgentOutput),
+		string(core.EventStageComplete),
+		string(core.EventHumanRequired),
+	}
+	if !reflect.DeepEqual(gotTypes, wantTypes) {
+		t.Fatalf("log types mismatch, got=%v want=%v", gotTypes, wantTypes)
+	}
+
+	agentOut := logs[1]
+	if agentOut.Stage != string(core.StageImplement) {
+		t.Fatalf("agent_output stage mismatch, got=%q want=%q", agentOut.Stage, core.StageImplement)
+	}
+	if agentOut.Agent != "codex" {
+		t.Fatalf("agent_output agent mismatch, got=%q want=%q", agentOut.Agent, "codex")
+	}
+	if agentOut.Content != "agent says hello" {
+		t.Fatalf("agent_output content mismatch, got=%q", agentOut.Content)
+	}
+}
+
+func TestExecutorRun_AppendsLogForStageFailed(t *testing.T) {
+	store := newTestStore(t)
+	defer store.Close()
+
+	workDir := t.TempDir()
+	runtime := &fakeRuntime{waitResults: []error{errors.New("fatal-run")}}
+	agent := &fakeAgent{name: "codex"}
+
+	p := setupProjectAndPipeline(t, store, workDir, []core.StageConfig{
+		{
+			Name:       core.StageImplement,
+			Agent:      "codex",
+			OnFailure:  core.OnFailureAbort,
+			MaxRetries: 0,
+		},
+	})
+	p.WorktreePath = workDir
+	if err := store.SavePipeline(p); err != nil {
+		t.Fatalf("save pipeline: %v", err)
+	}
+
+	execEngine := newExecutor(store, map[string]core.AgentPlugin{"codex": agent}, runtime)
+	if err := execEngine.Run(context.Background(), p.ID); err == nil {
+		t.Fatal("run should fail for abort policy")
+	}
+
+	logs, total, err := store.GetLogs(p.ID, "", 100, 0)
+	if err != nil {
+		t.Fatalf("get logs: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("expected 2 logs, got total=%d entries=%d", total, len(logs))
+	}
+	if len(logs) != 2 {
+		t.Fatalf("expected 2 log entries, got %d", len(logs))
+	}
+	if logs[0].Type != string(core.EventStageStart) {
+		t.Fatalf("first log should be stage_start, got=%q", logs[0].Type)
+	}
+	if logs[1].Type != string(core.EventStageFailed) {
+		t.Fatalf("second log should be stage_failed, got=%q", logs[1].Type)
+	}
+	if !strings.Contains(logs[1].Content, "fatal-run") {
+		t.Fatalf("stage_failed log should contain runtime error, got=%q", logs[1].Content)
 	}
 }

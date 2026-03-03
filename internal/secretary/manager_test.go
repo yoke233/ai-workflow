@@ -2,6 +2,7 @@ package secretary
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -289,6 +290,85 @@ func TestManager_ApplyIssueActionApproveQueuesAndStartsIssue(t *testing.T) {
 	}
 	if change.Reason != "ship it" {
 		t.Fatalf("change reason = %q, want %q", change.Reason, "ship it")
+	}
+}
+
+func TestManager_ApplyIssueActionApproveStartIssueFailureMarksIssueFailed(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+
+	project := mustCreateManagerProject(t, store, "proj-manager-approve-start-fail")
+	issue := mustCreateManagerIssue(t, store, project.ID, "issue-approve-start-fail", core.IssueStatusReviewing, core.IssueStateOpen)
+
+	startErr := errors.New("scheduler unavailable")
+	scheduler := &fakeManagerScheduler{
+		startIssueErr: startErr,
+	}
+	manager, err := NewManager(store, nil, nil, scheduler)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	updated, err := manager.ApplyIssueAction(context.Background(), issue.ID, IssueActionApprove, "ship it")
+	if err == nil {
+		t.Fatal("ApplyIssueAction(approve) should fail when scheduler StartIssue fails")
+	}
+	if updated != nil {
+		t.Fatalf("ApplyIssueAction(approve) result = %#v, want nil on failure", updated)
+	}
+	if !strings.Contains(err.Error(), "start issue scheduler for "+issue.ID) {
+		t.Fatalf("error = %v, want issue scheduler start context", err)
+	}
+	if !strings.Contains(err.Error(), startErr.Error()) {
+		t.Fatalf("error = %v, want root scheduler error %q", err, startErr)
+	}
+	if scheduler.startIssueCalls != 1 {
+		t.Fatalf("scheduler StartIssue calls = %d, want 1", scheduler.startIssueCalls)
+	}
+
+	persisted, err := store.GetIssue(issue.ID)
+	if err != nil {
+		t.Fatalf("GetIssue(%s) error = %v", issue.ID, err)
+	}
+	if persisted.Status != core.IssueStatusFailed {
+		t.Fatalf("persisted status = %q, want %q", persisted.Status, core.IssueStatusFailed)
+	}
+	if persisted.State != core.IssueStateOpen {
+		t.Fatalf("persisted state = %q, want %q", persisted.State, core.IssueStateOpen)
+	}
+	if persisted.ClosedAt != nil {
+		t.Fatal("persisted closed_at should be nil after approve dispatch failure")
+	}
+	if persisted.PipelineID != "" {
+		t.Fatalf("persisted pipeline_id = %q, want empty when dispatch fails", persisted.PipelineID)
+	}
+
+	changes, err := store.GetIssueChanges(issue.ID)
+	if err != nil {
+		t.Fatalf("GetIssueChanges(%s) error = %v", issue.ID, err)
+	}
+	var hasApproveQueuedChange bool
+	var hasDispatchFailedChange bool
+	for _, change := range changes {
+		if change.OldValue == string(core.IssueStatusReviewing) &&
+			change.NewValue == string(core.IssueStatusQueued) &&
+			change.Reason == "ship it" {
+			hasApproveQueuedChange = true
+		}
+		if change.OldValue == string(core.IssueStatusQueued) &&
+			change.NewValue == string(core.IssueStatusFailed) &&
+			strings.Contains(change.Reason, "approve dispatch failed") &&
+			strings.Contains(change.Reason, startErr.Error()) {
+			hasDispatchFailedChange = true
+		}
+	}
+	if !hasApproveQueuedChange {
+		t.Fatalf("missing approve queued issue change, got %#v", changes)
+	}
+	if !hasDispatchFailedChange {
+		t.Fatalf("missing dispatch failure issue change, got %#v", changes)
 	}
 }
 

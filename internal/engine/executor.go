@@ -175,14 +175,18 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 		}
 		stageStartedAt := time.Now()
 
+		stageStartTS := time.Now()
 		e.bus.Publish(core.Event{
 			Type:       core.EventStageStart,
 			PipelineID: p.ID,
 			ProjectID:  p.ProjectID,
 			Stage:      stage.Name,
 			Data:       pipelineEventData(traceID, issueNumber, "stage_start", baseEventData),
-			Timestamp:  time.Now(),
+			Timestamp:  stageStartTS,
 		})
+		if err := e.appendEventLog(p.ID, stage.Name, core.EventStageStart, "", "stage started", stageStartTS); err != nil {
+			return fmt.Errorf("append stage_start log: %w", err)
+		}
 		logger.Info("pipeline stage started", observability.StructuredLogArgs(observability.StructuredLogInput{
 			TraceID:     traceID,
 			ProjectID:   p.ProjectID,
@@ -224,14 +228,18 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 				if saveErr := e.store.SaveCheckpoint(cp); saveErr != nil {
 					return saveErr
 				}
+				stageCompleteTS := time.Now()
 				e.bus.Publish(core.Event{
 					Type:       core.EventStageComplete,
 					PipelineID: p.ID,
 					ProjectID:  p.ProjectID,
 					Stage:      stage.Name,
 					Data:       pipelineEventData(traceID, issueNumber, "stage_complete", baseEventData),
-					Timestamp:  time.Now(),
+					Timestamp:  stageCompleteTS,
 				})
+				if err := e.appendEventLog(p.ID, stage.Name, core.EventStageComplete, "", "stage completed", stageCompleteTS); err != nil {
+					return fmt.Errorf("append stage_complete log: %w", err)
+				}
 				logger.Info("pipeline stage completed", observability.StructuredLogArgs(observability.StructuredLogInput{
 					TraceID:     traceID,
 					ProjectID:   p.ProjectID,
@@ -258,6 +266,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 			if saveErr := e.store.SaveCheckpoint(cp); saveErr != nil {
 				return saveErr
 			}
+			stageFailedTS := time.Now()
 			e.bus.Publish(core.Event{
 				Type:       core.EventStageFailed,
 				PipelineID: p.ID,
@@ -265,8 +274,11 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 				Stage:      stage.Name,
 				Data:       pipelineEventData(traceID, issueNumber, "stage_failed", baseEventData),
 				Error:      err.Error(),
-				Timestamp:  time.Now(),
+				Timestamp:  stageFailedTS,
 			})
+			if err := e.appendEventLog(p.ID, stage.Name, core.EventStageFailed, "", err.Error(), stageFailedTS); err != nil {
+				return fmt.Errorf("append stage_failed log: %w", err)
+			}
 			logger.Error("pipeline stage failed", observability.StructuredLogArgs(observability.StructuredLogInput{
 				TraceID:     traceID,
 				ProjectID:   p.ProjectID,
@@ -321,6 +333,7 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 				if saveErr := e.store.SavePipeline(p); saveErr != nil {
 					return saveErr
 				}
+				humanRequiredTS := time.Now()
 				e.bus.Publish(core.Event{
 					Type:       core.EventHumanRequired,
 					PipelineID: p.ID,
@@ -328,8 +341,11 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 					Stage:      stage.Name,
 					Data:       pipelineEventData(traceID, issueNumber, "human_required", baseEventData),
 					Error:      err.Error(),
-					Timestamp:  time.Now(),
+					Timestamp:  humanRequiredTS,
 				})
+				if err := e.appendEventLog(p.ID, stage.Name, core.EventHumanRequired, "", err.Error(), humanRequiredTS); err != nil {
+					return fmt.Errorf("append human_required log: %w", err)
+				}
 				return nil
 			case ReactionAbortPipeline:
 				return e.failPipeline(p, fmt.Sprintf("stage %s failed: %v", stage.Name, err), err)
@@ -352,14 +368,18 @@ func (e *Executor) run(ctx context.Context, pipelineID string, allowAlreadyRunni
 			if err := e.store.SavePipeline(p); err != nil {
 				return err
 			}
+			humanRequiredTS := time.Now()
 			e.bus.Publish(core.Event{
 				Type:       core.EventHumanRequired,
 				PipelineID: p.ID,
 				ProjectID:  p.ProjectID,
 				Stage:      stage.Name,
 				Data:       pipelineEventData(traceID, issueNumber, "human_required", baseEventData),
-				Timestamp:  time.Now(),
+				Timestamp:  humanRequiredTS,
 			})
+			if err := e.appendEventLog(p.ID, stage.Name, core.EventHumanRequired, "", "human approval required", humanRequiredTS); err != nil {
+				return fmt.Errorf("append human_required log: %w", err)
+			}
 			return nil
 		}
 	}
@@ -595,6 +615,9 @@ func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *c
 			},
 			Timestamp: evt.Timestamp,
 		})
+		if err := e.appendEventLog(p.ID, stage.Name, core.EventAgentOutput, agentName, evt.Content, evt.Timestamp); err != nil {
+			return fmt.Errorf("append agent_output log: %w", err)
+		}
 	}
 
 	if err := sess.Wait(); err != nil {
@@ -766,6 +789,20 @@ func pipelineEventData(traceID string, issueNumber int, op string, extra map[str
 		data["op"] = strings.TrimSpace(op)
 	}
 	return observability.EventDataWithTrace(data, traceID)
+}
+
+func (e *Executor) appendEventLog(pipelineID string, stage core.StageID, eventType core.EventType, agent, content string, timestamp time.Time) error {
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+	return e.store.AppendLog(core.LogEntry{
+		PipelineID: pipelineID,
+		Stage:      string(stage),
+		Type:       string(eventType),
+		Agent:      strings.TrimSpace(agent),
+		Content:    content,
+		Timestamp:  timestamp.UTC().Format(time.RFC3339Nano),
+	})
 }
 
 func issueNumberFromPipeline(p *core.Pipeline) int {

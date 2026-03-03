@@ -32,6 +32,12 @@ type pipelineListResponse struct {
 	Offset int             `json:"offset"`
 }
 
+type pipelineLogListResponse struct {
+	Items  []core.LogEntry `json:"items"`
+	Total  int             `json:"total"`
+	Offset int             `json:"offset"`
+}
+
 type pipelineActionRequest struct {
 	Action  string `json:"action"`
 	Stage   string `json:"stage,omitempty"`
@@ -54,6 +60,7 @@ func registerPipelineRoutes(r chi.Router, store core.Store, executor PipelineExe
 	r.Get("/projects/{projectID}/pipelines", h.listPipelines)
 	r.Post("/projects/{projectID}/pipelines", h.createPipeline)
 	r.Get("/projects/{projectID}/pipelines/{id}", h.getPipelineByProject)
+	r.Get("/projects/{projectID}/pipelines/{id}/logs", h.getPipelineLogs)
 	r.Get("/projects/{projectID}/pipelines/{id}/checkpoints", h.getPipelineCheckpoints)
 	r.Post("/projects/{projectID}/pipelines/{id}/action", h.applyPipelineAction)
 }
@@ -225,6 +232,35 @@ func (h *pipelineHandlers) getPipelineCheckpoints(w http.ResponseWriter, r *http
 		return
 	}
 	writeJSON(w, http.StatusOK, checkpoints)
+}
+
+func (h *pipelineHandlers) getPipelineLogs(w http.ResponseWriter, r *http.Request) {
+	pipeline, ok := h.loadPipelineForProject(w, r)
+	if !ok {
+		return
+	}
+
+	limit, offset, err := parsePaginationParams(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error(), "INVALID_QUERY_PARAM")
+		return
+	}
+
+	stage := strings.TrimSpace(r.URL.Query().Get("stage"))
+	items, total, err := h.store.GetLogs(pipeline.ID, stage, limit, offset)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "failed to load pipeline logs", "GET_PIPELINE_LOGS_FAILED")
+		return
+	}
+	if items == nil {
+		items = []core.LogEntry{}
+	}
+
+	writeJSON(w, http.StatusOK, pipelineLogListResponse{
+		Items:  items,
+		Total:  total,
+		Offset: offset,
+	})
 }
 
 func (h *pipelineHandlers) applyPipelineAction(w http.ResponseWriter, r *http.Request) {

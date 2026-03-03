@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
 )
@@ -833,6 +834,232 @@ func TestPlanHistoryEndpointsReturnReviewRecordsAndChanges(t *testing.T) {
 	}
 	if changes[0].Field != "status" || changes[0].ChangedBy != "system" {
 		t.Fatalf("unexpected issue change: %#v", changes[0])
+	}
+}
+
+func TestPlanTimelineAggregatesAndSupportsFiltersPaginationAndAliases(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-plan-timeline",
+		Name:     "plan-timeline",
+		RepoPath: filepath.Join(t.TempDir(), "repo-plan-timeline"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	pipeline := &core.Pipeline{
+		ID:              "pipe-plan-timeline",
+		ProjectID:       project.ID,
+		Name:            "timeline-pipeline",
+		Template:        "quick",
+		Status:          core.StatusRunning,
+		CurrentStage:    core.StageImplement,
+		Stages:          []core.StageConfig{{Name: core.StageImplement, Agent: "codex"}},
+		Artifacts:       map[string]string{},
+		Config:          map[string]any{},
+		MaxTotalRetries: 3,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+	if err := store.SavePipeline(pipeline); err != nil {
+		t.Fatalf("seed pipeline: %v", err)
+	}
+
+	issue := mustCreateIssue(t, store, core.Issue{
+		ID:         "issue-20260303-timeline01",
+		ProjectID:  project.ID,
+		Title:      "timeline issue",
+		Template:   "standard",
+		State:      core.IssueStateOpen,
+		Status:     core.IssueStatusReviewing,
+		PipelineID: pipeline.ID,
+		FailPolicy: core.FailBlock,
+	})
+
+	score := 95
+	if err := store.SaveReviewRecord(&core.ReviewRecord{
+		IssueID:  issue.ID,
+		Round:    2,
+		Reviewer: "timeline_reviewer",
+		Verdict:  "pass",
+		Issues: []core.ReviewIssue{
+			{
+				Severity:    "low",
+				IssueID:     issue.ID,
+				Description: "looks good",
+				Suggestion:  "keep moving",
+			},
+		},
+		Score: &score,
+	}); err != nil {
+		t.Fatalf("seed review record: %v", err)
+	}
+
+	if err := store.SaveIssueChange(&core.IssueChange{
+		IssueID:   issue.ID,
+		Field:     "status",
+		OldValue:  string(core.IssueStatusDraft),
+		NewValue:  string(core.IssueStatusReviewing),
+		Reason:    "submit_for_review",
+		ChangedBy: "system",
+	}); err != nil {
+		t.Fatalf("seed issue change: %v", err)
+	}
+
+	if err := store.RecordAction(core.HumanAction{
+		PipelineID: pipeline.ID,
+		Stage:      string(core.StageCodeReview),
+		Action:     "force_ready",
+		Message:    "manual override",
+		Source:     "admin",
+		UserID:     "ops",
+	}); err != nil {
+		t.Fatalf("seed human action: %v", err)
+	}
+
+	if err := store.SaveCheckpoint(&core.Checkpoint{
+		PipelineID: pipeline.ID,
+		StageName:  core.StageImplement,
+		Status:     core.CheckpointSuccess,
+		StartedAt:  time.Date(2001, 1, 1, 10, 0, 0, 0, time.UTC),
+		FinishedAt: time.Date(2001, 1, 1, 10, 5, 0, 0, time.UTC),
+		AgentUsed:  "codex",
+	}); err != nil {
+		t.Fatalf("seed checkpoint implement: %v", err)
+	}
+	if err := store.SaveCheckpoint(&core.Checkpoint{
+		PipelineID: pipeline.ID,
+		StageName:  core.StageCodeReview,
+		Status:     core.CheckpointSuccess,
+		StartedAt:  time.Date(2001, 1, 1, 10, 6, 0, 0, time.UTC),
+		FinishedAt: time.Date(2001, 1, 1, 10, 9, 0, 0, time.UTC),
+		AgentUsed:  "claude",
+	}); err != nil {
+		t.Fatalf("seed checkpoint review: %v", err)
+	}
+
+	if err := store.AppendLog(core.LogEntry{
+		PipelineID: pipeline.ID,
+		Stage:      string(core.StageImplement),
+		Type:       "stdout",
+		Agent:      "codex",
+		Content:    "implement done",
+		Timestamp:  "2099-01-01T00:00:01Z",
+	}); err != nil {
+		t.Fatalf("seed pipeline log #1: %v", err)
+	}
+	if err := store.AppendLog(core.LogEntry{
+		PipelineID: pipeline.ID,
+		Stage:      string(core.StageCodeReview),
+		Type:       "stdout",
+		Agent:      "claude",
+		Content:    "review done",
+		Timestamp:  "2099-01-01T00:00:02Z",
+	}); err != nil {
+		t.Fatalf("seed pipeline log #2: %v", err)
+	}
+
+	srv := NewServer(Config{Store: store})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-plan-timeline/plans/" + issue.ID + "/timeline")
+	if err != nil {
+		t.Fatalf("GET /api/v1/projects/{pid}/plans/{id}/timeline: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var timeline issueTimelineResponse
+	if err := json.NewDecoder(resp.Body).Decode(&timeline); err != nil {
+		t.Fatalf("decode timeline response: %v", err)
+	}
+	if timeline.Total != 7 {
+		t.Fatalf("expected total=7, got %d", timeline.Total)
+	}
+	if len(timeline.Items) != 7 {
+		t.Fatalf("expected 7 timeline items, got %d", len(timeline.Items))
+	}
+	if timeline.Items[0].Kind != "checkpoint" || timeline.Items[0].Refs.Stage != string(core.StageImplement) {
+		t.Fatalf("expected first item to be earliest checkpoint implement, got %#v", timeline.Items[0])
+	}
+	last := len(timeline.Items) - 1
+	if timeline.Items[last].Kind != "log" || timeline.Items[last].Body != "review done" {
+		t.Fatalf("expected latest item to be latest log, got %#v", timeline.Items[last])
+	}
+	if timeline.Items[last-1].Kind != "log" || timeline.Items[last-1].Body != "implement done" {
+		t.Fatalf("expected second latest item to be implement log, got %#v", timeline.Items[last-1])
+	}
+	if timeline.Items[last].EventID == "" || timeline.Items[last].ActorType == "" {
+		t.Fatalf("expected timeline item to include event_id and actor_type, got %#v", timeline.Items[last])
+	}
+	if timeline.Items[last].Meta == nil {
+		t.Fatalf("expected timeline item meta object, got nil")
+	}
+
+	for i := 1; i < len(timeline.Items); i++ {
+		prev, prevErr := time.Parse(time.RFC3339Nano, timeline.Items[i-1].CreatedAt)
+		curr, currErr := time.Parse(time.RFC3339Nano, timeline.Items[i].CreatedAt)
+		if prevErr != nil || currErr != nil {
+			t.Fatalf("unexpected created_at format at %d: prev=%q curr=%q", i, timeline.Items[i-1].CreatedAt, timeline.Items[i].CreatedAt)
+		}
+		if curr.Before(prev) {
+			t.Fatalf("expected asc timeline order, got curr=%s before prev=%s", curr, prev)
+		}
+	}
+
+	filteredResp, err := http.Get(ts.URL + "/api/v1/projects/proj-plan-timeline/plans/" + issue.ID + "/timeline?kinds=log,audit&limit=2&offset=1")
+	if err != nil {
+		t.Fatalf("GET filtered timeline: %v", err)
+	}
+	defer filteredResp.Body.Close()
+	if filteredResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for filtered timeline, got %d", filteredResp.StatusCode)
+	}
+
+	var filtered issueTimelineResponse
+	if err := json.NewDecoder(filteredResp.Body).Decode(&filtered); err != nil {
+		t.Fatalf("decode filtered timeline response: %v", err)
+	}
+	if filtered.Total != 3 {
+		t.Fatalf("expected filtered total=3, got %d", filtered.Total)
+	}
+	if filtered.Offset != 1 {
+		t.Fatalf("expected offset=1, got %d", filtered.Offset)
+	}
+	if len(filtered.Items) != 2 {
+		t.Fatalf("expected 2 filtered items, got %d", len(filtered.Items))
+	}
+	for i := range filtered.Items {
+		if filtered.Items[i].Kind != "log" && filtered.Items[i].Kind != "audit" {
+			t.Fatalf("expected filtered kind log/audit, got %q", filtered.Items[i].Kind)
+		}
+	}
+	if filtered.Items[0].Kind != "log" || filtered.Items[0].Body != "implement done" {
+		t.Fatalf("expected first paged item to be implement log, got %#v", filtered.Items[0])
+	}
+
+	aliasResp, err := http.Get(ts.URL + "/api/v1/projects/proj-plan-timeline/issues/" + issue.ID + "/timeline?kinds=review")
+	if err != nil {
+		t.Fatalf("GET /api/v1/projects/{pid}/issues/{id}/timeline: %v", err)
+	}
+	defer aliasResp.Body.Close()
+	if aliasResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for issues alias timeline, got %d", aliasResp.StatusCode)
+	}
+
+	var aliasTimeline issueTimelineResponse
+	if err := json.NewDecoder(aliasResp.Body).Decode(&aliasTimeline); err != nil {
+		t.Fatalf("decode alias timeline response: %v", err)
+	}
+	if aliasTimeline.Total != 1 || len(aliasTimeline.Items) != 1 {
+		t.Fatalf("expected one review item for alias timeline, got total=%d len=%d", aliasTimeline.Total, len(aliasTimeline.Items))
+	}
+	if aliasTimeline.Items[0].Kind != "review" || aliasTimeline.Items[0].ActorType != "agent" {
+		t.Fatalf("expected alias item kind=review, got %#v", aliasTimeline.Items[0])
 	}
 }
 

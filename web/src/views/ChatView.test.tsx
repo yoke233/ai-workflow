@@ -462,7 +462,7 @@ describe("ChatView", () => {
     });
   });
 
-  it("会话完成后可触发 createPlan 与 createPlanFromFiles", async () => {
+  it("会话完成后可触发 createPlanFromFiles", async () => {
     const apiClient = createMockApiClient();
     const wsHarness = createMockWsHarness();
 
@@ -492,17 +492,8 @@ describe("ChatView", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "基于当前会话创建计划" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "从文件创建计划" })).toBeTruthy();
     });
-
-    fireEvent.click(screen.getByRole("button", { name: "基于当前会话创建计划" }));
-    await waitFor(() => {
-      expect(apiClient.createPlan).toHaveBeenCalledWith("proj-1", {
-        session_id: "chat-1",
-      });
-    });
-    expect(screen.getByText("已创建计划：plan-1")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("文件路径（逗号分隔）"), {
       target: { value: "cmd/app/main.go, internal/core/task.go,  ,web/src/App.tsx" },
