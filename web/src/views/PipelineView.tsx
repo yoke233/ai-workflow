@@ -50,7 +50,7 @@ const getPipelineProgress = (pipeline: Pipeline) => {
   if (totalStages === 0) {
     return {
       percentage: 0,
-      stageText: "未知模板，无法计算阶段进度",
+      stageText: "未知模板，无法计算运行进度",
     };
   }
 
@@ -147,7 +147,7 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
     };
 
     void loadPipelines();
-    // Fallback refresh for non-PlanView scenarios where WS events are not enough to keep list current.
+    // Fallback refresh for non-board scenarios where WS events are not enough to keep list current.
     const intervalId = setInterval(() => {
       void loadPipelines();
     }, REFRESH_INTERVAL_MS);
@@ -188,7 +188,7 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
   );
   const progress = selectedPipeline ? getPipelineProgress(selectedPipeline) : null;
 
-  const currentStageAgent = useMemo(() => {
+  const currentStageTeamLeader = useMemo(() => {
     if (!selectedPipeline) return null;
     let cp: PipelineCheckpoint | undefined;
     for (let i = checkpoints.length - 1; i >= 0; i -= 1) {
@@ -258,9 +258,9 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
   return (
     <section className="flex flex-col gap-4">
       <header className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h1 className="text-xl font-bold">Pipeline</h1>
+        <h1 className="text-xl font-bold">Runs</h1>
         <p className="mt-1 text-sm text-slate-600">
-          增强视图：阶段进度、输出区、checkpoint 区与人工动作入口。
+          Team Leader 视图：运行进度、输出区、checkpoint 区与人工动作入口。
         </p>
       </header>
 
@@ -274,7 +274,7 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
         {loading ? (
           <p className="text-sm text-slate-500">加载中...</p>
         ) : pipelines.length === 0 ? (
-          <p className="text-sm text-slate-500">当前项目暂无流水线。</p>
+          <p className="text-sm text-slate-500">当前项目暂无运行记录。</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full table-auto border-collapse text-sm">
@@ -317,7 +317,7 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold">阶段进度</h2>
         {!selectedPipeline || !progress ? (
-          <p className="mt-2 text-xs text-slate-500">请选择流水线查看阶段进度。</p>
+          <p className="mt-2 text-xs text-slate-500">请选择运行记录查看阶段进度。</p>
         ) : (
           <>
             <div className="mt-2">
@@ -332,7 +332,7 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
             </div>
             <p className="mt-2 text-xs text-slate-600">
               stage={selectedPipeline.current_stage || "-"}
-              {currentStageAgent ? ` · agent=${currentStageAgent}` : ""} · 进度{" "}
+              {currentStageTeamLeader ? ` · team_leader=${currentStageTeamLeader}` : ""} · 进度{" "}
               {progress.stageText} · {progress.percentage}%
             </p>
           </>
@@ -343,7 +343,7 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
         <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h3 className="text-sm font-semibold">输出区</h3>
           {!selectedPipeline ? (
-            <p className="mt-2 text-xs text-slate-500">请选择流水线查看输出。</p>
+            <p className="mt-2 text-xs text-slate-500">请选择运行记录查看输出。</p>
           ) : (
             <div className="mt-2 space-y-2 text-xs">
               <p className="text-slate-600">GitHub</p>
@@ -404,7 +404,7 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
                   className="rounded border border-slate-200 px-2 py-1"
                 >
                   <span className="font-medium">{checkpoint.stage_name}</span> ·{" "}
-                  <span>{checkpoint.status}</span> · agent={checkpoint.agent_used || "-"} · retry={checkpoint.retry_count}
+                  <span>{checkpoint.status}</span> · team_leader={checkpoint.agent_used || "-"} · retry={checkpoint.retry_count}
                 </li>
               ))}
             </ul>
@@ -415,7 +415,7 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h3 className="text-sm font-semibold">人工动作</h3>
         <p className="mt-1 text-xs text-slate-500">
-          Pipeline Action API：审批、流程控制与角色切换。
+          Run Action API：审批、流程控制与 Team Leader 切换。
         </p>
         <label htmlFor="pipeline-action-message" className="mt-2 block text-xs text-slate-700">
           动作备注（可选）
@@ -511,7 +511,7 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
           <input
             id="pipeline-change-role"
             className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
-            placeholder="目标角色名（如 claude, codex）"
+            placeholder="目标 Team Leader（如 claude, codex）"
             value={changeRoleValue}
             onChange={(event) => {
               setChangeRoleValue(event.target.value);
@@ -531,7 +531,7 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
               void handlePipelineAction("change_role");
             }}
           >
-            Change Role
+            Change Team Leader
           </button>
         </div>
         {actionNotice ? (
@@ -550,3 +550,4 @@ const PipelineView = ({ apiClient, projectId, refreshToken }: PipelineViewProps)
 };
 
 export default PipelineView;
+

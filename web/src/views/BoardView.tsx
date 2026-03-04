@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../lib/apiClient";
 import type { IssueTimelineEntry } from "../types/api";
-import type { TaskPlan } from "../types/workflow";
 
 interface BoardViewProps {
   apiClient: ApiClient;
@@ -14,8 +13,6 @@ type BoardStatusFilter = "all" | BoardStatus;
 
 export interface BoardTask {
   id: string;
-  plan_id: string;
-  plan_name: string;
   title: string;
   status: BoardStatus;
   raw_status: string;
@@ -24,7 +21,6 @@ export interface BoardTask {
   github_issue_url?: string;
   created_at?: string;
   updated_at?: string;
-  issue_level: boolean;
 }
 
 type TaskActionType = "submit_review" | "approve" | "abort";
@@ -183,9 +179,9 @@ const formatRelativeTimestamp = (value?: string): string => {
 
 const getExecutor = (task: BoardTask): string => {
   if (task.pipeline_id.trim().length > 0) {
-    return `pipeline/${task.pipeline_id}`;
+    return `run/${task.pipeline_id}`;
   }
-  return "workflow-engine";
+  return "team leader";
 };
 
 const getReferenceTag = (task: BoardTask): string => {
@@ -208,15 +204,6 @@ const getAvatarPlaceholder = (value: string): string => {
     return "AI";
   }
   return normalized.slice(0, 2).toUpperCase();
-};
-
-const extractIssueNumber = (value: string): number | undefined => {
-  const match = value.match(/issues\/(\d+)/i);
-  if (!match) {
-    return undefined;
-  }
-  const parsed = Number.parseInt(match[1] ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 };
 
 const normalizeText = (value: unknown): string => {
@@ -411,11 +398,7 @@ const resolveRouteIssueTaskID = (routeIssueID: string | null, tasks: BoardTask[]
     return null;
   }
   const byID = tasks.find((task) => task.id === candidate);
-  if (byID) {
-    return byID.id;
-  }
-  const byPlanID = tasks.find((task) => task.plan_id === candidate);
-  return byPlanID ? byPlanID.id : null;
+  return byID ? byID.id : null;
 };
 
 const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
@@ -483,18 +466,31 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
       }
       setError(null);
       try {
-        const allPlans: TaskPlan[] = [];
+        const allIssues: BoardTask[] = [];
         let offset = 0;
         while (true) {
-          const response = await apiClient.listPlans(projectId, {
+          const response = await apiClient.listIssues(projectId, {
             limit: PAGE_LIMIT,
             offset,
           });
           if (cancelled) {
             return;
           }
-          allPlans.push(...response.items);
-          const currentCount = response.items.length;
+          const items = Array.isArray(response.items) ? response.items : [];
+          allIssues.push(
+            ...items.map((issue) => ({
+              id: issue.id,
+              title: issue.title || issue.id,
+              status: toBoardStatus(String(issue.status ?? "")),
+              raw_status: String(issue.status ?? ""),
+              pipeline_id: issue.pipeline_id ?? "",
+              github_issue_number: issue.github?.issue_number,
+              github_issue_url: issue.github?.issue_url,
+              created_at: issue.created_at,
+              updated_at: issue.updated_at,
+            })),
+          );
+          const currentCount = items.length;
           if (currentCount === 0) {
             break;
           }
@@ -503,49 +499,7 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
             break;
           }
         }
-        const flattened: BoardTask[] = allPlans.flatMap((plan) => {
-          const tasksInPlan = Array.isArray(plan.tasks) ? plan.tasks : [];
-          if (tasksInPlan.length > 0) {
-            return tasksInPlan.map((task) => ({
-              id: task.id,
-              plan_id: plan.id,
-              plan_name: plan.name || plan.id,
-              title: task.title,
-              status: toBoardStatus(String(task.status ?? "")),
-              raw_status: String(task.status ?? ""),
-              pipeline_id: task.pipeline_id ?? plan.pipeline_id ?? "",
-              github_issue_number: task.github?.issue_number,
-              github_issue_url: task.github?.issue_url,
-              created_at: task.created_at,
-              updated_at: task.updated_at,
-              issue_level: false as boolean,
-            } as BoardTask));
-          }
-
-          const externalID = String((plan as { external_id?: string }).external_id ?? "");
-          const githubIssueURL = externalID.startsWith("http") ? externalID : undefined;
-          const githubIssueNumber = extractIssueNumber(externalID);
-          const rawStatus = String((plan as { status?: string }).status ?? "");
-          const titleCandidate =
-            (plan as { title?: string }).title || plan.name || plan.id;
-          return [
-            {
-              id: plan.id,
-              plan_id: plan.id,
-              plan_name: titleCandidate,
-              title: titleCandidate,
-              status: toBoardStatus(rawStatus),
-              raw_status: rawStatus,
-              pipeline_id: plan.pipeline_id ?? "",
-              github_issue_number: githubIssueNumber,
-              github_issue_url: githubIssueURL,
-              created_at: plan.created_at,
-              updated_at: plan.updated_at,
-              issue_level: true as boolean,
-            } as BoardTask,
-          ];
-        });
-        flattened.sort((left, right) => {
+        allIssues.sort((left, right) => {
           const leftTime = new Date(left.updated_at ?? left.created_at ?? 0).getTime();
           const rightTime = new Date(right.updated_at ?? right.created_at ?? 0).getTime();
           if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) {
@@ -560,11 +514,11 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
           return rightTime - leftTime;
         });
         if (!cancelled) {
-          setTasks(flattened);
+          setTasks(allIssues);
           setSelectedTaskId((current) =>
-            current && flattened.some((task) => task.id === current)
+            current && allIssues.some((task) => task.id === current)
               ? current
-              : flattened[0]?.id ?? null,
+              : allIssues[0]?.id ?? null,
           );
           hasLoadedTasksRef.current = true;
         }
@@ -601,9 +555,7 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
   }, [apiClient, projectId, refreshToken, autoRefreshEnabled, autoRefreshIntervalMs, manualReloadToken]);
 
   useEffect(() => {
-    const timelineIssueID = selectedTaskId
-      ? tasks.find((item) => item.id === selectedTaskId)?.plan_id ?? selectedTaskId
-      : "";
+    const timelineIssueID = selectedTaskId ?? "";
     if (!timelineIssueID) {
       setTimelineLoading(false);
       setTimelineError(null);
@@ -752,15 +704,15 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
     try {
       let responseStatus = task.raw_status;
       if (action === "submit_review") {
-        const response = await apiClient.submitPlanReview(projectId, task.plan_id);
+        const response = await apiClient.submitIssueReview(projectId, task.id);
         responseStatus = String(response.status ?? "");
       } else if (action === "approve") {
-        const response = await apiClient.applyPlanAction(projectId, task.plan_id, {
+        const response = await apiClient.applyIssueAction(projectId, task.id, {
           action: "approve",
         });
         responseStatus = String(response.status ?? "");
       } else {
-        const response = await apiClient.applyPlanAction(projectId, task.plan_id, {
+        const response = await apiClient.applyIssueAction(projectId, task.id, {
           action: "abort",
         });
         responseStatus = String(response.status ?? "");
@@ -1057,11 +1009,6 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
                           <span className="truncate text-[15px] font-semibold text-[#0969da]">
                             {task.title}
                           </span>
-                          {task.issue_level ? (
-                            <span className="rounded-full border border-[#d0d7de] bg-[#f6f8fa] px-2 py-0.5 text-[11px] text-[#57606a]">
-                              issue
-                            </span>
-                          ) : null}
                           <span
                             className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE_CLASS[task.status]}`}
                           >
@@ -1080,7 +1027,7 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
                         </div>
                         <p className="mt-1 text-xs text-[#57606a]">
                           {getIssueNumberLabel(task)} opened on{" "}
-                          {formatRelativeTimestamp(task.created_at)} by workflow-engine
+                          {formatRelativeTimestamp(task.created_at)} by team leader
                         </p>
                       </div>
                     </div>

@@ -8,9 +8,7 @@ import type { ApiPipeline } from "../types/api";
 
 const buildPipeline = (id: string): ApiPipeline => ({
   id,
-  project_id: "proj-1",
-  task_item_id: `task-${id}`,
-  name: `Pipeline ${id}`,
+  project_id: "proj-1",  name: `Pipeline ${id}`,
   description: "",
   template: "standard",
   status: "running",
@@ -223,7 +221,7 @@ describe("PipelineView", () => {
     expect(apiClient.listPipelines).toHaveBeenCalledTimes(2);
   });
 
-  it("checkpoint 区展示 agent_used 字段", async () => {
+  it("checkpoint 区展示 team_leader 字段", async () => {
     const apiClient = createMockApiClient();
     render(<PipelineView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
 
@@ -231,7 +229,7 @@ describe("PipelineView", () => {
       expect(apiClient.getPipelineCheckpoints).toHaveBeenCalled();
     });
 
-    expect(screen.getByText(/agent=claude/)).toBeTruthy();
+    expect(screen.getByText(/team_leader=claude/)).toBeTruthy();
   });
 
   it("change_role 按钮在无角色名时 disabled，有值时提交含 role 字段", async () => {
@@ -242,10 +240,10 @@ describe("PipelineView", () => {
       expect(screen.getByText("Pipeline pipe-1")).toBeTruthy();
     });
 
-    const changeRoleBtn = screen.getByRole("button", { name: "Change Role" });
+    const changeRoleBtn = screen.getByRole("button", { name: "Change Team Leader" });
     expect((changeRoleBtn as HTMLButtonElement).disabled).toBe(true);
 
-    const roleInput = screen.getByPlaceholderText(/目标角色名/);
+    const roleInput = screen.getByPlaceholderText(/目标 Team Leader/);
     fireEvent.change(roleInput, { target: { value: "codex" } });
     expect((changeRoleBtn as HTMLButtonElement).disabled).toBe(false);
 
@@ -302,3 +300,6 @@ describe("PipelineView", () => {
     expect(screen.getByTestId("github-status-badge").textContent).toContain("Connected");
   });
 });
+
+
+

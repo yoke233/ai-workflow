@@ -7,25 +7,27 @@ export type PipelineStatus =
   | "failed"
   | "aborted";
 
-export type TaskPlanStatus =
+export type IssueState = "open" | "closed";
+export type FailurePolicy = "block" | "skip" | "human";
+export type IssueStatus =
   | "draft"
   | "reviewing"
-  | "approved"
-  | "waiting_human"
+  | "queued"
+  | "ready"
   | "executing"
-  | "partially_done"
   | "done"
   | "failed"
+  | "superseded"
   | "abandoned";
 
-export type TaskItemStatus =
-  | "pending"
-  | "ready"
+export type WorkflowProfileType = "normal" | "strict" | "fast_release";
+export type WorkflowRunStatus =
+  | "created"
   | "running"
+  | "waiting_review"
   | "done"
   | "failed"
-  | "skipped"
-  | "blocked_by_failure";
+  | "timeout";
 
 export type GitHubConnectionStatus = "connected" | "degraded" | "disconnected";
 
@@ -87,36 +89,49 @@ export interface ChatSession {
   updated_at: string;
 }
 
-export interface TaskItem {
-  id: string;
-  plan_id: string;
-  title: string;
-  description: string;
-  labels: string[];
-  depends_on: string[];
-  template: string;
-  pipeline_id: string;
-  external_id: string;
-  status: TaskItemStatus;
-  created_at: string;
-  updated_at: string;
-  github?: GitHubRef;
-}
-
-export interface TaskPlan {
+export interface Issue {
   id: string;
   project_id: string;
   session_id: string;
-  name: string;
-  status: TaskPlanStatus;
-  auto_merge?: boolean;
+  title: string;
+  body: string;
+  labels: string[];
+  milestone_id: string;
+  attachments: string[];
+  depends_on: string[];
+  blocks: string[];
+  priority: number;
+  template: string;
+  auto_merge: boolean;
+  state: IssueState;
+  status: IssueStatus;
   pipeline_id: string;
-  wait_reason: string;
-  tasks: TaskItem[];
-  source_files?: string[];
-  file_contents?: Record<string, string>;
-  fail_policy: "block" | "skip" | "human";
-  review_round: number;
+  version: number;
+  superseded_by: string;
+  external_id: string;
+  fail_policy: FailurePolicy;
+  created_at: string;
+  updated_at: string;
+  closed_at?: string;
+  github?: GitHubRef;
+}
+
+export interface WorkflowProfile {
+  type: WorkflowProfileType;
+  sla_minutes: number;
+  reviewer_count: number;
+  description: string;
+}
+
+export interface WorkflowRun {
+  id: string;
+  project_id: string;
+  issue_id?: string;
+  profile: WorkflowProfileType;
+  status: WorkflowRunStatus;
+  error?: string;
+  started_at?: string;
+  finished_at?: string;
   created_at: string;
   updated_at: string;
 }
