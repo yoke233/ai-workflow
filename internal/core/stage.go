@@ -49,6 +49,7 @@ type StageConfig struct {
 	Role             string        `yaml:"role" json:"role"`
 	PromptTemplate   string        `yaml:"prompt_template" json:"prompt_template"`
 	Timeout          time.Duration `yaml:"timeout" json:"timeout"`
+	IdleTimeout      time.Duration `yaml:"idle_timeout" json:"idle_timeout,omitempty"`
 	MaxRetries       int           `yaml:"max_retries" json:"max_retries"`
 	RequireHuman     bool          `yaml:"require_human" json:"require_human"`
 	OnFailure        OnFailure     `yaml:"on_failure" json:"on_failure"`

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
@@ -568,7 +569,22 @@ func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *c
 	}
 
 	if e.testStageFunc != nil {
-		return e.testStageFunc(ctx, p.ID, stage.Name, agentName, prompt)
+		testCtx := ctx
+		if stage.IdleTimeout > 0 {
+			var lastActivity atomic.Int64
+			lastActivity.Store(time.Now().UnixNano())
+			var testCancel context.CancelFunc
+			testCtx, testCancel = startIdleChecker(ctx, &lastActivity, stage.IdleTimeout, e.logger, map[string]string{
+				"run_id": p.ID,
+				"stage":  string(stage.Name),
+			})
+			defer testCancel()
+		} else if stage.Timeout > 0 {
+			var testCancel context.CancelFunc
+			testCtx, testCancel = context.WithTimeout(ctx, stage.Timeout)
+			defer testCancel()
+		}
+		return e.testStageFunc(testCtx, p.ID, stage.Name, agentName, prompt)
 	}
 
 	return e.runACPStage(ctx, agentName, agentProfile, roleProfile, p, stage, prompt)
@@ -634,18 +650,26 @@ func (e *Executor) runACPStage(
 	stage *core.StageConfig,
 	prompt string,
 ) error {
-	stageCtx := ctx
-	if stage.Timeout > 0 {
-		var cancel context.CancelFunc
-		stageCtx, cancel = context.WithTimeout(ctx, stage.Timeout)
-		defer cancel()
-	}
-
 	bridge := &stageEventBridge{
 		executor:  e,
 		runID:     p.ID,
 		stage:     stage.Name,
 		agentName: agentName,
+	}
+	bridge.lastActivity.Store(time.Now().UnixNano())
+
+	stageCtx := ctx
+	var cancel context.CancelFunc
+
+	if stage.IdleTimeout > 0 {
+		stageCtx, cancel = startIdleChecker(ctx, &bridge.lastActivity, stage.IdleTimeout, e.logger, map[string]string{
+			"run_id": p.ID,
+			"stage":  string(stage.Name),
+		})
+		defer cancel()
+	} else if stage.Timeout > 0 {
+		stageCtx, cancel = context.WithTimeout(ctx, stage.Timeout)
+		defer cancel()
 	}
 
 	// Try to reuse a pooled session from a previous stage.
@@ -760,13 +784,15 @@ func (e *Executor) promptACPSession(
 
 // stageEventBridge converts ACP session updates to EventAgentOutput events.
 type stageEventBridge struct {
-	executor  *Executor
-	runID     string
-	stage     core.StageID
-	agentName string
+	executor     *Executor
+	runID        string
+	stage        core.StageID
+	agentName    string
+	lastActivity atomic.Int64 // unix nano, updated on every HandleSessionUpdate
 }
 
 func (b *stageEventBridge) HandleSessionUpdate(_ context.Context, update acpclient.SessionUpdate) error {
+	b.lastActivity.Store(time.Now().UnixNano())
 	if update.Text == "" {
 		return nil
 	}
@@ -782,6 +808,51 @@ func (b *stageEventBridge) HandleSessionUpdate(_ context.Context, update acpclie
 		Timestamp: time.Now(),
 	})
 	return nil
+}
+
+// startIdleChecker starts a background goroutine that cancels the returned context
+// when lastActivity has not been updated for longer than idleTimeout.
+func startIdleChecker(
+	parent context.Context,
+	lastActivity *atomic.Int64,
+	idleTimeout time.Duration,
+	logger *slog.Logger,
+	logMeta map[string]string,
+) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+
+	checkInterval := idleTimeout / 5
+	if checkInterval < 10*time.Millisecond {
+		checkInterval = 10 * time.Millisecond
+	}
+	if checkInterval > 30*time.Second {
+		checkInterval = 30 * time.Second
+	}
+
+	go func() {
+		ticker := time.NewTicker(checkInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				last := time.Unix(0, lastActivity.Load())
+				if time.Since(last) > idleTimeout {
+					if logger != nil {
+						logger.Warn("acp stage idle timeout",
+							"idle_duration", time.Since(last),
+							"run_id", logMeta["run_id"],
+							"stage", logMeta["stage"])
+					}
+					cancel()
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return ctx, cancel
 }
 
 func cloneStringMapForEngine(m map[string]string) map[string]string {
@@ -913,10 +984,11 @@ func (e *Executor) runCleanup(project *core.Project, p *core.Run) error {
 
 func defaultStageConfig(id core.StageID) core.StageConfig {
 	cfg := core.StageConfig{
-		Name:       id,
-		Timeout:    30 * time.Minute,
-		MaxRetries: 1,
-		OnFailure:  core.OnFailureHuman,
+		Name:        id,
+		Timeout:     0,
+		IdleTimeout: 5 * time.Minute,
+		MaxRetries:  1,
+		OnFailure:   core.OnFailureHuman,
 	}
 	switch id {
 	case core.StageRequirements, core.StageReview:
@@ -928,10 +1000,10 @@ func defaultStageConfig(id core.StageID) core.StageConfig {
 		cfg.ReuseSessionFrom = core.StageImplement
 	case core.StageTest:
 		cfg.Agent = ""
-		cfg.Timeout = 15 * time.Minute
+		cfg.IdleTimeout = 3 * time.Minute
 	case core.StageSetup, core.StageMerge, core.StageCleanup:
 		cfg.Agent = ""
-		cfg.Timeout = 2 * time.Minute
+		cfg.IdleTimeout = 1 * time.Minute
 	}
 	cfg.PromptTemplate = string(id)
 	return cfg

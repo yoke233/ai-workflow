@@ -119,10 +119,10 @@ func TestDefaultStageConfig_RoleOnlyDefaults(t *testing.T) {
 		}
 	})
 
-	t.Run("e2e timeout is 15m", func(t *testing.T) {
+	t.Run("test stage idle timeout is 3m", func(t *testing.T) {
 		cfg := defaultStageConfig(core.StageTest)
-		if cfg.Timeout != 15*time.Minute {
-			t.Fatalf("e2e_test timeout mismatch, got %s want %s", cfg.Timeout, 15*time.Minute)
+		if cfg.IdleTimeout != 3*time.Minute {
+			t.Fatalf("test idle timeout mismatch, got %s want %s", cfg.IdleTimeout, 3*time.Minute)
 		}
 	})
 }

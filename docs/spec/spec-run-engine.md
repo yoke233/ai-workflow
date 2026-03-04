@@ -158,6 +158,29 @@ API：`GET /runs/{runID}/events` → `{ items: RunEvent[], total: int }`。
   2. 写入 `run_timeout`；
   3. 回写 issue 时间线（含超时摘要）。
 
+### Stage 级超时策略
+
+每个 stage 支持两种互斥的超时模式，优先级：`idle_timeout > timeout`。
+
+| 字段 | 含义 | 触发条件 |
+|------|------|----------|
+| `idle_timeout` | 空闲超时 | agent 无输出（`HandleSessionUpdate` 未被调用）超过阈值 |
+| `timeout` | 挂钟超时（向后兼容） | 从 stage 开始计时，固定时长后触发 |
+
+- `idle_timeout > 0` 时使用空闲超时模式，忽略 `timeout`。
+- `idle_timeout = 0` 且 `timeout > 0` 时使用挂钟超时。
+- 两者均为 0 时无超时。
+
+默认 `idle_timeout` 值：
+
+| Stage | idle_timeout |
+|-------|-------------|
+| implement, requirements, review, fixup | 5 min |
+| test | 3 min |
+| setup, merge, cleanup | 1 min |
+
+实现：`stageEventBridge.lastActivity` (`atomic.Int64`) + 后台 goroutine 定期检查 (`startIdleChecker`)。
+
 ## 取消与恢复
 
 - 取消：上层调用取消接口，必须写 `run_cancelled`。
