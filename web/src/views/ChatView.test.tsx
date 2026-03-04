@@ -6,7 +6,7 @@ import ChatView from "./ChatView";
 import { ApiError } from "../lib/apiClient";
 import type { ApiClient } from "../lib/apiClient";
 import type { WsClient } from "../lib/wsClient";
-import type { ApiTaskPlan } from "../types/api";
+import type { ApiIssue } from "../types/api";
 import type { WsEnvelope } from "../types/ws";
 
 vi.mock("../components/FileTree", () => ({
@@ -52,20 +52,27 @@ vi.mock("../components/GitStatusPanel", () => ({
   default: () => <div>GitStatusPanelMock</div>,
 }));
 
-const buildPlan = (id: string): ApiTaskPlan => ({
+const buildIssue = (id: string): ApiIssue => ({
   id,
   project_id: "proj-1",
   session_id: "chat-1",
-  name: "plan-name",
+  title: "issue-title",
+  body: "",
+  labels: [],
+  milestone_id: "",
+  attachments: [],
+  depends_on: [],
+  blocks: [],
+  priority: 0,
+  template: "standard",
+  auto_merge: false,
+  state: "open",
   status: "draft",
-  pipeline_id: "",
-  wait_reason: "",
-  tasks: [],
+  run_id: "",
+  version: 1,
+  superseded_by: "",
+  external_id: "",
   fail_policy: "block",
-  review_round: 0,
-  spec_profile: "default",
-  contract_version: "v1",
-  contract_checksum: "checksum",
   created_at: "2026-03-01T10:00:00.000Z",
   updated_at: "2026-03-01T10:00:00.000Z",
 });
@@ -105,8 +112,8 @@ const createMockApiClient = (): ApiClient => {
     status: "cancelling",
   });
   const getChat = vi.fn().mockResolvedValue(buildChatSession());
-  const createPlan = vi.fn().mockResolvedValue(buildPlan("plan-1"));
-  const createPlanFromFiles = vi.fn().mockResolvedValue(buildPlan("plan-files-1"));
+  const createIssue = vi.fn().mockResolvedValue(buildIssue("plan-1"));
+  const createIssueFromFiles = vi.fn().mockResolvedValue(buildIssue("plan-files-1"));
   const listChatRunEvents = vi.fn().mockResolvedValue([]);
   const listChats = vi.fn().mockResolvedValue([
     buildChatSession({
@@ -134,15 +141,15 @@ const createMockApiClient = (): ApiClient => {
     getStats: vi.fn(),
     listProjects: vi.fn(),
     createProject: vi.fn(),
-    listPipelines: vi.fn(),
-    createPipeline: vi.fn(),
+    listRuns: vi.fn(),
+    createRun: vi.fn(),
     createChat,
     cancelChat,
     getChat,
     listChats,
     listChatRunEvents,
-    createPlan,
-    createPlanFromFiles,
+    createIssue,
+    createIssueFromFiles,
     getRepoTree,
     getRepoStatus,
     getRepoDiff,
@@ -223,12 +230,12 @@ describe("ChatView", () => {
     expect(apiClient.getChat).not.toHaveBeenCalled();
 
     wsHarness.emit({
-      type: "chat_run_started",
+      type: "run_started",
       project_id: "proj-1",
       data: { session_id: "chat-1" },
     });
     wsHarness.emit({
-      type: "chat_run_update",
+      type: "run_update",
       project_id: "proj-1",
       data: {
         session_id: "chat-1",
@@ -247,7 +254,7 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_update",
+      type: "run_update",
       project_id: "proj-1",
       data: {
         session_id: "chat-1",
@@ -261,7 +268,7 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_completed",
+      type: "run_completed",
       project_id: "proj-1",
       data: {
         session_id: "chat-1",
@@ -295,7 +302,7 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_started",
+      type: "run_started",
       project_id: "proj-1",
       data: { session_id: "chat-1" },
     });
@@ -307,7 +314,7 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_cancelled",
+      type: "run_cancelled",
       project_id: "proj-1",
       data: { session_id: "chat-1" },
     });
@@ -334,12 +341,12 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_started",
+      type: "run_started",
       project_id: "proj-1",
       data: { session_id: "chat-1" },
     });
     wsHarness.emit({
-      type: "chat_run_update",
+      type: "run_update",
       project_id: "proj-1",
       data: {
         session_id: "chat-2",
@@ -352,7 +359,7 @@ describe("ChatView", () => {
       },
     });
     wsHarness.emit({
-      type: "chat_run_update",
+      type: "run_update",
       project_id: "proj-1",
       data: {
         session_id: "chat-1",
@@ -393,7 +400,7 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_completed",
+      type: "run_completed",
       project_id: "proj-1",
       data: { session_id: "chat-1" },
     });
@@ -457,7 +464,7 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_started",
+      type: "run_started",
       project_id: "proj-1",
       data: { session_id: "chat-1" },
     });
@@ -467,7 +474,7 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_completed",
+      type: "run_completed",
       project_id: "proj-1",
       data: { session_id: "chat-1" },
     });
@@ -495,7 +502,7 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_started",
+      type: "run_started",
       project_id: "proj-1",
       data: { session_id: "chat-1" },
     });
@@ -506,7 +513,7 @@ describe("ChatView", () => {
     expect(apiClient.cancelChat).not.toHaveBeenCalled();
 
     wsHarness.emit({
-      type: "chat_run_completed",
+      type: "run_completed",
       project_id: "proj-1",
       data: { session_id: "chat-1" },
     });
@@ -574,7 +581,7 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_update",
+      type: "run_update",
       project_id: "proj-1",
       data: {
         session_id: "chat-1",
@@ -589,7 +596,7 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_started",
+      type: "run_started",
       project_id: "proj-1",
       data: {
         session_id: "chat-1",
@@ -598,7 +605,7 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_update",
+      type: "run_update",
       project_id: "proj-1",
       data: {
         session_id: "chat-1",
@@ -637,12 +644,12 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_started",
+      type: "run_started",
       project_id: "proj-1",
       data: { session_id: "chat-1" },
     });
     wsHarness.emit({
-      type: "chat_run_completed",
+      type: "run_completed",
       project_id: "proj-1",
       data: { session_id: "chat-1", reply: "第一轮完成" },
     });
@@ -664,7 +671,7 @@ describe("ChatView", () => {
     });
   });
 
-  it("会话完成后可触发 createPlanFromFiles", async () => {
+  it("会话完成后可触发 createIssueFromFiles", async () => {
     const apiClient = createMockApiClient();
     const wsHarness = createMockWsHarness();
 
@@ -683,32 +690,32 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_started",
+      type: "run_started",
       project_id: "proj-1",
       data: { session_id: "chat-1" },
     });
     wsHarness.emit({
-      type: "chat_run_completed",
+      type: "run_completed",
       project_id: "proj-1",
       data: { session_id: "chat-1", reply: "done" },
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "从文件创建计划" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "从文件创建 issue" })).toBeTruthy();
     });
 
     fireEvent.change(screen.getByLabelText("文件路径（逗号分隔）"), {
       target: { value: "cmd/app/main.go, internal/core/task.go,  ,web/src/App.tsx" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "从文件创建计划" }));
+    fireEvent.click(screen.getByRole("button", { name: "从文件创建 issue" }));
 
     await waitFor(() => {
-      expect(apiClient.createPlanFromFiles).toHaveBeenCalledWith("proj-1", {
+      expect(apiClient.createIssueFromFiles).toHaveBeenCalledWith("proj-1", {
         session_id: "chat-1",
         file_paths: ["cmd/app/main.go", "internal/core/task.go", "web/src/App.tsx"],
       });
     });
-    expect(screen.getByText("已从文件创建计划：plan-files-1")).toBeTruthy();
+    expect(screen.getByText("已从文件创建 issue：plan-files-1")).toBeTruthy();
   });
 
   it("支持展示会话列表并切换会话", async () => {
@@ -737,7 +744,7 @@ describe("ChatView", () => {
             id: 2,
             session_id: "chat-2",
             project_id: "proj-1",
-            event_type: "chat_run_update",
+            event_type: "run_update",
             update_type: "tool_call",
             payload: {
               session_id: "chat-2",
@@ -788,12 +795,12 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_started",
+      type: "run_started",
       project_id: "proj-1",
       data: { session_id: "chat-1" },
     });
     wsHarness.emit({
-      type: "chat_run_update",
+      type: "run_update",
       project_id: "proj-1",
       data: {
         session_id: "chat-1",
@@ -806,7 +813,7 @@ describe("ChatView", () => {
       },
     });
     wsHarness.emit({
-      type: "chat_run_update",
+      type: "run_update",
       project_id: "proj-1",
       data: {
         session_id: "chat-1",
@@ -850,12 +857,12 @@ describe("ChatView", () => {
     });
 
     wsHarness.emit({
-      type: "chat_run_started",
+      type: "run_started",
       project_id: "proj-1",
       data: { session_id: "chat-1" },
     });
     wsHarness.emit({
-      type: "chat_run_completed",
+      type: "run_completed",
       project_id: "proj-1",
       data: { session_id: "chat-1", reply: "最终回复" },
     });
@@ -899,3 +906,4 @@ describe("ChatView", () => {
   });
 
 });
+

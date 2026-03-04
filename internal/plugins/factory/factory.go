@@ -20,11 +20,11 @@ import (
 	runtimeprocess "github.com/yoke233/ai-workflow/internal/plugins/runtime-process"
 	scmgithub "github.com/yoke233/ai-workflow/internal/plugins/scm-github"
 	scmlocalgit "github.com/yoke233/ai-workflow/internal/plugins/scm-local-git"
-storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
+	storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
 	trackergithub "github.com/yoke233/ai-workflow/internal/plugins/tracker-github"
 	trackerlocal "github.com/yoke233/ai-workflow/internal/plugins/tracker-local"
 	workspaceworktree "github.com/yoke233/ai-workflow/internal/plugins/workspace-worktree"
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
 // BootstrapSet contains initialized plugins required by engine bootstrap.
@@ -37,7 +37,7 @@ type BootstrapSet struct {
 	Tracker      core.Tracker
 	SCM          core.SCM
 	Notifier     core.Notifier
-	Workspace core.WorkspacePlugin
+	Workspace    core.WorkspacePlugin
 }
 
 const (
@@ -189,7 +189,7 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 		}
 	}
 
-	reviewGateName := strings.TrimSpace(effective.Secretary.ReviewGatePlugin)
+	reviewGateName := strings.TrimSpace(effective.TeamLeader.ReviewGatePlugin)
 	if reviewGateName == "" {
 		reviewGateName = defaultReviewGatePlugin
 	}
@@ -199,12 +199,12 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 	}
 	reviewGateRaw, err := reviewGateModule.Factory(map[string]any{
 		"store": storePlugin.Store(),
-		"review_orchestrator_bindings": secretary.ReviewRoleBindingInput{
+		"review_orchestrator_bindings": teamleader.ReviewRoleBindingInput{
 			Reviewers:  cloneStringMapForFactory(effective.RoleBinds.ReviewOrchestrator.Reviewers),
 			Aggregator: effective.RoleBinds.ReviewOrchestrator.Aggregator,
 		},
 		"role_resolver": roleResolver,
-		"max_rounds":    effective.Secretary.ReviewOrchestrator.MaxRounds,
+		"max_rounds":    effective.TeamLeader.ReviewOrchestrator.MaxRounds,
 		"github":        effective.GitHub,
 	})
 	if err != nil {
@@ -306,7 +306,7 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 		Tracker:      trackerPlugin,
 		SCM:          scmPlugin,
 		Notifier:     notifierPlugin,
-		Workspace: workspacePlugin,
+		Workspace:    workspacePlugin,
 	}, nil
 }
 
@@ -371,14 +371,14 @@ func newDefaultRegistry() (*core.Registry, error) {
 					return nil, fmt.Errorf("%s requires valid store dependency", defaultReviewGatePlugin)
 				}
 
-				panel := secretary.NewDefaultReviewOrchestrator(store)
+				panel := teamleader.NewDefaultReviewOrchestrator(store)
 				if rawBindings, ok := cfg["review_orchestrator_bindings"]; ok {
-					bindings, ok := rawBindings.(secretary.ReviewRoleBindingInput)
+					bindings, ok := rawBindings.(teamleader.ReviewRoleBindingInput)
 					if !ok {
 						return nil, fmt.Errorf("%s requires valid review_orchestrator_bindings", defaultReviewGatePlugin)
 					}
 					resolver, _ := cfg["role_resolver"].(*acpclient.RoleResolver)
-					resolvedPanel, err := secretary.NewDefaultReviewOrchestratorFromBindings(store, bindings, resolver)
+					resolvedPanel, err := teamleader.NewDefaultReviewOrchestratorFromBindings(store, bindings, resolver)
 					if err != nil {
 						return nil, fmt.Errorf("build review orchestrator from role bindings: %w", err)
 					}
@@ -475,10 +475,10 @@ func withDefaults(cfg config.Config) config.Config {
 }
 
 func isRoleBindingsEmpty(binds config.RoleBindings) bool {
-	return strings.TrimSpace(binds.Secretary.Role) == "" &&
+	return strings.TrimSpace(binds.TeamLeader.Role) == "" &&
 		strings.TrimSpace(binds.PlanParser.Role) == "" &&
 		strings.TrimSpace(binds.ReviewOrchestrator.Aggregator) == "" &&
-		len(binds.Pipeline.StageRoles) == 0 &&
+		len(binds.Run.StageRoles) == 0 &&
 		len(binds.ReviewOrchestrator.Reviewers) == 0
 }
 
@@ -608,4 +608,3 @@ func expandPath(path string) string {
 	}
 	return trimmed
 }
-

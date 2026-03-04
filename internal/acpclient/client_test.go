@@ -251,7 +251,7 @@ func TestClientNewSessionRetriesWithoutMetadataOnInvalidParams(t *testing.T) {
 		Cwd:        "D:\\project\\ai-workflow",
 		McpServers: []acpproto.McpServer{},
 		Meta: map[string]any{
-			"role_id": "secretary",
+			"role_id": "TeamLeader",
 		},
 	})
 	if err != nil {
@@ -323,7 +323,7 @@ func TestClientPromptRetriesWithoutMetadataOnInvalidParams(t *testing.T) {
 			{Text: &acpproto.ContentBlockText{Text: "hello"}},
 		},
 		Meta: map[string]any{
-			"role_id": "secretary",
+			"role_id": "TeamLeader",
 		},
 	})
 	if err != nil {

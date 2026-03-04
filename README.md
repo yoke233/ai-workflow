@@ -1,6 +1,14 @@
-# AI Workflow
+# AI Workflow（Wave4 / V2）
 
-本项目包含 Go 后端和 React 前端，默认通过 `http://localhost:5173`（前端）+ `http://127.0.0.1:8080`（后端）联调。
+本项目为 Go 后端 + React 前端协作系统。
+当前统一模型：**issue / profile / run / Team Leader**。
+
+## 核心术语
+
+- `issue`：最小交付单元，包含目标、上下文、约束与验收标准。
+- `profile`：Agent 执行画像（角色与能力组合）。
+- `run`：一次执行实例，输入为 `issue + profile`，输出为事件与结果。
+- `Team Leader`：统一编排入口，负责 issue 拆分、profile 选择、run 启停与 review 汇总。
 
 ## 环境要求
 
@@ -8,15 +16,15 @@
 - Node.js 20+
 - Git
 
-## 启动方式
+## 本地启动
 
-### 1. 启动后端
+### 1) 启动后端
 
 ```powershell
 go run ./cmd/ai-flow server --port 8080
 ```
 
-### 2. 启动前端
+### 2) 启动前端
 
 首次安装依赖：
 
@@ -30,53 +38,30 @@ npm --prefix web install
 npm --prefix web run dev -- --strictPort
 ```
 
-### 3. 打开页面
+### 3) 访问地址
 
-- 前端地址：`http://localhost:5173`
+- 前端：`http://localhost:5173`
 - 后端健康检查：`http://127.0.0.1:8080/health`
 
-## 项目创建（前端）
+## V2 API 主链路
 
-页面顶部「创建项目」支持三种来源：
+1. 创建项目：`POST /api/v1/projects`
+2. 启动 Team Leader 对话（携带 profile）：`POST /api/v1/projects/{projectID}/chat`
+3. 生成 issue：`POST /api/v1/projects/{projectID}/issues/from-files`
+4. 查询 run 事件：`GET /api/v1/projects/{projectID}/chat/{sessionID}/events`
+5. 查询 issue review 事件：`GET /api/v1/projects/{projectID}/issues/{issueID}/timeline?kinds=review`
 
-- `local_path`：填写项目名 + 本地仓库路径。
-- `local_new`：填写项目名，后端自动在 `~/.ai-workflow/repos/<slug>` 创建并 `git init`。
-- `github_clone`：填写项目名 + GitHub Owner/Repo（本轮未做真实账号联调）。
+## 测试与 Smoke
 
-创建流程是异步的，前端会通过 WS（断开时轮询）显示请求状态并刷新项目列表。
-
-## Chat 模型接入（真实 CLI）
-
-`/chat` 已支持真实模型多轮会话，后端会持久化 provider 的 session id 并在下一轮继续对话。
-
-- 默认使用 `claude`
-- 可切换为 `codex`：
+Wave4-T3 基线脚本：
 
 ```powershell
-$env:AI_WORKFLOW_CHAT_PROVIDER="codex"
-go run ./cmd/ai-flow server --port 8080
+pwsh -NoProfile -File .\scripts\test\v2-smoke.ps1
 ```
 
-可用取值：
-
-- `claude`（默认）
-- `codex`
-
-## 测试命令
-
-常用脚本位于 `scripts/test`：
+聚合入口（当前收敛到 V2 smoke）：
 
 ```powershell
-pwsh -NoProfile -File .\scripts\test\backend-all.ps1
-pwsh -NoProfile -File .\scripts\test\frontend-unit.ps1
-pwsh -NoProfile -File .\scripts\test\frontend-build.ps1
 pwsh -NoProfile -File .\scripts\test\p3-integration.ps1
 ```
 
-## 浏览器联调（agent-browser）
-
-本轮已用 `agent-browser` 实测并跑通：
-
-- `local_path` 创建
-- `local_new` 创建
-- `github_clone` 表单显示与校验（未做真实 clone）

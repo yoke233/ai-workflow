@@ -44,11 +44,13 @@ const CROSS_TERMINAL_RUN_NOTICE = "当前会话正在其他终端运行，界面
 const CHAT_SESSION_BUSY_NOTICE = "该会话正在其他终端运行，已自动同步最新状态。";
 
 const CHAT_RUN_EVENT_TYPES = new Set<ChatEventType>([
-  "chat_run_started",
-  "chat_run_update",
-  "chat_run_completed",
-  "chat_run_failed",
-  "chat_run_cancelled",
+  "run_started",
+  "run_update",
+  "run_completed",
+  "run_failed",
+  "run_cancelled",
+  "team_leader_thinking",
+  "team_leader_files_changed",
 ]);
 
 type ChatUpdateParser = (acp: ACPSessionUpdate) => string;
@@ -209,7 +211,7 @@ const toStoredRunEventItem = (event: ChatRunEvent): RunEventItem => {
   return {
     id: `stored-${event.id}`,
     sessionId: event.session_id,
-    type: toStringValue(event.event_type) || "chat_run_update",
+    type: toStringValue(event.event_type) || "run_update",
     detail,
     time: toStringValue(event.created_at) || nowIso(),
   };
@@ -414,16 +416,16 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatCancelling, setChatCancelling] = useState(false);
-  const [planFromFilesLoading, setPlanFromFilesLoading] = useState(false);
+  const [issueFromFilesLoading, setIssueFromFilesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [planNotice, setPlanNotice] = useState<string | null>(null);
+  const [issueNotice, setIssueNotice] = useState<string | null>(null);
   const [crossTerminalRunNotice, setCrossTerminalRunNotice] = useState<string | null>(null);
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
   const [chatsLoading, setChatsLoading] = useState(false);
   const [chatsError, setChatsError] = useState<string | null>(null);
   const [runEvents, setRunEvents] = useState<RunEventItem[]>([]);
   const chatRequestIdRef = useRef(0);
-  const planFromFilesRequestIdRef = useRef(0);
+  const issueFromFilesRequestIdRef = useRef(0);
   const sessionRefreshRequestIdRef = useRef(0);
   const chatListRequestIdRef = useRef(0);
   const runEventsRequestIdRef = useRef(0);
@@ -433,7 +435,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
 
   useEffect(() => {
     chatRequestIdRef.current += 1;
-    planFromFilesRequestIdRef.current += 1;
+    issueFromFilesRequestIdRef.current += 1;
     setDraft("");
     setFilePathsDraft("");
     setSelectedFiles([]);
@@ -443,7 +445,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     setStreamingText("");
     setIsStreaming(false);
     setError(null);
-    setPlanNotice(null);
+    setIssueNotice(null);
     setCrossTerminalRunNotice(null);
     setChatSessions([]);
     setChatsLoading(false);
@@ -451,7 +453,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     setRunEvents([]);
     setChatLoading(false);
     setChatCancelling(false);
-    setPlanFromFilesLoading(false);
+    setIssueFromFilesLoading(false);
     sessionRefreshRequestIdRef.current += 1;
     chatListRequestIdRef.current += 1;
     runEventsRequestIdRef.current += 1;
@@ -464,8 +466,8 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     ? !!sessionId && !chatCancelling && !syncingFromOtherTerminal
     : draft.trim().length > 0;
   const filePaths = useMemo(() => parseFilePathsDraft(filePathsDraft), [filePathsDraft]);
-  const canCreatePlanFromFiles =
-    !!sessionId && filePaths.length > 0 && !planFromFilesLoading && !chatLoading;
+  const canCreateIssueFromFiles =
+    !!sessionId && filePaths.length > 0 && !issueFromFilesLoading && !chatLoading;
 
   const sortedMessages = useMemo(
     () =>
@@ -601,7 +603,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     activeRunStartedAtRef.current = 0;
     localRunStartPendingRef.current = true;
     setError(null);
-    setPlanNotice(null);
+    setIssueNotice(null);
     setCrossTerminalRunNotice(null);
     const requestId = chatRequestIdRef.current + 1;
     chatRequestIdRef.current = requestId;
@@ -677,35 +679,35 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     }
   };
 
-  const handleCreatePlanFromFiles = async () => {
+  const handleCreateIssueFromFiles = async () => {
     if (!sessionId || filePaths.length === 0) {
       return;
     }
 
-    setPlanFromFilesLoading(true);
+    setIssueFromFilesLoading(true);
     setError(null);
-    setPlanNotice(null);
-    const requestId = planFromFilesRequestIdRef.current + 1;
-    planFromFilesRequestIdRef.current = requestId;
+    setIssueNotice(null);
+    const requestId = issueFromFilesRequestIdRef.current + 1;
+    issueFromFilesRequestIdRef.current = requestId;
     const targetProjectId = projectId;
     const targetSessionId = sessionId;
     try {
-      const createdPlan = await apiClient.createPlanFromFiles(targetProjectId, {
+      const createdIssue = await apiClient.createIssueFromFiles(targetProjectId, {
         session_id: targetSessionId,
         file_paths: filePaths,
       });
-      if (planFromFilesRequestIdRef.current !== requestId) {
+      if (issueFromFilesRequestIdRef.current !== requestId) {
         return;
       }
-      setPlanNotice(`已从文件创建计划：${createdPlan.id}`);
+      setIssueNotice(`已从文件创建 issue：${createdIssue.id}`);
     } catch (requestError) {
-      if (planFromFilesRequestIdRef.current !== requestId) {
+      if (issueFromFilesRequestIdRef.current !== requestId) {
         return;
       }
       setError(getErrorMessage(requestError));
     } finally {
-      if (planFromFilesRequestIdRef.current === requestId) {
-        setPlanFromFilesLoading(false);
+      if (issueFromFilesRequestIdRef.current === requestId) {
+        setIssueFromFilesLoading(false);
       }
     }
   };
@@ -743,7 +745,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     activeRunStartedAtRef.current = 0;
     setChatLoading(false);
     setChatCancelling(false);
-    setPlanNotice(null);
+    setIssueNotice(null);
     setCrossTerminalRunNotice(null);
     setError(null);
     setRunEvents([]);
@@ -847,7 +849,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
       }
 
       switch (envelope.type as ChatEventType) {
-        case "chat_run_started": {
+        case "run_started": {
           const startedByCurrentTerminal = localRunStartPendingRef.current;
           localRunStartPendingRef.current = false;
           activeRunStartedAtRef.current = toEventTimestampMs(data.timestamp) || Date.now();
@@ -859,10 +861,12 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           setCrossTerminalRunNotice(
             startedByCurrentTerminal ? null : CROSS_TERMINAL_RUN_NOTICE,
           );
-          pushRunEvent(wsSessionID, "chat_run_started", "运行已开始");
+          pushRunEvent(wsSessionID, "run_started", "运行已开始");
           break;
         }
-        case "chat_run_update": {
+        case "run_update":
+        case "team_leader_thinking":
+        case "team_leader_files_changed": {
           const eventTimestampMs = toEventTimestampMs(data.timestamp);
           const runStartedAt = activeRunStartedAtRef.current;
           if (runStartedAt === 0) {
@@ -875,11 +879,11 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           if (delta.length > 0) {
             setStreamingText((prev) => `${prev}${delta}`);
           } else {
-            pushRunEvent(wsSessionID, "chat_run_update", buildRunEventDetail(data));
+            pushRunEvent(wsSessionID, String(envelope.type), buildRunEventDetail(data));
           }
           break;
         }
-        case "chat_run_completed": {
+        case "run_completed": {
           localRunStartPendingRef.current = false;
           activeRunStartedAtRef.current = 0;
           setChatLoading(false);
@@ -887,13 +891,13 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           setIsStreaming(false);
           setStreamingText("");
           setCrossTerminalRunNotice(null);
-          pushRunEvent(wsSessionID, "chat_run_completed", "运行完成");
+          pushRunEvent(wsSessionID, "run_completed", "运行完成");
           void refreshSession(projectId, wsSessionID);
           void refreshChatRunEvents(projectId, wsSessionID);
           void refreshChatSessions(projectId);
           break;
         }
-        case "chat_run_cancelled": {
+        case "run_cancelled": {
           localRunStartPendingRef.current = false;
           activeRunStartedAtRef.current = 0;
           setChatLoading(false);
@@ -902,12 +906,12 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           setStreamingText("");
           setCrossTerminalRunNotice(null);
           setError("当前请求已取消");
-          pushRunEvent(wsSessionID, "chat_run_cancelled", "运行已取消");
+          pushRunEvent(wsSessionID, "run_cancelled", "运行已取消");
           void refreshChatRunEvents(projectId, wsSessionID);
           void refreshChatSessions(projectId);
           break;
         }
-        case "chat_run_failed": {
+        case "run_failed": {
           localRunStartPendingRef.current = false;
           activeRunStartedAtRef.current = 0;
           setChatLoading(false);
@@ -917,7 +921,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           setCrossTerminalRunNotice(null);
           const reason = toStringValue(data.error);
           setError(reason || "chat 执行失败");
-          pushRunEvent(wsSessionID, "chat_run_failed", reason || "chat 执行失败");
+          pushRunEvent(wsSessionID, "run_failed", reason || "chat 执行失败");
           void refreshChatRunEvents(projectId, wsSessionID);
           void refreshChatSessions(projectId);
           break;
@@ -1057,7 +1061,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
             id="chat-message"
             rows={4}
             className="min-h-[7rem] w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            placeholder="请输入要拆分为计划的需求..."
+            placeholder="请输入要拆分为 issue 的需求..."
             value={draft}
             onChange={(event) => {
               setDraft(event.target.value);
@@ -1086,7 +1090,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
       </div>
 
       <aside className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h3 className="text-lg font-semibold">会话与计划</h3>
+        <h3 className="text-lg font-semibold">会话与 Team Leader</h3>
         <p className="mt-2 break-all text-xs text-slate-600">
           Session ID: {sessionId ?? "未创建"}
         </p>
@@ -1160,10 +1164,10 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           </div>
         </div>
 
-        <label className="mt-4 block text-xs text-slate-700" htmlFor="plan-file-paths">
+        <label className="mt-4 block text-xs text-slate-700" htmlFor="issue-file-paths">
           文件路径（逗号分隔）
           <input
-            id="plan-file-paths"
+            id="issue-file-paths"
             className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
             placeholder="例如：cmd/app/main.go, internal/core/task.go"
             value={filePathsDraft}
@@ -1177,17 +1181,17 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
         <button
           type="button"
           className="mt-2 w-full rounded-md border border-sky-700 px-3 py-2 text-sm font-semibold text-sky-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
-          disabled={!canCreatePlanFromFiles}
+          disabled={!canCreateIssueFromFiles}
           onClick={() => {
-            void handleCreatePlanFromFiles();
+            void handleCreateIssueFromFiles();
           }}
         >
-          {planFromFilesLoading ? "从文件创建中..." : "从文件创建计划"}
+          {issueFromFilesLoading ? "从文件创建中..." : "从文件创建 issue"}
         </button>
 
-        {planNotice ? (
+        {issueNotice ? (
           <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-            {planNotice}
+            {issueNotice}
           </p>
         ) : null}
         {crossTerminalRunNotice ? (

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ChatView from "./views/ChatView";
 import A2AChatView from "./views/A2AChatView";
-import PlanView from "./views/PlanView";
 import BoardView from "./views/BoardView";
 import ProjectAdminPanel from "./components/ProjectAdminPanel";
 import { createApiClient, type ApiClient } from "./lib/apiClient";
@@ -10,26 +9,29 @@ import { createWsClient, type WsClient } from "./lib/wsClient";
 import type { WsEnvelope } from "./types/ws";
 import type { Project } from "./types/workflow";
 
-type AppView = "chat" | "plan" | "board";
+type AppView = "chat" | "board";
 
 const VIEW_LABELS: Record<AppView, string> = {
   chat: "Chat",
-  plan: "Plan",
   board: "Issues",
 };
 
-const PLAN_TASK_EVENT_TYPES = new Set([
-  "plan_created",
-  "plan_reviewing",
-  "plan_approved",
-  "plan_waiting_human",
-  "plan_done",
-  "plan_failed",
-  "plan_partially_done",
-  "task_ready",
-  "task_running",
-  "task_done",
-  "task_failed",
+const ISSUE_RUN_EVENT_TYPES = new Set([
+  "run_started",
+  "run_update",
+  "run_completed",
+  "run_failed",
+  "run_cancelled",
+  "issue_created",
+  "issue_reviewing",
+  "review_done",
+  "issue_approved",
+  "issue_queued",
+  "issue_ready",
+  "issue_executing",
+  "issue_done",
+  "issue_failed",
+  "issue_dependency_changed",
 ]);
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
@@ -41,8 +43,11 @@ const parseViewFromLocation = (): AppView => {
   }
   const params = new URLSearchParams(window.location.search);
   const view = params.get("view");
-  if (view === "chat" || view === "plan" || view === "board") {
+  if (view === "chat" || view === "board") {
     return view;
+  }
+  if (view === "plan") {
+    return "board";
   }
   if (params.get("issue")) {
     return "board";
@@ -73,15 +78,6 @@ const renderView = ({ apiClient, a2aClient, wsClient, projectId, refreshToken, a
         <A2AChatView a2aClient={a2aClient} projectId={projectId} />
       ) : (
         <ChatView apiClient={apiClient} wsClient={wsClient} projectId={projectId} />
-      );
-    case "plan":
-      return (
-        <PlanView
-          apiClient={apiClient}
-          wsClient={wsClient}
-          projectId={projectId}
-          refreshToken={refreshToken}
-        />
       );
     case "board":
       return (
@@ -177,7 +173,7 @@ const App = ({ a2aEnabledOverride }: AppProps = {}) => {
     });
     const unsubscribeAll = wsClient.subscribe<WsEnvelope>("*", (payload) => {
       const envelope = payload as WsEnvelope;
-      if (!PLAN_TASK_EVENT_TYPES.has(envelope.type)) {
+      if (!ISSUE_RUN_EVENT_TYPES.has(envelope.type)) {
         return;
       }
       const projectID = selectedProjectIdRef.current;

@@ -48,7 +48,7 @@ func TestClaudeChatAssistantReplyUsesLoadSessionThenPrompt(t *testing.T) {
 	}
 	factory := &recordingACPClientFactory{client: client}
 	assistant := newClaudeChatAssistantForTest("claude", ACPChatAssistantDeps{
-		DefaultRoleID: "secretary",
+		DefaultRoleID: "team_leader",
 		RoleResolver:  resolver,
 		ClientFactory: factory,
 	})
@@ -112,8 +112,8 @@ func TestClaudeChatAssistantReplyFallsBackToNewSessionWhenLoadFails(t *testing.T
 			LaunchCommand: "claude-agent-acp",
 		},
 		roles: map[string]acpclient.RoleProfile{
-			"secretary": {
-				ID:      "secretary",
+			"team_leader": {
+				ID:      "team_leader",
 				AgentID: "claude",
 				Capabilities: acpclient.ClientCapabilities{
 					FSRead:   true,
@@ -136,7 +136,7 @@ func TestClaudeChatAssistantReplyFallsBackToNewSessionWhenLoadFails(t *testing.T
 	}
 	factory := &recordingACPClientFactory{client: client}
 	assistant := newClaudeChatAssistantForTest("claude", ACPChatAssistantDeps{
-		DefaultRoleID: "secretary",
+		DefaultRoleID: "team_leader",
 		RoleResolver:  resolver,
 		ClientFactory: factory,
 	})
@@ -164,8 +164,8 @@ func TestClaudeChatAssistantReplyFallsBackToNewSessionWhenLoadFails(t *testing.T
 	if client.newReqs[0].Cwd != "D:/repo/demo" {
 		t.Fatalf("new session cwd = %q, want %q", client.newReqs[0].Cwd, "D:/repo/demo")
 	}
-	if gotRole, _ := client.newReqs[0].Meta["role_id"].(string); gotRole != "secretary" {
-		t.Fatalf("new metadata role_id = %q, want %q", gotRole, "secretary")
+	if gotRole, _ := client.newReqs[0].Meta["role_id"].(string); gotRole != "team_leader" {
+		t.Fatalf("new metadata role_id = %q, want %q", gotRole, "team_leader")
 	}
 }
 
@@ -178,8 +178,8 @@ func TestClaudeChatAssistantReplyPublishesWriteFileEventViaACPHandler(t *testing
 			LaunchCommand: "claude-agent-acp",
 		},
 		roles: map[string]acpclient.RoleProfile{
-			"secretary": {
-				ID:      "secretary",
+			"team_leader": {
+				ID:      "team_leader",
 				AgentID: "claude",
 				Capabilities: acpclient.ClientCapabilities{
 					FSRead:   true,
@@ -201,7 +201,7 @@ func TestClaudeChatAssistantReplyPublishesWriteFileEventViaACPHandler(t *testing
 	}
 	factory := &recordingACPClientFactory{client: client}
 	assistant := newClaudeChatAssistantForTest("claude", ACPChatAssistantDeps{
-		DefaultRoleID:  "secretary",
+		DefaultRoleID:  "team_leader",
 		RoleResolver:   resolver,
 		ClientFactory:  factory,
 		EventPublisher: pub,
@@ -218,8 +218,8 @@ func TestClaudeChatAssistantReplyPublishesWriteFileEventViaACPHandler(t *testing
 	if len(events) == 0 {
 		t.Fatal("expected files changed event")
 	}
-	if events[0].Type != core.EventSecretaryFilesChanged {
-		t.Fatalf("event type = %q, want %q", events[0].Type, core.EventSecretaryFilesChanged)
+	if events[0].Type != core.EventTeamLeaderFilesChanged {
+		t.Fatalf("event type = %q, want %q", events[0].Type, core.EventTeamLeaderFilesChanged)
 	}
 	if events[0].Data["session_id"] != "sid-new" {
 		t.Fatalf("event session_id = %q, want %q", events[0].Data["session_id"], "sid-new")
@@ -244,8 +244,8 @@ func TestClaudeChatAssistantReplyReturnsPromptError(t *testing.T) {
 			LaunchCommand: "claude-agent-acp",
 		},
 		roles: map[string]acpclient.RoleProfile{
-			"secretary": {
-				ID:      "secretary",
+			"team_leader": {
+				ID:      "team_leader",
 				AgentID: "claude",
 			},
 		},
@@ -256,7 +256,7 @@ func TestClaudeChatAssistantReplyReturnsPromptError(t *testing.T) {
 	}
 	factory := &recordingACPClientFactory{client: client}
 	assistant := newClaudeChatAssistantForTest("claude", ACPChatAssistantDeps{
-		DefaultRoleID: "secretary",
+		DefaultRoleID: "team_leader",
 		RoleResolver:  resolver,
 		ClientFactory: factory,
 	})

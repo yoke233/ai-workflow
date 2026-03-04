@@ -6,7 +6,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/a2a"
 	"github.com/go-chi/chi/v5"
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
 func registerA2ARoutes(r chi.Router, cfg Config) {
@@ -91,7 +91,7 @@ func handleA2AMessageSend(w http.ResponseWriter, r *http.Request, cfg Config, re
 		return
 	}
 
-	snapshot, err := cfg.A2ABridge.SendMessage(r.Context(), secretary.A2ASendMessageInput{
+	snapshot, err := cfg.A2ABridge.SendMessage(r.Context(), teamleader.A2ASendMessageInput{
 		ProjectID:    a2aProjectID(params.Metadata),
 		SessionID:    strings.TrimSpace(params.Message.ContextID),
 		Conversation: a2aMessageText(params.Message),
@@ -116,7 +116,7 @@ func handleA2ATasksGet(w http.ResponseWriter, r *http.Request, cfg Config, req a
 		return
 	}
 
-	snapshot, err := cfg.A2ABridge.GetTask(r.Context(), secretary.A2AGetTaskInput{
+	snapshot, err := cfg.A2ABridge.GetTask(r.Context(), teamleader.A2AGetTaskInput{
 		ProjectID: a2aProjectID(params.Metadata),
 		TaskID:    strings.TrimSpace(string(params.ID)),
 	})
@@ -140,7 +140,7 @@ func handleA2ATasksCancel(w http.ResponseWriter, r *http.Request, cfg Config, re
 		return
 	}
 
-	snapshot, err := cfg.A2ABridge.CancelTask(r.Context(), secretary.A2ACancelTaskInput{
+	snapshot, err := cfg.A2ABridge.CancelTask(r.Context(), teamleader.A2ACancelTaskInput{
 		ProjectID: a2aProjectID(params.Metadata),
 		TaskID:    strings.TrimSpace(string(params.ID)),
 	})

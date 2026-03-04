@@ -58,9 +58,9 @@ func Defaults() Config {
 		},
 		Roles: []RoleConfig{
 			{
-				Name:           "secretary",
+				Name:           "team_leader",
 				Agent:          "claude",
-				PromptTemplate: "secretary_system",
+				PromptTemplate: "team_leader",
 				Capabilities: CapabilitiesConfig{
 					FSRead:   true,
 					FSWrite:  true,
@@ -124,10 +124,10 @@ func Defaults() Config {
 			},
 		},
 		RoleBinds: RoleBindings{
-			Secretary: SingleRoleBinding{
-				Role: "secretary",
+			TeamLeader: SingleRoleBinding{
+				Role: "team_leader",
 			},
-			Pipeline: PipelineRoleBindings{
+			Run: RunRoleBindings{
 				StageRoles: map[string]string{
 					"requirements": "worker",
 					"implement":    "worker",
@@ -151,17 +151,17 @@ func Defaults() Config {
 		Runtime: RuntimeConfig{
 			Driver: "process",
 		},
-		Pipeline: PipelineConfig{
+		Run: RunConfig{
 			DefaultTemplate:   "standard",
 			GlobalTimeout:     2 * time.Hour,
 			AutoInferTemplate: true,
 			MaxTotalRetries:   5,
 		},
 		Scheduler: SchedulerConfig{
-			MaxGlobalAgents:     3,
-			MaxProjectPipelines: 2,
+			MaxGlobalAgents: 3,
+			MaxProjectRuns:  2,
 		},
-		Secretary: SecretaryConfig{
+		TeamLeader: TeamLeaderConfig{
 			ReviewGatePlugin: "review-ai-panel",
 			ReviewOrchestrator: ReviewOrchestratorConfig{
 				MaxRounds: 2,

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
 func TestA2ADisabled_RoutesReturn404WithoutSPAFallback(t *testing.T) {
@@ -147,18 +147,18 @@ func TestA2AEnabled_MethodNotFoundReturns32601(t *testing.T) {
 
 func TestA2AMessageSend_ReturnsTaskSnapshot(t *testing.T) {
 	bridge := &fakeA2ABridge{
-		sendFn: func(input secretary.A2ASendMessageInput) (*secretary.A2ATaskSnapshot, error) {
+		sendFn: func(input teamleader.A2ASendMessageInput) (*teamleader.A2ATaskSnapshot, error) {
 			if input.ProjectID != "proj-send" {
 				t.Fatalf("project id = %q, want %q", input.ProjectID, "proj-send")
 			}
 			if input.Conversation != "hello from a2a" {
 				t.Fatalf("conversation = %q, want %q", input.Conversation, "hello from a2a")
 			}
-			return &secretary.A2ATaskSnapshot{
+			return &teamleader.A2ATaskSnapshot{
 				TaskID:    "task-send",
 				ProjectID: "proj-send",
 				SessionID: "ctx-send",
-				State:     secretary.A2ATaskStateSubmitted,
+				State:     teamleader.A2ATaskStateSubmitted,
 			}, nil
 		},
 	}
@@ -196,22 +196,22 @@ func TestA2AMessageSend_ReturnsTaskSnapshot(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected result.status object, got %#v", result["status"])
 	}
-	if status["state"] != string(secretary.A2ATaskStateSubmitted) {
-		t.Fatalf("result.status.state = %v, want %q", status["state"], secretary.A2ATaskStateSubmitted)
+	if status["state"] != string(teamleader.A2ATaskStateSubmitted) {
+		t.Fatalf("result.status.state = %v, want %q", status["state"], teamleader.A2ATaskStateSubmitted)
 	}
 }
 
 func TestA2ATasksGet_ReturnsConsistentState(t *testing.T) {
 	bridge := &fakeA2ABridge{
-		getFn: func(input secretary.A2AGetTaskInput) (*secretary.A2ATaskSnapshot, error) {
+		getFn: func(input teamleader.A2AGetTaskInput) (*teamleader.A2ATaskSnapshot, error) {
 			if input.TaskID != "task-get" {
 				t.Fatalf("task id = %q, want %q", input.TaskID, "task-get")
 			}
-			return &secretary.A2ATaskSnapshot{
+			return &teamleader.A2ATaskSnapshot{
 				TaskID:    "task-get",
 				ProjectID: "proj-get",
 				SessionID: "ctx-get",
-				State:     secretary.A2ATaskStateWorking,
+				State:     teamleader.A2ATaskStateWorking,
 			}, nil
 		},
 	}
@@ -239,22 +239,22 @@ func TestA2ATasksGet_ReturnsConsistentState(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected result.status object, got %#v", result["status"])
 	}
-	if status["state"] != string(secretary.A2ATaskStateWorking) {
-		t.Fatalf("result.status.state = %v, want %q", status["state"], secretary.A2ATaskStateWorking)
+	if status["state"] != string(teamleader.A2ATaskStateWorking) {
+		t.Fatalf("result.status.state = %v, want %q", status["state"], teamleader.A2ATaskStateWorking)
 	}
 }
 
 func TestA2ATasksCancel_SuccessStatusTransition(t *testing.T) {
 	bridge := &fakeA2ABridge{
-		cancelFn: func(input secretary.A2ACancelTaskInput) (*secretary.A2ATaskSnapshot, error) {
+		cancelFn: func(input teamleader.A2ACancelTaskInput) (*teamleader.A2ATaskSnapshot, error) {
 			if input.TaskID != "task-cancel" {
 				t.Fatalf("task id = %q, want %q", input.TaskID, "task-cancel")
 			}
-			return &secretary.A2ATaskSnapshot{
+			return &teamleader.A2ATaskSnapshot{
 				TaskID:    "task-cancel",
 				ProjectID: "proj-cancel",
 				SessionID: "ctx-cancel",
-				State:     secretary.A2ATaskStateCanceled,
+				State:     teamleader.A2ATaskStateCanceled,
 			}, nil
 		},
 	}
@@ -282,8 +282,8 @@ func TestA2ATasksCancel_SuccessStatusTransition(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected result.status object, got %#v", result["status"])
 	}
-	if status["state"] != string(secretary.A2ATaskStateCanceled) {
-		t.Fatalf("result.status.state = %v, want %q", status["state"], secretary.A2ATaskStateCanceled)
+	if status["state"] != string(teamleader.A2ATaskStateCanceled) {
+		t.Fatalf("result.status.state = %v, want %q", status["state"], teamleader.A2ATaskStateCanceled)
 	}
 }
 
@@ -336,8 +336,8 @@ func TestA2ATasksGet_ProjectScopeReturnsBusinessError(t *testing.T) {
 		A2AToken:   "a2a-token",
 		A2AVersion: "0.3",
 		A2ABridge: &fakeA2ABridge{
-			getFn: func(input secretary.A2AGetTaskInput) (*secretary.A2ATaskSnapshot, error) {
-				return nil, secretary.ErrA2AProjectScope
+			getFn: func(input teamleader.A2AGetTaskInput) (*teamleader.A2ATaskSnapshot, error) {
+				return nil, teamleader.ErrA2AProjectScope
 			},
 		},
 	})
@@ -566,26 +566,26 @@ func mustDoA2ARPCRequest(t *testing.T, baseURL string, body string, token string
 }
 
 type fakeA2ABridge struct {
-	sendFn   func(input secretary.A2ASendMessageInput) (*secretary.A2ATaskSnapshot, error)
-	getFn    func(input secretary.A2AGetTaskInput) (*secretary.A2ATaskSnapshot, error)
-	cancelFn func(input secretary.A2ACancelTaskInput) (*secretary.A2ATaskSnapshot, error)
+	sendFn   func(input teamleader.A2ASendMessageInput) (*teamleader.A2ATaskSnapshot, error)
+	getFn    func(input teamleader.A2AGetTaskInput) (*teamleader.A2ATaskSnapshot, error)
+	cancelFn func(input teamleader.A2ACancelTaskInput) (*teamleader.A2ATaskSnapshot, error)
 }
 
-func (f *fakeA2ABridge) SendMessage(ctx context.Context, input secretary.A2ASendMessageInput) (*secretary.A2ATaskSnapshot, error) {
+func (f *fakeA2ABridge) SendMessage(ctx context.Context, input teamleader.A2ASendMessageInput) (*teamleader.A2ATaskSnapshot, error) {
 	if f.sendFn == nil {
 		return nil, errors.New("send not implemented")
 	}
 	return f.sendFn(input)
 }
 
-func (f *fakeA2ABridge) GetTask(ctx context.Context, input secretary.A2AGetTaskInput) (*secretary.A2ATaskSnapshot, error) {
+func (f *fakeA2ABridge) GetTask(ctx context.Context, input teamleader.A2AGetTaskInput) (*teamleader.A2ATaskSnapshot, error) {
 	if f.getFn == nil {
 		return nil, errors.New("get not implemented")
 	}
 	return f.getFn(input)
 }
 
-func (f *fakeA2ABridge) CancelTask(ctx context.Context, input secretary.A2ACancelTaskInput) (*secretary.A2ATaskSnapshot, error) {
+func (f *fakeA2ABridge) CancelTask(ctx context.Context, input teamleader.A2ACancelTaskInput) (*teamleader.A2ATaskSnapshot, error) {
 	if f.cancelFn == nil {
 		return nil, errors.New("cancel not implemented")
 	}

@@ -23,7 +23,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/engine"
 	"github.com/yoke233/ai-workflow/internal/eventbus"
 	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 	"github.com/yoke233/ai-workflow/internal/web"
 )
 
@@ -48,7 +48,7 @@ type serverIssueManager interface {
 }
 
 type depSchedulerIssueAdapter struct {
-	scheduler *secretary.DepScheduler
+	scheduler *teamleader.DepScheduler
 }
 
 func (a *depSchedulerIssueAdapter) Start(ctx context.Context) error {
@@ -79,34 +79,34 @@ func (a *depSchedulerIssueAdapter) StartIssue(ctx context.Context, issue *core.I
 	return a.scheduler.ScheduleIssues(ctx, []*core.Issue{issue})
 }
 
-type secretaryIssueManagerAdapter struct {
-	manager secretaryIssueService
+type teamLeaderIssueManagerAdapter struct {
+	manager teamLeaderIssueService
 	store   core.Store
 }
 
-type secretaryIssueService interface {
+type teamLeaderIssueService interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
-	CreateIssues(ctx context.Context, input secretary.CreateIssuesInput) ([]*core.Issue, error)
+	CreateIssues(ctx context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error)
 	SubmitForReview(ctx context.Context, issueIDs []string) error
 	ApplyIssueAction(ctx context.Context, issueID, action, feedback string) (*core.Issue, error)
 }
 
-func (a *secretaryIssueManagerAdapter) Start(ctx context.Context) error {
+func (a *teamLeaderIssueManagerAdapter) Start(ctx context.Context) error {
 	if a == nil || a.manager == nil {
 		return errors.New("issue manager is not configured")
 	}
 	return a.manager.Start(ctx)
 }
 
-func (a *secretaryIssueManagerAdapter) Stop(ctx context.Context) error {
+func (a *teamLeaderIssueManagerAdapter) Stop(ctx context.Context) error {
 	if a == nil || a.manager == nil {
 		return nil
 	}
 	return a.manager.Stop(ctx)
 }
 
-func (a *secretaryIssueManagerAdapter) CreateIssues(ctx context.Context, input web.IssueCreateInput) ([]core.Issue, error) {
+func (a *teamLeaderIssueManagerAdapter) CreateIssues(ctx context.Context, input web.IssueCreateInput) ([]core.Issue, error) {
 	if a == nil || a.manager == nil {
 		return nil, errors.New("issue manager is not configured")
 	}
@@ -121,10 +121,10 @@ func (a *secretaryIssueManagerAdapter) CreateIssues(ctx context.Context, input w
 		failPolicy = core.FailBlock
 	}
 
-	created, err := a.manager.CreateIssues(ctx, secretary.CreateIssuesInput{
+	created, err := a.manager.CreateIssues(ctx, teamleader.CreateIssuesInput{
 		ProjectID: projectID,
 		SessionID: strings.TrimSpace(input.SessionID),
-		Issues: []secretary.CreateIssueSpec{
+		Issues: []teamleader.CreateIssueSpec{
 			{
 				Title:      resolveIssueTitle(input),
 				Body:       buildIssueBody(input),
@@ -149,7 +149,7 @@ func (a *secretaryIssueManagerAdapter) CreateIssues(ctx context.Context, input w
 	return out, nil
 }
 
-func (a *secretaryIssueManagerAdapter) SubmitForReview(ctx context.Context, issueID string, _ web.IssueReviewInput) (*core.Issue, error) {
+func (a *teamLeaderIssueManagerAdapter) SubmitForReview(ctx context.Context, issueID string, _ web.IssueReviewInput) (*core.Issue, error) {
 	if a == nil || a.manager == nil {
 		return nil, errors.New("issue manager is not configured")
 	}
@@ -166,7 +166,7 @@ func (a *secretaryIssueManagerAdapter) SubmitForReview(ctx context.Context, issu
 	return a.store.GetIssue(id)
 }
 
-func (a *secretaryIssueManagerAdapter) ApplyIssueAction(ctx context.Context, issueID string, action web.IssueAction) (*core.Issue, error) {
+func (a *teamLeaderIssueManagerAdapter) ApplyIssueAction(ctx context.Context, issueID string, action web.IssueAction) (*core.Issue, error) {
 	if a == nil || a.manager == nil {
 		return nil, errors.New("issue manager is not configured")
 	}
@@ -253,7 +253,7 @@ var (
 		exec *engine.Executor,
 		bootstrapSet *pluginfactory.BootstrapSet,
 		bus *eventbus.Bus,
-		secretaryCfg config.SecretaryConfig,
+		teamLeaderCfg config.TeamLeaderConfig,
 		roleBinds config.RoleBindings,
 	) (serverIssueManager, error) {
 		if exec == nil {
@@ -262,18 +262,18 @@ var (
 		if bootstrapSet == nil {
 			return nil, errors.New("bootstrap set is required for issue manager")
 		}
-		agentPlugin, err := selectSecretaryAgentPlugin(bootstrapSet.Agents)
+		agentPlugin, err := selectTeamLeaderAgentPlugin(bootstrapSet.Agents)
 		if err != nil {
 			return nil, err
 		}
-		agent, err := secretary.NewAgent(agentPlugin, bootstrapSet.Runtime)
+		agent, err := teamleader.NewAgent(agentPlugin, bootstrapSet.Runtime)
 		if err != nil {
 			return nil, err
 		}
 
-		reviewPanel, err := secretary.NewDefaultReviewOrchestratorFromBindings(
+		reviewPanel, err := teamleader.NewDefaultReviewOrchestratorFromBindings(
 			bootstrapSet.Store,
-			secretary.ReviewRoleBindingInput{
+			teamleader.ReviewRoleBindingInput{
 				Reviewers:  cloneStringMap(roleBinds.ReviewOrchestrator.Reviewers),
 				Aggregator: roleBinds.ReviewOrchestrator.Aggregator,
 			},
@@ -282,33 +282,33 @@ var (
 		if err != nil {
 			return nil, fmt.Errorf("build review orchestrator from role bindings: %w", err)
 		}
-		if secretaryCfg.ReviewOrchestrator.MaxRounds > 0 {
-			reviewPanel.MaxRounds = secretaryCfg.ReviewOrchestrator.MaxRounds
+		if teamLeaderCfg.ReviewOrchestrator.MaxRounds > 0 {
+			reviewPanel.MaxRounds = teamLeaderCfg.ReviewOrchestrator.MaxRounds
 		}
-		runTaskPipeline := func(ctx context.Context, pipelineID string) error {
-			ok, err := bootstrapSet.Store.TryMarkPipelineRunning(pipelineID, core.StatusCreated)
+		runTaskRun := func(ctx context.Context, RunID string) error {
+			ok, err := bootstrapSet.Store.TryMarkRunRunning(RunID, core.StatusCreated)
 			if err != nil {
 				return err
 			}
 			if !ok {
-				// Pipeline is already claimed by another scheduler loop.
+				// Run is already claimed by another scheduler loop.
 				return nil
 			}
-			return exec.RunScheduled(ctx, pipelineID)
+			return exec.RunScheduled(ctx, RunID)
 		}
-		depScheduler := secretary.NewDepScheduler(
+		depScheduler := teamleader.NewDepScheduler(
 			bootstrapSet.Store,
 			bus,
-			runTaskPipeline,
+			runTaskRun,
 			bootstrapSet.Tracker,
-			secretaryCfg.DAGScheduler.MaxConcurrentTasks,
+			teamLeaderCfg.DAGScheduler.MaxConcurrentTasks,
 		)
 
-		opts := make([]secretary.ManagerOption, 0, 1)
+		opts := make([]teamleader.ManagerOption, 0, 1)
 		if bootstrapSet.ReviewGate != nil {
-			opts = append(opts, secretary.WithReviewGate(bootstrapSet.ReviewGate))
+			opts = append(opts, teamleader.WithReviewGate(bootstrapSet.ReviewGate))
 		}
-		manager, err := secretary.NewManager(
+		manager, err := teamleader.NewManager(
 			bootstrapSet.Store,
 			agent,
 			reviewPanel,
@@ -318,7 +318,7 @@ var (
 		if err != nil {
 			return nil, err
 		}
-		return &secretaryIssueManagerAdapter{
+		return &teamLeaderIssueManagerAdapter{
 			manager: manager,
 			store:   bootstrapSet.Store,
 		}, nil
@@ -352,11 +352,11 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, *ev
 	exec := engine.NewExecutor(bootstrapSet.Store, bus, bootstrapSet.Agents, bootstrapSet.Runtime, logger)
 	exec.SetRoleResolver(bootstrapSet.RoleResolver)
 	exec.SetWorkspace(bootstrapSet.Workspace)
-	exec.SetPipelineStageRoles(cfg.RoleBinds.Pipeline.StageRoles)
+	exec.SetRunstageRoles(cfg.RoleBinds.Run.StageRoles)
 
 	recoveryOnce.Do(func() {
 		go func() {
-			if recErr := exec.RecoverActivePipelines(context.Background()); recErr != nil {
+			if recErr := exec.RecoverActiveRuns(context.Background()); recErr != nil {
 				logger.Error("recovery failed", "error", recErr)
 			}
 		}()
@@ -422,9 +422,9 @@ func cmdProjectList() error {
 	return w.Flush()
 }
 
-func cmdPipelineCreate(args []string) error {
+func cmdRunCreate(args []string) error {
 	if len(args) < 3 {
-		return fmt.Errorf("usage: ai-flow pipeline create <project-id> <name> <description> [template]")
+		return fmt.Errorf("usage: ai-flow Run create <project-id> <name> <description> [template]")
 	}
 
 	exec, store, err := bootstrap()
@@ -438,17 +438,17 @@ func cmdPipelineCreate(args []string) error {
 		template = args[3]
 	}
 
-	p, err := exec.CreatePipeline(args[0], args[1], args[2], template)
+	p, err := exec.CreateRun(args[0], args[1], args[2], template)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Pipeline created: %s (template: %s, stages: %d)\n", p.ID, p.Template, len(p.Stages))
+	fmt.Printf("Run created: %s (template: %s, stages: %d)\n", p.ID, p.Template, len(p.Stages))
 	return nil
 }
 
-func cmdPipelineStart(args []string) error {
+func cmdRunstart(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: ai-flow pipeline start <pipeline-id>")
+		return fmt.Errorf("usage: ai-flow Run start <Run-id>")
 	}
 
 	exec, store, err := bootstrap()
@@ -464,13 +464,13 @@ func cmdPipelineStart(args []string) error {
 	if err := scheduler.Enqueue(args[0]); err != nil {
 		return err
 	}
-	fmt.Printf("Pipeline enqueued: %s\n", args[0])
+	fmt.Printf("Run enqueued: %s\n", args[0])
 	return nil
 }
 
-func cmdPipelineStatus(args []string) error {
+func cmdRunStatus(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: ai-flow pipeline status <pipeline-id>")
+		return fmt.Errorf("usage: ai-flow Run status <Run-id>")
 	}
 
 	_, store, err := bootstrap()
@@ -479,11 +479,11 @@ func cmdPipelineStatus(args []string) error {
 	}
 	defer store.Close()
 
-	p, err := store.GetPipeline(args[0])
+	p, err := store.GetRun(args[0])
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Pipeline: %s\n", p.ID)
+	fmt.Printf("Run: %s\n", p.ID)
 	fmt.Printf("Status:   %s\n", p.Status)
 	fmt.Printf("Stage:    %s\n", p.CurrentStage)
 	fmt.Printf("Template: %s\n", p.Template)
@@ -595,7 +595,7 @@ func uniqueProjectID(base string, used map[string]struct{}) string {
 	}
 }
 
-func cmdPipelineList(args []string) error {
+func cmdRunList(args []string) error {
 	_, store, err := bootstrap()
 	if err != nil {
 		return err
@@ -603,14 +603,14 @@ func cmdPipelineList(args []string) error {
 	defer store.Close()
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "PROJECT\tPIPELINE\tSTATUS\tSTAGE\tQUEUED")
+	_, _ = fmt.Fprintln(w, "PROJECT\tRun\tSTATUS\tSTAGE\tQUEUED")
 
 	if len(args) >= 1 && strings.TrimSpace(args[0]) != "" {
-		pipelines, err := store.ListPipelines(args[0], core.PipelineFilter{Limit: 200})
+		Runs, err := store.ListRuns(args[0], core.RunFilter{Limit: 200})
 		if err != nil {
 			return err
 		}
-		for _, p := range pipelines {
+		for _, p := range Runs {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 				p.ProjectID, p.ID, p.Status, p.CurrentStage, formatTime(p.QueuedAt))
 		}
@@ -622,11 +622,11 @@ func cmdPipelineList(args []string) error {
 		return err
 	}
 	for _, project := range projects {
-		pipelines, err := store.ListPipelines(project.ID, core.PipelineFilter{Limit: 200})
+		Runs, err := store.ListRuns(project.ID, core.RunFilter{Limit: 200})
 		if err != nil {
 			return err
 		}
-		for _, p := range pipelines {
+		for _, p := range Runs {
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 				p.ProjectID, p.ID, p.Status, p.CurrentStage, formatTime(p.QueuedAt))
 		}
@@ -634,9 +634,9 @@ func cmdPipelineList(args []string) error {
 	return w.Flush()
 }
 
-func cmdPipelineAction(args []string) error {
+func cmdRunAction(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: ai-flow pipeline action <pipeline-id> <approve|reject|modify|skip|rerun|change_role|abort|pause|resume> [--stage <stage>] [--role <role>] [--message <text>]")
+		return fmt.Errorf("usage: ai-flow Run action <Run-id> <approve|reject|modify|skip|rerun|change_role|abort|pause|resume> [--stage <stage>] [--role <role>] [--message <text>]")
 	}
 
 	actionType, err := parseActionType(args[1])
@@ -644,9 +644,9 @@ func cmdPipelineAction(args []string) error {
 		return err
 	}
 
-	action := core.PipelineAction{
-		PipelineID: args[0],
-		Type:       actionType,
+	action := core.RunAction{
+		RunID: args[0],
+		Type:  actionType,
 	}
 
 	for i := 2; i < len(args); i++ {
@@ -686,7 +686,7 @@ func cmdPipelineAction(args []string) error {
 	if err := exec.ApplyAction(context.Background(), action); err != nil {
 		return err
 	}
-	fmt.Printf("Action applied: pipeline=%s action=%s\n", action.PipelineID, action.Type)
+	fmt.Printf("Action applied: Run=%s action=%s\n", action.RunID, action.Type)
 	return nil
 }
 
@@ -743,7 +743,7 @@ func runServer(ctx context.Context, args []string) error {
 		return err
 	}
 
-	issueManager, err := newServerIssueManager(exec, bootstrapSet, bus, cfg.Secretary, cfg.RoleBinds)
+	issueManager, err := newServerIssueManager(exec, bootstrapSet, bus, cfg.TeamLeader, cfg.RoleBinds)
 	if err != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -768,12 +768,12 @@ func runServer(ctx context.Context, args []string) error {
 	if bootstrapSet.RoleResolver == nil {
 		return errors.New("chat assistant requires role resolver")
 	}
-	var runEventRecorder secretary.ChatRunEventRecorder
-	if recorder, ok := store.(secretary.ChatRunEventRecorder); ok {
+	var runEventRecorder teamleader.ChatRunEventRecorder
+	if recorder, ok := store.(teamleader.ChatRunEventRecorder); ok {
 		runEventRecorder = recorder
 	}
 	chatAssistant := web.NewACPChatAssistantWithDeps(web.ACPChatAssistantDeps{
-		DefaultRoleID:    strings.TrimSpace(cfg.RoleBinds.Secretary.Role),
+		DefaultRoleID:    resolveTeamLeaderRoleID(cfg.RoleBinds),
 		RoleResolver:     bootstrapSet.RoleResolver,
 		EventPublisher:   bus,
 		RunEventRecorder: runEventRecorder,
@@ -796,18 +796,18 @@ func runServer(ctx context.Context, args []string) error {
 	}()
 
 	apiServer := newAPIServer(web.Config{
-		Addr:               listenAddr,
-		AuthEnabled:        cfg.Server.AuthEnabled,
-		BearerToken:        cfg.Server.AuthToken,
-		WebhookSecret:      cfg.GitHub.WebhookSecret,
-		Store:              store,
-		IssueManager:       issueManager,
-		ChatAssistant:      chatAssistant,
-		EventPublisher:     bus,
-		PipelineExec:       exec,
-		PipelineStageRoles: cfg.RoleBinds.Pipeline.StageRoles,
-		IssueParserRoleID:  strings.TrimSpace(cfg.RoleBinds.PlanParser.Role),
-		Hub:                hub,
+		Addr:              listenAddr,
+		AuthEnabled:       cfg.Server.AuthEnabled,
+		BearerToken:       cfg.Server.AuthToken,
+		WebhookSecret:     cfg.GitHub.WebhookSecret,
+		Store:             store,
+		IssueManager:      issueManager,
+		ChatAssistant:     chatAssistant,
+		EventPublisher:    bus,
+		RunExec:           exec,
+		RunstageRoles:     cfg.RoleBinds.Run.StageRoles,
+		IssueParserRoleID: strings.TrimSpace(cfg.RoleBinds.PlanParser.Role),
+		Hub:               hub,
 	})
 
 	serverErrCh := make(chan error, 1)
@@ -856,9 +856,9 @@ func runServer(ctx context.Context, args []string) error {
 	return shutdownErr
 }
 
-func selectSecretaryAgentPlugin(agents map[string]core.AgentPlugin) (core.AgentPlugin, error) {
+func selectTeamLeaderAgentPlugin(agents map[string]core.AgentPlugin) (core.AgentPlugin, error) {
 	if len(agents) == 0 {
-		return nil, errors.New("no agent plugins configured for secretary manager")
+		return nil, errors.New("no agent plugins configured for TeamLeader manager")
 	}
 	if agent, ok := agents["codex"]; ok && agent != nil {
 		return agent, nil
@@ -875,7 +875,7 @@ func selectSecretaryAgentPlugin(agents map[string]core.AgentPlugin) (core.AgentP
 		names = append(names, name)
 	}
 	if len(names) == 0 {
-		return nil, errors.New("no non-nil agent plugins configured for secretary manager")
+		return nil, errors.New("no non-nil agent plugins configured for TeamLeader manager")
 	}
 	sort.Strings(names)
 	return agents[names[0]], nil
@@ -890,6 +890,10 @@ func cloneStringMap(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func resolveTeamLeaderRoleID(roleBindings config.RoleBindings) string {
+	return strings.TrimSpace(roleBindings.TeamLeader.Role)
 }
 
 func parseServerPort(args []string) (int, error) {
@@ -1002,7 +1006,7 @@ func buildScheduler(exec *engine.Executor, store core.Store) (*engine.Scheduler,
 		exec,
 		slog.Default(),
 		cfg.Scheduler.MaxGlobalAgents,
-		cfg.Scheduler.MaxProjectPipelines,
+		cfg.Scheduler.MaxProjectRuns,
 	), nil
 }
 

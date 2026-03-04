@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
 type a2aStreamEvent struct {
@@ -28,7 +28,7 @@ func handleA2AMessageStream(w http.ResponseWriter, r *http.Request, cfg Config, 
 		return
 	}
 
-	snapshot, err := cfg.A2ABridge.SendMessage(r.Context(), secretary.A2ASendMessageInput{
+	snapshot, err := cfg.A2ABridge.SendMessage(r.Context(), teamleader.A2ASendMessageInput{
 		ProjectID:    a2aProjectID(params.Metadata),
 		SessionID:    strings.TrimSpace(params.Message.ContextID),
 		Conversation: a2aMessageText(params.Message),
@@ -48,7 +48,7 @@ func handleA2AMessageStream(w http.ResponseWriter, r *http.Request, cfg Config, 
 	}
 }
 
-func buildA2AStreamEvents(messageText string, snapshot *secretary.A2ATaskSnapshot) []a2aStreamEvent {
+func buildA2AStreamEvents(messageText string, snapshot *teamleader.A2ATaskSnapshot) []a2aStreamEvent {
 	fragments := splitA2AStreamFragments(messageText)
 	events := make([]a2aStreamEvent, 0, len(fragments)+2)
 	for _, fragment := range fragments {

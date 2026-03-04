@@ -4,23 +4,30 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import BoardView, { groupBoardTasks, toBoardStatus, type BoardTask } from "./BoardView";
 import type { ApiClient } from "../lib/apiClient";
-import type { ApiTaskPlan, IssueTimelineEntry } from "../types/api";
+import type { ApiIssue, IssueTimelineEntry } from "../types/api";
 
-const buildPlan = (overrides?: Partial<ApiTaskPlan>): ApiTaskPlan => {
+const buildIssue = (overrides?: Partial<ApiIssue>): ApiIssue => {
   return {
-    id: "plan-1",
+    id: "issue-1",
     project_id: "proj-1",
     session_id: "chat-1",
-    name: "Plan One",
+    title: "Issue One",
+    body: "",
+    labels: [],
+    milestone_id: "",
+    attachments: [],
+    depends_on: [],
+    blocks: [],
+    priority: 0,
+    template: "standard",
+    auto_merge: false,
+    state: "open",
     status: "draft",
-    pipeline_id: "",
-    wait_reason: "",
-    tasks: [],
+    run_id: "",
+    version: 1,
+    superseded_by: "",
+    external_id: "",
     fail_policy: "block",
-    review_round: 0,
-    spec_profile: "default",
-    contract_version: "v1",
-    contract_checksum: "checksum",
     created_at: "2026-03-01T10:00:00.000Z",
     updated_at: "2026-03-01T10:00:00.000Z",
     ...overrides,
@@ -39,19 +46,19 @@ const createMockApiClient = (): ApiClient => {
     createProject: vi.fn(),
     createProjectCreateRequest: vi.fn(),
     getProjectCreateRequest: vi.fn(),
-    listPipelines: vi.fn(),
-    createPipeline: vi.fn(),
+    listRuns: vi.fn(),
+    createRun: vi.fn(),
     listChats: vi.fn(),
     listChatRunEvents: vi.fn(),
     createChat: vi.fn(),
     cancelChat: vi.fn(),
     getChat: vi.fn(),
     createPlan: vi.fn(),
-    submitPlanReview: vi.fn().mockResolvedValue({ status: "reviewing" }),
-    applyPlanAction: vi.fn().mockResolvedValue({ status: "executing" }),
+    submitIssueReview: vi.fn().mockResolvedValue({ status: "reviewing" }),
+    applyIssueAction: vi.fn().mockResolvedValue({ status: "executing" }),
     applyTaskAction: vi.fn(),
-    listPlans: vi.fn().mockResolvedValue({
-      items: [buildPlan()],
+    listIssues: vi.fn().mockResolvedValue({
+      items: [buildIssue()],
       total: 1,
       offset: 0,
     }),
@@ -64,13 +71,13 @@ const createMockApiClient = (): ApiClient => {
       offset: 0,
     }),
     listAdminAuditLog: vi.fn(),
-    getPipeline: vi.fn(),
-    getPipelineLogs: vi.fn(),
-    getPipelineCheckpoints: vi.fn(),
+    getRun: vi.fn(),
+    getRunLogs: vi.fn(),
+    getRunCheckpoints: vi.fn(),
     getRepoTree: vi.fn(),
     getRepoStatus: vi.fn(),
     getRepoDiff: vi.fn(),
-    applyPipelineAction: vi.fn(),
+    applyRunAction: vi.fn(),
   } as unknown as ApiClient;
 };
 
@@ -94,13 +101,10 @@ describe("BoardView helpers", () => {
     const tasks: BoardTask[] = [
       {
         id: "i-1",
-        plan_id: "i-1",
-        plan_name: "Issue A",
         title: "Issue A",
         status: "running",
         raw_status: "executing",
-        pipeline_id: "pipe-1",
-        issue_level: true,
+        run_id: "pipe-1",
       },
     ];
     const grouped = groupBoardTasks(tasks);
@@ -123,13 +127,13 @@ describe("BoardView", () => {
 
   it("从 plans 主实体渲染 issue 列表（无 tasks 也可展示）", async () => {
     const apiClient = createMockApiClient();
-    vi.mocked(apiClient.listPlans).mockResolvedValue({
+    vi.mocked(apiClient.listIssues).mockResolvedValue({
       items: [
-        buildPlan({
+        buildIssue({
           id: "issue-1",
-          name: "Issue One",
+          title: "Issue One",
           status: "executing",
-          pipeline_id: "pipe-1",
+          run_id: "pipe-1",
         }),
       ],
       total: 1,
@@ -139,7 +143,7 @@ describe("BoardView", () => {
     render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
 
     await waitFor(() => {
-      expect(apiClient.listPlans).toHaveBeenCalledWith("proj-1", {
+      expect(apiClient.listIssues).toHaveBeenCalledWith("proj-1", {
         limit: 50,
         offset: 0,
       });
@@ -151,12 +155,12 @@ describe("BoardView", () => {
 
   it("看板会循环拉取所有分页计划数据", async () => {
     const apiClient = createMockApiClient();
-    vi.mocked(apiClient.listPlans)
+    vi.mocked(apiClient.listIssues)
       .mockResolvedValueOnce({
         items: Array.from({ length: 50 }, (_, index) =>
-          buildPlan({
+          buildIssue({
             id: `issue-${index}`,
-            name: `Issue ${index}`,
+            title: `Issue ${index}`,
             status: "draft",
           }),
         ),
@@ -165,9 +169,9 @@ describe("BoardView", () => {
       })
       .mockResolvedValueOnce({
         items: [
-          buildPlan({
+          buildIssue({
             id: "issue-last",
-            name: "Issue Last",
+            title: "Issue Last",
             status: "reviewing",
           }),
         ],
@@ -178,11 +182,11 @@ describe("BoardView", () => {
     render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
 
     await waitFor(() => {
-      expect(apiClient.listPlans).toHaveBeenNthCalledWith(1, "proj-1", {
+      expect(apiClient.listIssues).toHaveBeenNthCalledWith(1, "proj-1", {
         limit: 50,
         offset: 0,
       });
-      expect(apiClient.listPlans).toHaveBeenNthCalledWith(2, "proj-1", {
+      expect(apiClient.listIssues).toHaveBeenNthCalledWith(2, "proj-1", {
         limit: 50,
         offset: 50,
       });
@@ -193,20 +197,20 @@ describe("BoardView", () => {
 
   it("项目切换后会忽略旧请求返回，避免脏回写", async () => {
     const staleDeferred = createDeferred<{
-      items: ApiTaskPlan[];
+      items: ApiIssue[];
       total: number;
       offset: number;
     }>();
     const apiClient = createMockApiClient();
-    vi.mocked(apiClient.listPlans).mockImplementation((projectId) => {
+    vi.mocked(apiClient.listIssues).mockImplementation((projectId) => {
       if (projectId === "proj-1") {
         return staleDeferred.promise;
       }
       return Promise.resolve({
         items: [
-          buildPlan({
+          buildIssue({
             id: "issue-fresh",
-            name: "Issue Fresh",
+            title: "Issue Fresh",
             status: "reviewing",
           }),
         ],
@@ -220,9 +224,9 @@ describe("BoardView", () => {
 
     staleDeferred.resolve({
       items: [
-        buildPlan({
+        buildIssue({
           id: "issue-stale",
-          name: "Issue Stale",
+          title: "Issue Stale",
           status: "draft",
         }),
       ],
@@ -231,7 +235,7 @@ describe("BoardView", () => {
     });
 
     await waitFor(() => {
-      expect(apiClient.listPlans).toHaveBeenCalledWith("proj-2", {
+      expect(apiClient.listIssues).toHaveBeenCalledWith("proj-2", {
         limit: 50,
         offset: 0,
       });
@@ -246,31 +250,31 @@ describe("BoardView", () => {
     const { rerender } = render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
 
     await waitFor(() => {
-      expect(apiClient.listPlans).toHaveBeenCalledTimes(1);
+      expect(apiClient.listIssues).toHaveBeenCalledTimes(1);
     });
 
     rerender(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={1} />);
     await waitFor(() => {
-      expect(apiClient.listPlans).toHaveBeenCalledTimes(2);
+      expect(apiClient.listIssues).toHaveBeenCalledTimes(2);
     });
   });
 
   it("定时刷新期间保持已渲染 issue 列表，避免闪屏", async () => {
     const deferred = createDeferred<{
-      items: ApiTaskPlan[];
+      items: ApiIssue[];
       total: number;
       offset: number;
     }>();
     const apiClient = createMockApiClient();
     let callCount = 0;
-    vi.mocked(apiClient.listPlans).mockImplementation(async () => {
+    vi.mocked(apiClient.listIssues).mockImplementation(async () => {
       callCount += 1;
       if (callCount === 1) {
         return {
           items: [
-            buildPlan({
+            buildIssue({
               id: "issue-stable",
-              name: "Issue Stable",
+              title: "Issue Stable",
               status: "executing",
             }),
           ],
@@ -292,16 +296,16 @@ describe("BoardView", () => {
     await Promise.resolve();
 
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(apiClient.listPlans).toHaveBeenCalledTimes(2);
+    expect(apiClient.listIssues).toHaveBeenCalledTimes(2);
 
     expect(screen.getAllByText("Issue Stable").length).toBeGreaterThan(0);
     expect(screen.queryByText("加载中...")).toBeNull();
 
     deferred.resolve({
       items: [
-        buildPlan({
+        buildIssue({
           id: "issue-stable",
-          name: "Issue Stable",
+          title: "Issue Stable",
           status: "executing",
         }),
       ],
@@ -313,11 +317,11 @@ describe("BoardView", () => {
 
   it("详情区 Approve 按钮调用 issue action API", async () => {
     const apiClient = createMockApiClient();
-    vi.mocked(apiClient.listPlans).mockResolvedValue({
+    vi.mocked(apiClient.listIssues).mockResolvedValue({
       items: [
-        buildPlan({
+        buildIssue({
           id: "issue-approve",
-          name: "Issue Approve",
+          title: "Issue Approve",
           status: "reviewing",
         }),
       ],
@@ -341,19 +345,19 @@ describe("BoardView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
     await waitFor(() => {
-      expect(apiClient.applyPlanAction).toHaveBeenCalledWith("proj-1", "issue-approve", {
+      expect(apiClient.applyIssueAction).toHaveBeenCalledWith("proj-1", "issue-approve", {
         action: "approve",
       });
     });
   });
 
-  it("详情区 Submit review 按钮调用 submitPlanReview", async () => {
+  it("详情区 Submit review 按钮调用 submitIssueReview", async () => {
     const apiClient = createMockApiClient();
-    vi.mocked(apiClient.listPlans).mockResolvedValue({
+    vi.mocked(apiClient.listIssues).mockResolvedValue({
       items: [
-        buildPlan({
+        buildIssue({
           id: "issue-submit",
-          name: "Issue Submit",
+          title: "Issue Submit",
           status: "draft",
         }),
       ],
@@ -377,19 +381,19 @@ describe("BoardView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit review" }));
 
     await waitFor(() => {
-      expect(apiClient.submitPlanReview).toHaveBeenCalledWith("proj-1", "issue-submit");
+      expect(apiClient.submitIssueReview).toHaveBeenCalledWith("proj-1", "issue-submit");
     });
   });
 
   it("点击 issue 会调用 timeline API 并渲染事件", async () => {
     const apiClient = createMockApiClient();
-    vi.mocked(apiClient.listPlans).mockResolvedValue({
+    vi.mocked(apiClient.listIssues).mockResolvedValue({
       items: [
-        buildPlan({
+        buildIssue({
           id: "issue-timeline",
-          name: "Issue Timeline",
+          title: "Issue Timeline",
           status: "executing",
-          pipeline_id: "pipe-99",
+          run_id: "pipe-99",
         }),
       ],
       total: 1,
@@ -409,7 +413,7 @@ describe("BoardView", () => {
           status: "running",
           refs: {
             issue_id: "issue-timeline",
-            pipeline_id: "pipe-99",
+            run_id: "pipe-99",
             stage: "implement",
           },
           meta: { type: "stage_start" },
@@ -446,13 +450,13 @@ describe("BoardView", () => {
 
   it("timeline 会折叠重复事件并生成可读摘要", async () => {
     const apiClient = createMockApiClient();
-    vi.mocked(apiClient.listPlans).mockResolvedValue({
+    vi.mocked(apiClient.listIssues).mockResolvedValue({
       items: [
-        buildPlan({
+        buildIssue({
           id: "issue-dedup",
-          name: "Issue Dedup",
+          title: "Issue Dedup",
           status: "executing",
-          pipeline_id: "pipe-88",
+          run_id: "pipe-88",
         }),
       ],
       total: 1,
@@ -472,7 +476,7 @@ describe("BoardView", () => {
           status: "failed",
           refs: {
             issue_id: "issue-dedup",
-            pipeline_id: "pipe-88",
+            run_id: "pipe-88",
             stage: "implement",
           },
           meta: { error: "worktree path is empty" },
@@ -489,7 +493,7 @@ describe("BoardView", () => {
           status: "failed",
           refs: {
             issue_id: "issue-dedup",
-            pipeline_id: "pipe-88",
+            run_id: "pipe-88",
             stage: "implement",
           },
           meta: { error: "worktree path is empty" },
@@ -528,11 +532,11 @@ describe("BoardView", () => {
 
   it("刷新控制区默认关闭自动刷新并支持切换间隔", async () => {
     const apiClient = createMockApiClient();
-    vi.mocked(apiClient.listPlans).mockResolvedValue({
+    vi.mocked(apiClient.listIssues).mockResolvedValue({
       items: [
-        buildPlan({
+        buildIssue({
           id: "issue-refresh-controls",
-          name: "Issue Refresh Controls",
+          title: "Issue Refresh Controls",
           status: "draft",
         }),
       ],
@@ -560,3 +564,7 @@ describe("BoardView", () => {
     expect(interval.value).toBe("30000");
   });
 });
+
+
+
+

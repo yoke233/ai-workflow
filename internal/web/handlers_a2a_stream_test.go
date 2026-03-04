@@ -9,20 +9,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
 func TestA2AStream_ReturnsIncrementalEvents(t *testing.T) {
 	bridge := &fakeA2ABridge{
-		sendFn: func(input secretary.A2ASendMessageInput) (*secretary.A2ATaskSnapshot, error) {
+		sendFn: func(input teamleader.A2ASendMessageInput) (*teamleader.A2ATaskSnapshot, error) {
 			if input.ProjectID != "proj-stream" {
 				t.Fatalf("project id = %q, want %q", input.ProjectID, "proj-stream")
 			}
-			return &secretary.A2ATaskSnapshot{
+			return &teamleader.A2ATaskSnapshot{
 				TaskID:    "task-stream",
 				ProjectID: "proj-stream",
 				SessionID: "ctx-stream",
-				State:     secretary.A2ATaskStateWorking,
+				State:     teamleader.A2ATaskStateWorking,
 			}, nil
 		},
 	}
@@ -132,12 +132,12 @@ func TestA2AUnauthorized_StreamReturns401(t *testing.T) {
 
 func TestA2AStream_RequestContextCanceledDoesNotHang(t *testing.T) {
 	bridge := &fakeA2ABridge{
-		sendFn: func(input secretary.A2ASendMessageInput) (*secretary.A2ATaskSnapshot, error) {
-			return &secretary.A2ATaskSnapshot{
+		sendFn: func(input teamleader.A2ASendMessageInput) (*teamleader.A2ATaskSnapshot, error) {
+			return &teamleader.A2ATaskSnapshot{
 				TaskID:    "task-stream-canceled",
 				ProjectID: "proj-stream",
 				SessionID: "ctx-stream-canceled",
-				State:     secretary.A2ATaskStateWorking,
+				State:     teamleader.A2ATaskStateWorking,
 			}, nil
 		},
 	}

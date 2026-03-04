@@ -12,7 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/core"
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 	webassets "github.com/yoke233/ai-workflow/web"
 )
 
@@ -64,16 +64,16 @@ type IssueManager interface {
 	ApplyIssueAction(ctx context.Context, issueID string, action IssueAction) (*core.Issue, error)
 }
 
-// PipelineExecutor defines pipeline human-action entrypoints used by web handlers.
-type PipelineExecutor interface {
-	ApplyAction(ctx context.Context, action core.PipelineAction) error
+// RunExecutor defines Run human-action entrypoints used by web handlers.
+type RunExecutor interface {
+	ApplyAction(ctx context.Context, action core.RunAction) error
 }
 
 // A2ABridge defines A2A task bridge methods.
 type A2ABridge interface {
-	SendMessage(ctx context.Context, input secretary.A2ASendMessageInput) (*secretary.A2ATaskSnapshot, error)
-	GetTask(ctx context.Context, input secretary.A2AGetTaskInput) (*secretary.A2ATaskSnapshot, error)
-	CancelTask(ctx context.Context, input secretary.A2ACancelTaskInput) (*secretary.A2ATaskSnapshot, error)
+	SendMessage(ctx context.Context, input teamleader.A2ASendMessageInput) (*teamleader.A2ATaskSnapshot, error)
+	GetTask(ctx context.Context, input teamleader.A2AGetTaskInput) (*teamleader.A2ATaskSnapshot, error)
+	CancelTask(ctx context.Context, input teamleader.A2ACancelTaskInput) (*teamleader.A2ATaskSnapshot, error)
 }
 
 // WebhookDeliveryReplayer replays failed webhook deliveries by delivery id.
@@ -95,13 +95,11 @@ type Config struct {
 	Frontend               fs.FS
 	Store                  core.Store
 	IssueManager           IssueManager
-	PlanManager            IssueManager // deprecated: use IssueManager
 	ChatAssistant          ChatAssistant
 	EventPublisher         chatEventPublisher
-	PipelineExec           PipelineExecutor
-	PipelineStageRoles     map[string]string
+	RunExec                RunExecutor
+	RunstageRoles          map[string]string
 	IssueParserRoleID      string
-	PlanParserRoleID       string
 	WebhookReplayer        WebhookDeliveryReplayer
 	Hub                    *Hub
 	ProjectRepoProvisioner ProjectRepoProvisioner
@@ -152,18 +150,12 @@ func NewServer(cfg Config) *Server {
 	r.Get("/health", handleHealth)
 	r.Get("/api/v1/health", handleHealth)
 	registerA2ARoutes(r, cfg)
-	webhookReplayer := registerWebhookRoutes(r, cfg.Store, cfg.PipelineExec, strings.TrimSpace(cfg.WebhookSecret), cfg.PipelineStageRoles)
+	webhookReplayer := registerWebhookRoutes(r, cfg.Store, cfg.RunExec, strings.TrimSpace(cfg.WebhookSecret), cfg.RunstageRoles)
 	if cfg.WebhookReplayer != nil {
 		webhookReplayer = cfg.WebhookReplayer
 	}
 	issueManager := cfg.IssueManager
-	if issueManager == nil {
-		issueManager = cfg.PlanManager
-	}
 	issueParserRoleID := strings.TrimSpace(cfg.IssueParserRoleID)
-	if issueParserRoleID == "" {
-		issueParserRoleID = strings.TrimSpace(cfg.PlanParserRoleID)
-	}
 	r.Route("/api/v1", func(r chi.Router) {
 		if cfg.AuthEnabled {
 			r.Use(BearerAuthMiddleware(cfg.BearerToken))
@@ -171,11 +163,16 @@ func NewServer(cfg Config) *Server {
 		r.Get("/stats", handleStats)
 		registerProjectRoutes(r, cfg.Store, hub, projectRepoProvisioner)
 		registerRepoRoutes(r, cfg.Store)
-		registerPipelineRoutes(r, cfg.Store, cfg.PipelineExec, cfg.PipelineStageRoles)
 		registerChatRoutes(r, cfg.Store, cfg.ChatAssistant, cfg.EventPublisher)
 		registerIssueRoutes(r, cfg.Store, issueManager, issueParserRoleID)
 		registerAdminOpsRoutes(r, cfg.Store, cfg.BearerToken, webhookReplayer)
 		r.Get("/ws", hub.HandleWS)
+	})
+	r.Route("/api/v2", func(r chi.Router) {
+		if cfg.AuthEnabled {
+			r.Use(BearerAuthMiddleware(cfg.BearerToken))
+		}
+		registerV2Routes(r, cfg.Store, issueManager, issueParserRoleID, cfg.RunExec, cfg.RunstageRoles)
 	})
 	if frontendFS != nil {
 		spa := newSPAFallbackHandler(frontendFS)

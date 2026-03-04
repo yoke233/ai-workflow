@@ -132,7 +132,7 @@ func (h *chatHandlers) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Role == "" {
-		req.Role = "secretary"
+		req.Role = "team_leader"
 	}
 	if !isValidRoleID(req.Role) {
 		writeAPIError(w, http.StatusBadRequest, "invalid role", "INVALID_ROLE")
@@ -224,7 +224,7 @@ type chatRunInput struct {
 func (h *chatHandlers) executeChatTurn(ctx context.Context, input chatRunInput) {
 	defer h.unregisterSessionRun(input.SessionID)
 
-	h.publishChatEvent(core.EventChatRunStarted, input.ProjectID, input.SessionID, input.Role, nil)
+	h.publishChatEvent(core.EventRunStarted, input.ProjectID, input.SessionID, input.Role, nil)
 
 	assistantResp, err := h.assistant.Reply(ctx, ChatAssistantRequest{
 		Message:        input.Message,
@@ -235,9 +235,9 @@ func (h *chatHandlers) executeChatTurn(ctx context.Context, input chatRunInput) 
 		ChatSessionID:  input.SessionID,
 	})
 	if err != nil {
-		eventType := core.EventChatRunFailed
+		eventType := core.EventRunFailed
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			eventType = core.EventChatRunCancelled
+			eventType = core.EventRunCancelled
 		}
 		log.Printf("[chat] assistant reply failed project_id=%s role=%s session_id=%s err=%v", input.ProjectID, input.Role, input.SessionID, err)
 		h.publishChatEvent(eventType, input.ProjectID, input.SessionID, input.Role, map[string]string{
@@ -248,7 +248,7 @@ func (h *chatHandlers) executeChatTurn(ctx context.Context, input chatRunInput) 
 
 	reply := strings.TrimSpace(assistantResp.Reply)
 	if reply == "" {
-		h.publishChatEvent(core.EventChatRunFailed, input.ProjectID, input.SessionID, input.Role, map[string]string{
+		h.publishChatEvent(core.EventRunFailed, input.ProjectID, input.SessionID, input.Role, map[string]string{
 			"error": "chat assistant returned empty reply",
 		})
 		return
@@ -256,13 +256,13 @@ func (h *chatHandlers) executeChatTurn(ctx context.Context, input chatRunInput) 
 
 	session, err := h.store.GetChatSession(input.SessionID)
 	if err != nil {
-		h.publishChatEvent(core.EventChatRunFailed, input.ProjectID, input.SessionID, input.Role, map[string]string{
+		h.publishChatEvent(core.EventRunFailed, input.ProjectID, input.SessionID, input.Role, map[string]string{
 			"error": "failed to load chat session",
 		})
 		return
 	}
 	if session.ProjectID != input.ProjectID {
-		h.publishChatEvent(core.EventChatRunFailed, input.ProjectID, input.SessionID, input.Role, map[string]string{
+		h.publishChatEvent(core.EventRunFailed, input.ProjectID, input.SessionID, input.Role, map[string]string{
 			"error": "chat session project mismatch",
 		})
 		return
@@ -277,7 +277,7 @@ func (h *chatHandlers) executeChatTurn(ctx context.Context, input chatRunInput) 
 		Time:    time.Now().UTC(),
 	})
 	if err := h.store.UpdateChatSession(session); err != nil {
-		h.publishChatEvent(core.EventChatRunFailed, input.ProjectID, input.SessionID, input.Role, map[string]string{
+		h.publishChatEvent(core.EventRunFailed, input.ProjectID, input.SessionID, input.Role, map[string]string{
 			"error": "failed to update chat session",
 		})
 		return
@@ -289,7 +289,7 @@ func (h *chatHandlers) executeChatTurn(ctx context.Context, input chatRunInput) 
 	if strings.TrimSpace(session.AgentSessionID) != "" {
 		eventData["agent_session_id"] = strings.TrimSpace(session.AgentSessionID)
 	}
-	h.publishChatEvent(core.EventChatRunCompleted, input.ProjectID, input.SessionID, input.Role, eventData)
+	h.publishChatEvent(core.EventRunCompleted, input.ProjectID, input.SessionID, input.Role, eventData)
 }
 
 func (h *chatHandlers) cancelSession(w http.ResponseWriter, r *http.Request) {

@@ -111,7 +111,7 @@ func runPlan(args []string, stdout io.Writer, stderr io.Writer) error {
 	projectID := ""
 	mode := "chat"
 	env := "dev"
-	role := "secretary"
+	role := "team_leader"
 	fs.StringVar(&projectID, "project", projectID, "project id")
 	fs.StringVar(&mode, "mode", mode, "execution mode")
 	fs.StringVar(&env, "env", env, "environment name")
@@ -132,7 +132,7 @@ func runPlan(args []string, stdout io.Writer, stderr io.Writer) error {
 		mode = "chat"
 	}
 	if role == "" {
-		role = "secretary"
+		role = "team_leader"
 	}
 	if env == "" {
 		env = "dev"
@@ -145,7 +145,7 @@ func runPlan(args []string, stdout io.Writer, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "  - %s\n", uri)
 	}
 
-	if role == "secretary" {
+	if role == "team_leader" {
 		fmt.Fprintln(stdout, "memory_policy: load+commit (writer)")
 	} else {
 		fmt.Fprintln(stdout, "memory_policy: load-only (reader)")

@@ -1,8 +1,7 @@
 export interface WsEnvelope<TPayload = unknown> {
   type: string;
-  pipeline_id?: string;
+  run_id?: string;
   project_id?: string;
-  plan_id?: string;
   issue_id?: string;
   session_id?: string;
   data?: TPayload;
@@ -10,11 +9,13 @@ export interface WsEnvelope<TPayload = unknown> {
 }
 
 export type ChatEventType =
-  | "chat_run_started"
-  | "chat_run_update"
-  | "chat_run_completed"
-  | "chat_run_failed"
-  | "chat_run_cancelled";
+  | "run_started"
+  | "run_update"
+  | "run_completed"
+  | "run_failed"
+  | "run_cancelled"
+  | "team_leader_thinking"
+  | "team_leader_files_changed";
 
 export interface ACPSessionUpdate {
   sessionUpdate?: string;
@@ -72,16 +73,13 @@ export interface ProjectCreateEventEnvelope
 
 export interface WsClientMessage {
   type:
-    | "subscribe_plan"
-    | "unsubscribe_plan"
-    | "subscribe_pipeline"
-    | "unsubscribe_pipeline"
+    | "subscribe_run"
+    | "unsubscribe_run"
     | "subscribe_issue"
     | "unsubscribe_issue"
     | "subscribe_chat_session"
     | "unsubscribe_chat_session";
-  plan_id?: string;
-  pipeline_id?: string;
+  run_id?: string;
   issue_id?: string;
   session_id?: string;
 }

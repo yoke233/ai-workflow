@@ -21,7 +21,7 @@ agents:
 
 # Role Profile（统一角色行为配置）
 roles:
-  - name: secretary
+  - name: team_leader
     agent: claude
     prompt_template: secretary_system
     capabilities:
@@ -95,8 +95,8 @@ roles:
 
 # 角色绑定（调用方只关心 role，不直接关心 agent）
 role_bindings:
-  secretary:
-    role: secretary
+  team_leader:
+    role: team_leader
   pipeline:
     stage_roles:
       requirements: worker
@@ -133,11 +133,11 @@ scheduler:
   max_global_agents: 3             # 全局最多同时运行几个 Agent
   max_project_pipelines: 2         # 每个项目最多几条活跃 Pipeline
 
-# Secretary Layer 配置（P2a 新增）
-secretary:
-  role: secretary                  # 引用 role_bindings.secretary.role
+# Team Leader 配置（P2a 新增）
+team_leader:
+  role: team_leader                # 引用 role_bindings.team_leader.role
   session_idle_timeout: 30m        # 空闲超时自动关闭 session
-  # 具体 ACP 权限、MCP 工具、会话策略由 roles.secretary 定义
+  # 具体 ACP 权限、MCP 工具、会话策略由 roles.team_leader 定义
   context_max_tokens: 4000         # 项目上下文 token 预算（Plan Parser 用）
   refine_enabled: false            # TaskPlan 细化（补充实施级细节），V1 默认关闭
   refine_timeout: 2m               # 单个 TaskItem 细化超时

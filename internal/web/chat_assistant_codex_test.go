@@ -16,8 +16,8 @@ func TestCodexChatAssistantReplyUsesDefaultRoleWhenEmpty(t *testing.T) {
 			LaunchCommand: "codex-agent-acp",
 		},
 		roles: map[string]acpclient.RoleProfile{
-			"secretary": {
-				ID:      "secretary",
+			"team_leader": {
+				ID:      "team_leader",
 				AgentID: "codex",
 				Capabilities: acpclient.ClientCapabilities{
 					FSRead:   true,
@@ -35,7 +35,7 @@ func TestCodexChatAssistantReplyUsesDefaultRoleWhenEmpty(t *testing.T) {
 	}
 	factory := &recordingACPClientFactory{client: client}
 	assistant := newCodexChatAssistantForTest("codex", "gpt-5.3-codex", "high", ACPChatAssistantDeps{
-		DefaultRoleID: "secretary",
+		DefaultRoleID: "team_leader",
 		RoleResolver:  resolver,
 		ClientFactory: factory,
 	})
@@ -62,11 +62,11 @@ func TestCodexChatAssistantReplyUsesDefaultRoleWhenEmpty(t *testing.T) {
 	if len(client.promptReqs) != 1 {
 		t.Fatalf("expected one Prompt call, got %d", len(client.promptReqs))
 	}
-	if gotRole, _ := client.newReqs[0].Meta["role_id"].(string); gotRole != "secretary" {
-		t.Fatalf("new metadata role_id = %q, want %q", gotRole, "secretary")
+	if gotRole, _ := client.newReqs[0].Meta["role_id"].(string); gotRole != "team_leader" {
+		t.Fatalf("new metadata role_id = %q, want %q", gotRole, "team_leader")
 	}
-	if gotRole, _ := client.promptReqs[0].Meta["role_id"].(string); gotRole != "secretary" {
-		t.Fatalf("prompt metadata role_id = %q, want %q", gotRole, "secretary")
+	if gotRole, _ := client.promptReqs[0].Meta["role_id"].(string); gotRole != "team_leader" {
+		t.Fatalf("prompt metadata role_id = %q, want %q", gotRole, "team_leader")
 	}
 }
 
@@ -101,7 +101,7 @@ func TestCodexChatAssistantReplyUsesResolvedRoleLaunchAndLoadSession(t *testing.
 	}
 	factory := &recordingACPClientFactory{client: client}
 	assistant := newCodexChatAssistantForTest("codex", "", "", ACPChatAssistantDeps{
-		DefaultRoleID: "secretary",
+		DefaultRoleID: "team_leader",
 		RoleResolver:  resolver,
 		ClientFactory: factory,
 	})
@@ -146,15 +146,15 @@ func TestCodexChatAssistantReplyReturnsFactoryError(t *testing.T) {
 			LaunchCommand: "codex-agent-acp",
 		},
 		roles: map[string]acpclient.RoleProfile{
-			"secretary": {
-				ID:      "secretary",
+			"team_leader": {
+				ID:      "team_leader",
 				AgentID: "codex",
 			},
 		},
 	}
 	factory := &recordingACPClientFactory{err: errors.New("create client failed")}
 	assistant := newCodexChatAssistantForTest("codex", "", "", ACPChatAssistantDeps{
-		DefaultRoleID: "secretary",
+		DefaultRoleID: "team_leader",
 		RoleResolver:  resolver,
 		ClientFactory: factory,
 	})

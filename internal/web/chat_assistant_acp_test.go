@@ -66,7 +66,7 @@ func TestStartWebChatSessionSkipsLoadWhenReuseDisabled(t *testing.T) {
 	session, err := startWebChatSession(
 		context.Background(),
 		client,
-		"secretary",
+		"team_leader",
 		role,
 		"sid-old",
 		"D:/repo/demo",
@@ -100,7 +100,7 @@ func TestStartWebChatSessionSkipsLoadWhenPreferLoadDisabled(t *testing.T) {
 	session, err := startWebChatSession(
 		context.Background(),
 		client,
-		"secretary",
+		"team_leader",
 		role,
 		"sid-old",
 		"D:/repo/demo",

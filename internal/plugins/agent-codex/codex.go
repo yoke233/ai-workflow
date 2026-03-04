@@ -48,7 +48,7 @@ func (a *CodexAgent) BuildCommand(opts core.ExecOpts) ([]string, error) {
 		"-c", "model_reasoning_effort=" + a.reasoning,
 	}
 
-	// When a schema is supplied (typically for secretary decomposition), force a
+	// When a schema is supplied (typically for TeamLeader decomposition), force a
 	// schema-shaped final response and avoid tool use drifting.
 	if opts.Env != nil {
 		if schema := opts.Env["AI_WORKFLOW_CODEX_OUTPUT_SCHEMA"]; strings.TrimSpace(schema) != "" {

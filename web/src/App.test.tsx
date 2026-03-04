@@ -37,8 +37,8 @@ const mocks = vi.hoisted(() => {
     createProject: vi.fn(),
     createProjectCreateRequest,
     getProjectCreateRequest,
-    listPipelines: vi.fn().mockResolvedValue({ items: [], total: 0, offset: 0 }),
-    createPipeline: vi.fn(),
+    listRuns: vi.fn().mockResolvedValue({ items: [], total: 0, offset: 0 }),
+    createRun: vi.fn(),
     createChat: vi.fn(),
     getChat: vi.fn(),
     createPlan: vi.fn(),
@@ -51,9 +51,9 @@ const mocks = vi.hoisted(() => {
       edges: [],
       stats: { total: 0, pending: 0, ready: 0, running: 0, done: 0, failed: 0 },
     }),
-    getPipeline: vi.fn(),
-    getPipelineCheckpoints: vi.fn(),
-    applyPipelineAction: vi.fn(),
+    getRun: vi.fn(),
+    getRunCheckpoints: vi.fn(),
+    applyRunAction: vi.fn(),
   };
 
   const wsClient = {
@@ -147,10 +147,6 @@ vi.mock("./views/A2AChatView", () => ({
   },
 }));
 
-vi.mock("./views/PlanView", () => ({
-  default: () => <div>Plan View Mock</div>,
-}));
-
 vi.mock("./views/BoardView", () => ({
   default: () => <div>Board View Mock</div>,
 }));
@@ -194,7 +190,7 @@ describe("App", () => {
     vi.clearAllMocks();
   });
 
-  it("加载项目、支持项目切换与三视图切换", async () => {
+  it("加载项目、支持项目切换与双视图切换", async () => {
     render(<App />);
 
     await waitFor(() => {
@@ -205,9 +201,6 @@ describe("App", () => {
 
     const projectSelect = screen.getByLabelText("当前项目") as HTMLSelectElement;
     expect(projectSelect.value).toBe("proj-1");
-
-    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
-    expect(screen.getByText("Plan View Mock")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Issues" }));
     expect(screen.getByText("Board View Mock")).toBeTruthy();

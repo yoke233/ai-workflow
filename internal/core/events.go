@@ -5,26 +5,27 @@ import "time"
 type EventType string
 
 const (
-	EventStageStart      EventType = "stage_start"
-	EventStageComplete   EventType = "stage_complete"
-	EventStageFailed     EventType = "stage_failed"
-	EventHumanRequired   EventType = "human_required"
-	EventPipelineDone    EventType = "pipeline_done"
-	EventPipelineFailed  EventType = "pipeline_failed"
-	EventPipelinePaused  EventType = "pipeline_paused"
-	EventPipelineResumed EventType = "pipeline_resumed"
-	EventActionApplied   EventType = "action_applied"
-	EventAgentOutput     EventType = "agent_output"
-	EventPipelineStuck   EventType = "pipeline_stuck"
+	EventStageStart        EventType = "stage_start"
+	EventStageComplete     EventType = "stage_complete"
+	EventStageFailed       EventType = "stage_failed"
+	EventHumanRequired     EventType = "human_required"
+	EventRunDone           EventType = "run_done"
+	EventRunWaitingReview  EventType = "run_waiting_review"
+	EventRunResumed        EventType = "run_resumed"
+	EventActionApplied     EventType = "action_applied"
+	EventAgentOutput       EventType = "agent_output"
+	EventRunStuck          EventType = "run_stuck"
+	EventRunwaiting_review EventType = EventRunWaitingReview // Deprecated: keep for current call sites.
+	EventRunstuck          EventType = EventRunStuck         // Deprecated: keep for current call sites.
 
-	// Secretary lifecycle events.
-	EventSecretaryThinking      EventType = "secretary_thinking"
-	EventSecretaryFilesChanged  EventType = "secretary_files_changed"
-	EventChatRunStarted         EventType = "chat_run_started"
-	EventChatRunUpdate          EventType = "chat_run_update"
-	EventChatRunCompleted       EventType = "chat_run_completed"
-	EventChatRunFailed          EventType = "chat_run_failed"
-	EventChatRunCancelled       EventType = "chat_run_cancelled"
+	// Team Leader and run lifecycle events.
+	EventTeamLeaderThinking     EventType = "team_leader_thinking"
+	EventTeamLeaderFilesChanged EventType = "team_leader_files_changed"
+	EventRunStarted             EventType = "run_started"
+	EventRunUpdate              EventType = "run_update"
+	EventRunCompleted           EventType = "run_completed"
+	EventRunFailed              EventType = "run_failed"
+	EventRunCancelled           EventType = "run_cancelled"
 	EventIssueCreated           EventType = "issue_created"
 	EventIssueReviewing         EventType = "issue_reviewing"
 	EventReviewDone             EventType = "review_done"
@@ -47,20 +48,20 @@ const (
 )
 
 type Event struct {
-	Type       EventType         `json:"type"`
-	PipelineID string            `json:"pipeline_id"`
-	ProjectID  string            `json:"project_id"`
-	IssueID    string            `json:"issue_id,omitempty"`
-	Stage      StageID           `json:"stage,omitempty"`
-	Agent      string            `json:"agent,omitempty"`
-	Data       map[string]string `json:"data,omitempty"`
-	Error      string            `json:"error,omitempty"`
-	Timestamp  time.Time         `json:"timestamp"`
+	Type      EventType         `json:"type"`
+	RunID     string            `json:"run_id"`
+	ProjectID string            `json:"project_id"`
+	IssueID   string            `json:"issue_id,omitempty"`
+	Stage     StageID           `json:"stage,omitempty"`
+	Agent     string            `json:"agent,omitempty"`
+	Data      map[string]string `json:"data,omitempty"`
+	Error     string            `json:"error,omitempty"`
+	Timestamp time.Time         `json:"timestamp"`
 }
 
 func IsIssueScopedEvent(eventType EventType) bool {
 	switch eventType {
-	case EventSecretaryThinking,
+	case EventTeamLeaderThinking,
 		EventIssueCreated,
 		EventIssueReviewing,
 		EventReviewDone,

@@ -56,7 +56,7 @@ func TestWSRequiresAuthWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestWSBroadcastAndPipelineSubscriptionFlow(t *testing.T) {
+func TestWSBroadcastAndRunsubscriptionFlow(t *testing.T) {
 	hub := NewHub()
 	srv := NewServer(Config{Hub: hub})
 	ts := httptest.NewServer(srv.Handler())
@@ -74,9 +74,9 @@ func TestWSBroadcastAndPipelineSubscriptionFlow(t *testing.T) {
 	}
 
 	hub.Broadcast(WSMessage{
-		Type:       "stage_start",
-		PipelineID: "pipe-1",
-		ProjectID:  "proj-1",
+		Type:      "stage_start",
+		RunID:     "pipe-1",
+		ProjectID: "proj-1",
 	})
 	stageStart := readWSMessage(t, conn, 2*time.Second)
 	if stageStart.Type != "stage_start" {
@@ -84,24 +84,24 @@ func TestWSBroadcastAndPipelineSubscriptionFlow(t *testing.T) {
 	}
 
 	hub.Broadcast(WSMessage{
-		Type:       "agent_output",
-		PipelineID: "pipe-1",
-		ProjectID:  "proj-1",
+		Type:      "agent_output",
+		RunID:     "pipe-1",
+		ProjectID: "proj-1",
 		Data: map[string]any{
 			"content": "before-subscribe",
 		},
 	})
 
 	subReq := map[string]string{
-		"type":        "subscribe_pipeline",
-		"pipeline_id": "pipe-1",
+		"type":   "subscribe_run",
+		"run_id": "pipe-1",
 	}
 	if err := conn.WriteJSON(subReq); err != nil {
 		t.Fatalf("write subscribe message: %v", err)
 	}
 
 	subAck := readWSMessage(t, conn, 2*time.Second)
-	if subAck.Type != "subscribed" || subAck.PipelineID != "pipe-1" {
+	if subAck.Type != "subscribed" || subAck.RunID != "pipe-1" {
 		t.Fatalf("unexpected subscribe ack: %+v", subAck)
 	}
 	if content, ok := subAck.Data["content"].(string); ok && content == "before-subscribe" {
@@ -109,15 +109,15 @@ func TestWSBroadcastAndPipelineSubscriptionFlow(t *testing.T) {
 	}
 
 	hub.Broadcast(WSMessage{
-		Type:       "agent_output",
-		PipelineID: "pipe-1",
-		ProjectID:  "proj-1",
+		Type:      "agent_output",
+		RunID:     "pipe-1",
+		ProjectID: "proj-1",
 		Data: map[string]any{
 			"content": "after-subscribe",
 		},
 	})
 	out := readWSMessage(t, conn, 2*time.Second)
-	if out.Type != "agent_output" || out.PipelineID != "pipe-1" {
+	if out.Type != "agent_output" || out.RunID != "pipe-1" {
 		t.Fatalf("unexpected broadcast payload: %+v", out)
 	}
 }
@@ -151,19 +151,19 @@ func TestWSIssueSubscriptionReceivesCoreEventsByIssueID(t *testing.T) {
 	}
 
 	hub.BroadcastCoreEvent(core.Event{
-		Type:       core.EventIssueReady,
-		PipelineID: "pipe-2",
-		ProjectID:  "proj-1",
-		IssueID:    "issue-2",
-		Timestamp:  time.Now(),
+		Type:      core.EventIssueReady,
+		RunID:     "pipe-2",
+		ProjectID: "proj-1",
+		IssueID:   "issue-2",
+		Timestamp: time.Now(),
 	})
 
 	hub.BroadcastCoreEvent(core.Event{
-		Type:       core.EventIssueReady,
-		PipelineID: "pipe-1",
-		ProjectID:  "proj-1",
-		IssueID:    "issue-1",
-		Timestamp:  time.Now(),
+		Type:      core.EventIssueReady,
+		RunID:     "pipe-1",
+		ProjectID: "proj-1",
+		IssueID:   "issue-1",
+		Timestamp: time.Now(),
 		Data: map[string]string{
 			"task_id": "task-1",
 		},
@@ -176,8 +176,8 @@ func TestWSIssueSubscriptionReceivesCoreEventsByIssueID(t *testing.T) {
 	if got.IssueID != "issue-1" {
 		t.Fatalf("expected issue_id=issue-1, got %+v", got)
 	}
-	if got.PipelineID != "pipe-1" {
-		t.Fatalf("expected pipeline_id=pipe-1, got %+v", got)
+	if got.RunID != "pipe-1" {
+		t.Fatalf("expected run_id=pipe-1, got %+v", got)
 	}
 	if got.Data["task_id"] != "task-1" {
 		t.Fatalf("expected task_id=task-1 in data, got %+v", got.Data)
@@ -368,7 +368,7 @@ func TestWSChatSessionSubscriptionRoutesChatEventsBySessionID(t *testing.T) {
 	}
 
 	hub.BroadcastCoreEvent(core.Event{
-		Type:      core.EventChatRunStarted,
+		Type:      core.EventRunStarted,
 		ProjectID: "proj-1",
 		Timestamp: time.Now(),
 		Data: map[string]string{
@@ -377,8 +377,8 @@ func TestWSChatSessionSubscriptionRoutesChatEventsBySessionID(t *testing.T) {
 	})
 
 	gotA := readWSMessage(t, connA, 2*time.Second)
-	if gotA.Type != string(core.EventChatRunStarted) {
-		t.Fatalf("expected chat_run_started for subscribed client, got %+v", gotA)
+	if gotA.Type != string(core.EventRunStarted) {
+		t.Fatalf("expected run_started for subscribed client, got %+v", gotA)
 	}
 	if gotA.Data["session_id"] != "chat-1" {
 		t.Fatalf("expected session_id=chat-1, got %+v", gotA.Data)
@@ -398,7 +398,7 @@ func TestWSChatSessionSubscriptionRoutesChatEventsBySessionID(t *testing.T) {
 	}
 
 	hub.BroadcastCoreEvent(core.Event{
-		Type:      core.EventChatRunUpdate,
+		Type:      core.EventRunUpdate,
 		ProjectID: "proj-1",
 		Timestamp: time.Now(),
 		Data: map[string]string{
@@ -462,7 +462,7 @@ func TestWSChatSessionSubscriptionCleansUpOnDisconnect(t *testing.T) {
 	}
 
 	hub.BroadcastCoreEvent(core.Event{
-		Type:      core.EventChatRunStarted,
+		Type:      core.EventRunStarted,
 		ProjectID: "proj-1",
 		Timestamp: time.Now(),
 		Data: map[string]string{
@@ -531,7 +531,7 @@ func TestWSChatSessionSubscriptionBroadcastsToMultipleSubscribers(t *testing.T) 
 	}
 
 	hub.BroadcastCoreEvent(core.Event{
-		Type:      core.EventChatRunStarted,
+		Type:      core.EventRunStarted,
 		ProjectID: "proj-1",
 		Timestamp: time.Now(),
 		Data: map[string]string{
@@ -540,11 +540,11 @@ func TestWSChatSessionSubscriptionBroadcastsToMultipleSubscribers(t *testing.T) 
 	})
 
 	startA := readWSMessage(t, connA, 2*time.Second)
-	if startA.Type != string(core.EventChatRunStarted) || startA.Data["session_id"] != "chat-1" {
+	if startA.Type != string(core.EventRunStarted) || startA.Data["session_id"] != "chat-1" {
 		t.Fatalf("unexpected client A started event: %+v", startA)
 	}
 	startB := readWSMessage(t, connB, 2*time.Second)
-	if startB.Type != string(core.EventChatRunStarted) || startB.Data["session_id"] != "chat-1" {
+	if startB.Type != string(core.EventRunStarted) || startB.Data["session_id"] != "chat-1" {
 		t.Fatalf("unexpected client B started event: %+v", startB)
 	}
 	assertNoWSMessage(t, connC, 200*time.Millisecond)
@@ -560,7 +560,7 @@ func TestWSChatSessionSubscriptionBroadcastsToMultipleSubscribers(t *testing.T) 
 	}
 
 	hub.BroadcastCoreEvent(core.Event{
-		Type:      core.EventChatRunCompleted,
+		Type:      core.EventRunCompleted,
 		ProjectID: "proj-1",
 		Timestamp: time.Now(),
 		Data: map[string]string{
@@ -569,7 +569,7 @@ func TestWSChatSessionSubscriptionBroadcastsToMultipleSubscribers(t *testing.T) 
 	})
 
 	completedA := readWSMessage(t, connA, 2*time.Second)
-	if completedA.Type != string(core.EventChatRunCompleted) || completedA.Data["session_id"] != "chat-1" {
+	if completedA.Type != string(core.EventRunCompleted) || completedA.Data["session_id"] != "chat-1" {
 		t.Fatalf("unexpected client A completed event: %+v", completedA)
 	}
 	assertNoWSMessage(t, connB, 200*time.Millisecond)
@@ -594,7 +594,7 @@ func TestWSChatSessionSubscriptionReplaysCachedEventsForLateSubscriber(t *testin
 	}
 
 	hub.BroadcastCoreEvent(core.Event{
-		Type:      core.EventChatRunStarted,
+		Type:      core.EventRunStarted,
 		ProjectID: "proj-1",
 		Timestamp: time.Now(),
 		Data: map[string]string{
@@ -602,7 +602,7 @@ func TestWSChatSessionSubscriptionReplaysCachedEventsForLateSubscriber(t *testin
 		},
 	})
 	hub.BroadcastCoreEvent(core.Event{
-		Type:      core.EventChatRunUpdate,
+		Type:      core.EventRunUpdate,
 		ProjectID: "proj-1",
 		Timestamp: time.Now(),
 		Data: map[string]string{
@@ -610,7 +610,7 @@ func TestWSChatSessionSubscriptionReplaysCachedEventsForLateSubscriber(t *testin
 		},
 	})
 	hub.BroadcastCoreEvent(core.Event{
-		Type:      core.EventChatRunCompleted,
+		Type:      core.EventRunCompleted,
 		ProjectID: "proj-1",
 		Timestamp: time.Now(),
 		Data: map[string]string{
@@ -638,7 +638,7 @@ func TestWSChatSessionSubscriptionReplaysCachedEventsForLateSubscriber(t *testin
 	}
 
 	started := readWSMessage(t, conn, 2*time.Second)
-	if started.Type != string(core.EventChatRunStarted) {
+	if started.Type != string(core.EventRunStarted) {
 		t.Fatalf("expected started replay event, got %+v", started)
 	}
 	if started.Data["session_id"] != "chat-late" {
@@ -646,7 +646,7 @@ func TestWSChatSessionSubscriptionReplaysCachedEventsForLateSubscriber(t *testin
 	}
 
 	updated := readWSMessage(t, conn, 2*time.Second)
-	if updated.Type != string(core.EventChatRunUpdate) {
+	if updated.Type != string(core.EventRunUpdate) {
 		t.Fatalf("expected update replay event, got %+v", updated)
 	}
 	if updated.Data["session_id"] != "chat-late" {
@@ -654,7 +654,7 @@ func TestWSChatSessionSubscriptionReplaysCachedEventsForLateSubscriber(t *testin
 	}
 
 	completed := readWSMessage(t, conn, 2*time.Second)
-	if completed.Type != string(core.EventChatRunCompleted) {
+	if completed.Type != string(core.EventRunCompleted) {
 		t.Fatalf("expected completed replay event, got %+v", completed)
 	}
 	if completed.Data["session_id"] != "chat-late" {

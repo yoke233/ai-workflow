@@ -737,8 +737,8 @@ func TestCreateChatSessionContinuesExistingSessionWithAssistant(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatalf("expected one assistant call, got %d", len(calls))
 	}
-	if calls[0].Role != "secretary" {
-		t.Fatalf("expected default role secretary, got %q", calls[0].Role)
+	if calls[0].Role != "team_leader" {
+		t.Fatalf("expected default role team_leader, got %q", calls[0].Role)
 	}
 	if calls[0].AgentSessionID != "claude-sid-old" {
 		t.Fatalf("expected resume from old session id, got %q", calls[0].AgentSessionID)

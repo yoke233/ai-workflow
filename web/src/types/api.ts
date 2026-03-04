@@ -1,13 +1,16 @@
 import type {
   ChatSession,
+  FailurePolicy,
   GitHubConnectionStatus,
-  Pipeline,
-  PipelineStatus,
+  Issue,
+  IssueStatus,
+  Run,
+  RunStatus,
   Project,
-  TaskItem,
-  TaskItemStatus,
-  TaskPlan,
-  TaskPlanStatus,
+  WorkflowProfile,
+  WorkflowProfileType,
+  WorkflowRun,
+  WorkflowRunStatus,
 } from "./workflow";
 
 export interface CreateProjectRequest {
@@ -43,7 +46,7 @@ export interface GetProjectCreateRequestResponse {
   error?: string;
 }
 
-export interface CreatePipelineRequest {
+export interface CreateRunRequest {
   name: string;
   description?: string;
   template: string;
@@ -75,17 +78,17 @@ export interface ChatRunEvent {
   created_at: string;
 }
 
-export interface CreatePlanRequest {
+export interface CreateIssueRequest {
   session_id: string;
   name?: string;
-  fail_policy?: "block" | "skip" | "human";
+  fail_policy?: FailurePolicy;
   auto_merge?: boolean;
 }
 
-export interface CreatePlanFromFilesRequest {
+export interface CreateIssueFromFilesRequest {
   session_id: string;
   name?: string;
-  fail_policy?: "block" | "skip" | "human";
+  fail_policy?: FailurePolicy;
   auto_merge?: boolean;
   file_paths: string[];
 }
@@ -111,30 +114,30 @@ export interface RepoDiffResponse {
   diff: string;
 }
 
-export interface SubmitPlanReviewResponse {
-  status: TaskPlanStatus | string;
+export interface SubmitIssueReviewResponse {
+  status: IssueStatus | string;
 }
 
-export type PlanRejectFeedbackCategory =
+export type IssueRejectFeedbackCategory =
   | "cycle"
   | "missing_node"
   | "bad_granularity"
   | "coverage_gap"
   | "other";
 
-export interface PlanRejectFeedback {
-  category: PlanRejectFeedbackCategory;
+export interface IssueRejectFeedback {
+  category: IssueRejectFeedbackCategory;
   detail: string;
   expected_direction?: string;
 }
 
-export interface PlanActionRequest {
+export interface IssueActionRequest {
   action: "approve" | "reject" | "abort" | "abandon";
-  feedback?: PlanRejectFeedback;
+  feedback?: IssueRejectFeedback;
 }
 
-export interface PlanActionResponse {
-  status: TaskPlanStatus | string;
+export interface IssueActionResponse {
+  status: IssueStatus | string;
 }
 
 export interface SetIssueAutoMergeRequest {
@@ -142,19 +145,11 @@ export interface SetIssueAutoMergeRequest {
 }
 
 export interface SetIssueAutoMergeResponse {
-  status: TaskPlanStatus | string;
+  status: IssueStatus | string;
   auto_merge: boolean;
 }
 
-export interface TaskActionRequest {
-  action: "retry" | "skip" | "abort";
-}
-
-export interface TaskActionResponse {
-  status: TaskItemStatus | string;
-}
-
-export interface PipelineActionRequest {
+export interface RunActionRequest {
   action:
     | "approve"
     | "reject"
@@ -170,13 +165,13 @@ export interface PipelineActionRequest {
   role?: string;
 }
 
-export interface PipelineActionResponse {
-  status: PipelineStatus | string;
+export interface RunActionResponse {
+  status: RunStatus | WorkflowRunStatus | string;
   current_stage?: string;
 }
 
-export interface PipelineCheckpoint {
-  pipeline_id: string;
+export interface RunCheckpoint {
+  run_id: string;
   stage_name: string;
   status: "in_progress" | "success" | "failed" | "skipped" | "invalidated" | string;
   artifacts: Record<string, string>;
@@ -188,7 +183,7 @@ export interface PipelineCheckpoint {
   error?: string;
 }
 
-export type GetPipelineCheckpointsResponse = PipelineCheckpoint[];
+export type GetRunCheckpointsResponse = RunCheckpoint[];
 
 export type ListProjectsResponse = Project[] | null;
 
@@ -198,51 +193,47 @@ export interface PaginatedResponse<T> {
   offset: number;
 }
 
-export interface ApiPipeline extends Pipeline {
-  task_item_id: string;
-  github?: {
-    connection_status?: GitHubConnectionStatus;
-    issue_number?: number;
-    issue_url?: string;
-    pr_number?: number;
-    pr_url?: string;
+export type ApiRun = Run &
+  Partial<WorkflowRun> & {
+    issue_id?: string;
+    profile?: WorkflowProfileType;
+    github?: {
+      connection_status?: GitHubConnectionStatus;
+      issue_number?: number;
+      issue_url?: string;
+      pr_number?: number;
+      pr_url?: string;
+    };
   };
-}
 
-export interface ApiTaskItem extends TaskItem {
-  inputs: string[];
-  outputs: string[];
-  acceptance: string[];
-  constraints: string[];
+export interface ApiIssue extends Issue {
   github?: {
     issue_number?: number;
     issue_url?: string;
   };
 }
 
-export interface ApiTaskPlan extends TaskPlan {
-  spec_profile: string;
-  contract_version: string;
-  contract_checksum: string;
-  tasks: ApiTaskItem[];
+export interface ApiWorkflowProfile extends WorkflowProfile {
+  type: WorkflowProfileType;
 }
 
-export type ListPipelinesResponse = PaginatedResponse<ApiPipeline>;
-export type ListPlansResponse = PaginatedResponse<ApiTaskPlan>;
+export type ListRunsResponse = PaginatedResponse<ApiRun>;
+export type ListIssuesResponse = PaginatedResponse<ApiIssue>;
+export type ListWorkflowProfilesResponse = PaginatedResponse<ApiWorkflowProfile>;
 
-export interface PlanDagNode {
+export interface IssueDagNode {
   id: string;
   title: string;
-  status: TaskItemStatus;
-  pipeline_id: string;
+  status: IssueStatus;
+  run_id: string;
 }
 
-export interface PlanDagEdge {
+export interface IssueDagEdge {
   from: string;
   to: string;
 }
 
-export interface PlanDagStats {
+export interface IssueDagStats {
   total: number;
   pending: number;
   ready: number;
@@ -251,26 +242,26 @@ export interface PlanDagStats {
   failed: number;
 }
 
-export interface PlanDagResponse {
-  nodes: PlanDagNode[];
-  edges: PlanDagEdge[];
-  stats: PlanDagStats;
+export interface IssueDagResponse {
+  nodes: IssueDagNode[];
+  edges: IssueDagEdge[];
+  stats: IssueDagStats;
 }
 
-export interface PlanReviewIssue {
+export interface IssueReviewIssue {
   severity: string;
   issue_id: string;
   description: string;
   suggestion: string;
 }
 
-export interface PlanProposedFix {
+export interface IssueProposedFix {
   issue_id?: string;
   description: string;
   suggestion?: string;
 }
 
-export interface PlanReviewRecord {
+export interface IssueReviewRecord {
   id: number;
   issue_id: string;
   round: number;
@@ -278,13 +269,13 @@ export interface PlanReviewRecord {
   verdict: string;
   summary?: string;
   raw_output?: string;
-  issues: PlanReviewIssue[];
-  fixes: PlanProposedFix[];
+  issues: IssueReviewIssue[];
+  fixes: IssueProposedFix[];
   score?: number;
   created_at: string;
 }
 
-export interface PlanChangeRecord {
+export interface IssueChangeRecord {
   id: string;
   issue_id: string;
   field: string;
@@ -295,9 +286,9 @@ export interface PlanChangeRecord {
   created_at: string;
 }
 
-export interface PipelineLogEntry {
+export interface RunLogEntry {
   id: number;
-  pipeline_id: string;
+  run_id: string;
   stage: string;
   type: string;
   agent: string;
@@ -305,17 +296,17 @@ export interface PipelineLogEntry {
   timestamp: string;
 }
 
-export interface GetPipelineLogsQuery {
+export interface GetRunLogsQuery {
   stage?: string;
   limit?: number;
   offset?: number;
 }
 
-export type GetPipelineLogsResponse = PaginatedResponse<PipelineLogEntry>;
+export type GetRunLogsResponse = PaginatedResponse<RunLogEntry>;
 
 export interface IssueTimelineRefs {
   issue_id: string;
-  pipeline_id?: string;
+  run_id?: string;
   stage?: string;
 }
 
@@ -344,7 +335,7 @@ export interface AdminAuditLogItem {
   id: number;
   project_id?: string;
   issue_id?: string;
-  pipeline_id: string;
+  run_id: string;
   stage?: string;
   action: string;
   message: string;
@@ -354,8 +345,8 @@ export interface AdminAuditLogItem {
 }
 
 export interface ApiStatsResponse {
-  total_pipelines: number;
-  active_pipelines: number;
+  total_Runs: number;
+  active_Runs: number;
   success_rate: number;
   avg_duration: string;
   tokens_used: {
@@ -367,5 +358,17 @@ export interface ApiStatsResponse {
 export type ListChatsResponse = ChatSession[];
 export type ListChatRunEventsResponse = ChatRunEvent[];
 export type GetChatResponse = ChatSession;
-export type CreatePlanResponse = ApiTaskPlan;
+export type CreateIssueResponse = ApiIssue;
 export type ListAdminAuditLogResponse = PaginatedResponse<AdminAuditLogItem>;
+
+// 兼容别名（逐步删除）
+export type CreatePlanFromFilesRequest = CreateIssueFromFilesRequest;
+export type CreatePlanRequest = CreateIssueRequest;
+export type CreatePlanResponse = CreateIssueResponse;
+export type ListPlansResponse = ListIssuesResponse;
+export type PlanDagResponse = IssueDagResponse;
+export type PlanReviewRecord = IssueReviewRecord;
+export type PlanChangeRecord = IssueChangeRecord;
+export type SubmitPlanReviewResponse = SubmitIssueReviewResponse;
+export type PlanActionRequest = IssueActionRequest;
+export type PlanActionResponse = IssueActionResponse;

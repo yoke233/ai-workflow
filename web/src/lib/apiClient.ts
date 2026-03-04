@@ -1,47 +1,47 @@
 import type {
-  ApiTaskItem,
-  ApiTaskPlan,
-  ApiPipeline,
+  ApiIssue,
+  ApiRun,
+  ApiWorkflowProfile,
   ApiStatsResponse,
   CancelChatResponse,
   CreateChatResponse,
   CreateChatRequest,
-  CreatePlanFromFilesRequest,
+  CreateIssueFromFilesRequest,
+  CreateIssueRequest,
+  CreateIssueResponse,
   CreatePlanResponse,
-  CreatePipelineRequest,
+  CreateRunRequest,
   CreateProjectCreateRequest,
   CreateProjectCreateRequestResponse,
-  CreatePlanRequest,
   CreateProjectRequest,
   GetProjectCreateRequestResponse,
-  GetPipelineLogsQuery,
-  GetPipelineLogsResponse,
-  GetPipelineCheckpointsResponse,
+  GetRunLogsQuery,
+  GetRunLogsResponse,
+  GetRunCheckpointsResponse,
   GetChatResponse,
+  IssueActionRequest,
+  IssueActionResponse,
+  IssueChangeRecord,
+  IssueDagResponse,
+  IssueReviewRecord,
   ListChatRunEventsResponse,
   ListAdminAuditLogResponse,
   ListChatsResponse,
   IssueTimelineEntry,
   ListIssueTimelineQuery,
   ListIssueTimelineResponse,
-  ListPipelinesResponse,
-  ListPlansResponse,
+  ListIssuesResponse,
+  ListRunsResponse,
+  ListWorkflowProfilesResponse,
   ListProjectsResponse,
-  PipelineActionRequest,
-  PipelineActionResponse,
-  PlanActionRequest,
-  PlanActionResponse,
-  PlanChangeRecord,
-  PlanDagResponse,
-  PlanReviewRecord,
+  RunActionRequest,
+  RunActionResponse,
   RepoDiffResponse,
   RepoStatusResponse,
   RepoTreeResponse,
   SetIssueAutoMergeRequest,
   SetIssueAutoMergeResponse,
-  SubmitPlanReviewResponse,
-  TaskActionRequest,
-  TaskActionResponse,
+  SubmitIssueReviewResponse,
 } from "../types/api";
 import type { Project } from "../types/workflow";
 
@@ -107,6 +107,25 @@ const buildUrl = (
 ): string => {
   if (/^https?:\/\//.test(path)) {
     const absolute = new URL(path);
+    if (query) {
+      Object.entries(query).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          absolute.searchParams.set(key, String(value));
+        }
+      });
+    }
+    return absolute.toString();
+  }
+
+  if (path.startsWith("/api/")) {
+    const base = new URL(baseUrl);
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    const normalizedBasePath = base.pathname.replace(/\/+$/, "");
+    const apiPrefixIndex = normalizedBasePath.toLowerCase().indexOf("/api/");
+    const basePathPrefix =
+      apiPrefixIndex >= 0 ? normalizedBasePath.slice(0, apiPrefixIndex) : normalizedBasePath;
+    const resolvedPath = `${basePathPrefix}${normalizedPath}`.replace(/\/{2,}/g, "/");
+    const absolute = new URL(resolvedPath, `${base.protocol}//${base.host}`);
     if (query) {
       Object.entries(query).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
@@ -210,8 +229,8 @@ const normalizeIssueNumberFromExternalId = (externalId: string): number | undefi
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
-const normalizeApiPipeline = (pipeline: ApiPipeline): ApiPipeline => {
-  const config = pipeline.config ?? {};
+const normalizeApiRun = (Run: ApiRun): ApiRun => {
+  const config = Run.config ?? {};
   const issueNumber =
     toSafeNumber(config.issue_number) ?? toSafeNumber(config.github_issue_number);
   const prNumber = toSafeNumber(config.pr_number) ?? toSafeNumber(config.github_pr_number);
@@ -231,7 +250,7 @@ const normalizeApiPipeline = (pipeline: ApiPipeline): ApiPipeline => {
         : "disconnected";
 
   return {
-    ...pipeline,
+    ...Run,
     github: {
       connection_status: connectionStatus,
       issue_number: issueNumber,
@@ -242,33 +261,26 @@ const normalizeApiPipeline = (pipeline: ApiPipeline): ApiPipeline => {
   };
 };
 
-const normalizeApiTaskItem = (task: ApiTaskItem): ApiTaskItem => {
+const normalizeApiIssue = (plan: ApiIssue): ApiIssue => {
   const issueNumber =
-    normalizeIssueNumberFromExternalId(task.external_id ?? "") ??
-    toSafeNumber((task as { github?: { issue_number?: unknown } }).github?.issue_number);
+    normalizeIssueNumberFromExternalId(plan.external_id ?? "") ??
+    toSafeNumber((plan as { github?: { issue_number?: unknown } }).github?.issue_number);
   const issueUrl =
-    toSafeString((task as { github?: { issue_url?: unknown } }).github?.issue_url) ??
-    (toSafeString(task.external_id)?.startsWith("http")
-      ? toSafeString(task.external_id)
+    toSafeString((plan as { github?: { issue_url?: unknown } }).github?.issue_url) ??
+    (toSafeString(plan.external_id)?.startsWith("http")
+      ? toSafeString(plan.external_id)
       : undefined);
 
   return {
-    ...task,
-    inputs: Array.isArray(task.inputs) ? task.inputs : [],
-    outputs: Array.isArray(task.outputs) ? task.outputs : [],
-    acceptance: Array.isArray(task.acceptance) ? task.acceptance : [],
-    constraints: Array.isArray(task.constraints) ? task.constraints : [],
+    ...plan,
+    labels: Array.isArray(plan.labels) ? plan.labels : [],
+    attachments: Array.isArray(plan.attachments) ? plan.attachments : [],
+    depends_on: Array.isArray(plan.depends_on) ? plan.depends_on : [],
+    blocks: Array.isArray(plan.blocks) ? plan.blocks : [],
     github: {
       issue_number: issueNumber,
       issue_url: issueUrl,
     },
-  };
-};
-
-const normalizeApiTaskPlan = (plan: ApiTaskPlan): ApiTaskPlan => {
-  return {
-    ...plan,
-    tasks: Array.isArray(plan.tasks) ? plan.tasks.map(normalizeApiTaskItem) : [],
   };
 };
 
@@ -315,7 +327,7 @@ const normalizeIssueTimelineEntry = (
     status: toSafeString(entry.status) ?? "info",
     refs: {
       issue_id: issueID,
-      pipeline_id: toSafeString(refs.pipeline_id),
+      run_id: toSafeString(refs.run_id),
       stage: toSafeString(refs.stage),
     },
     meta,
@@ -344,63 +356,81 @@ export interface ApiClient {
     body: CreateProjectCreateRequest,
   ): Promise<CreateProjectCreateRequestResponse>;
   getProjectCreateRequest(requestId: string): Promise<GetProjectCreateRequestResponse>;
-  listPipelines(projectId: string, pagination?: PaginationParams): Promise<ListPipelinesResponse>;
-  createPipeline(projectId: string, body: CreatePipelineRequest): Promise<ApiPipeline>;
+  listIssues(projectId: string, pagination?: PaginationParams): Promise<ListIssuesResponse>;
+  getIssue(issueId: string): Promise<ApiIssue>;
+  listWorkflowProfiles(): Promise<ListWorkflowProfilesResponse>;
+  getWorkflowProfile(profileType: string): Promise<ApiWorkflowProfile>;
+  listRuns(projectId: string, pagination?: PaginationParams): Promise<ListRunsResponse>;
+  getRun(runId: string): Promise<ApiRun>;
+  createRun(projectId: string, body: CreateRunRequest): Promise<ApiRun>;
+  createIssue(projectId: string, body: CreateIssueRequest): Promise<CreateIssueResponse>;
+  createIssueFromFiles(
+    projectId: string,
+    body: CreateIssueFromFilesRequest,
+  ): Promise<CreateIssueResponse>;
+  submitIssueReview(projectId: string, issueId: string): Promise<SubmitIssueReviewResponse>;
+  applyIssueAction(
+    projectId: string,
+    issueId: string,
+    body: IssueActionRequest,
+  ): Promise<IssueActionResponse>;
+  getIssueDag(projectId: string, issueId: string): Promise<IssueDagResponse>;
+  listIssueReviews?(projectId: string, issueId: string): Promise<IssueReviewRecord[]>;
+  listIssueChanges?(projectId: string, issueId: string): Promise<IssueChangeRecord[]>;
   listChats(projectId: string): Promise<ListChatsResponse>;
   listChatRunEvents(projectId: string, sessionId: string): Promise<ListChatRunEventsResponse>;
   createChat(projectId: string, body: CreateChatRequest): Promise<CreateChatResponse>;
   cancelChat(projectId: string, sessionId: string): Promise<CancelChatResponse>;
   getChat(projectId: string, sessionId: string): Promise<GetChatResponse>;
-  createPlan(projectId: string, body: CreatePlanRequest): Promise<CreatePlanResponse>;
+  createPlan(projectId: string, body: CreateIssueRequest): Promise<CreatePlanResponse>;
   createPlanFromFiles(
     projectId: string,
-    body: CreatePlanFromFilesRequest,
+    body: CreateIssueFromFilesRequest,
   ): Promise<CreatePlanResponse>;
-  submitPlanReview(projectId: string, planId: string): Promise<SubmitPlanReviewResponse>;
+  submitPlanReview(projectId: string, planId: string): Promise<SubmitIssueReviewResponse>;
   applyPlanAction(
     projectId: string,
     planId: string,
-    body: PlanActionRequest,
-  ): Promise<PlanActionResponse>;
+    body: IssueActionRequest,
+  ): Promise<IssueActionResponse>;
   setIssueAutoMerge(
     projectId: string,
     issueId: string,
     body: SetIssueAutoMergeRequest,
   ): Promise<SetIssueAutoMergeResponse>;
-  applyTaskAction(
+  applyTaskAction?(
     projectId: string,
-    planId: string,
-    taskId: string,
-    body: TaskActionRequest,
-  ): Promise<TaskActionResponse>;
-  listPlans(projectId: string, pagination?: PaginationParams): Promise<ListPlansResponse>;
-  getPlanDag(projectId: string, planId: string): Promise<PlanDagResponse>;
-  listPlanReviews?(projectId: string, planId: string): Promise<PlanReviewRecord[]>;
-  listPlanChanges?(projectId: string, planId: string): Promise<PlanChangeRecord[]>;
+    issueId: string,
+    _taskId: string,
+    body: IssueActionRequest,
+  ): Promise<IssueActionResponse>;
+  listPlans(projectId: string, pagination?: PaginationParams): Promise<ListIssuesResponse>;
+  getPlanDag(projectId: string, planId: string): Promise<IssueDagResponse>;
+  listPlanReviews?(projectId: string, planId: string): Promise<IssueReviewRecord[]>;
+  listPlanChanges?(projectId: string, planId: string): Promise<IssueChangeRecord[]>;
   listIssueTimeline(
     projectId: string,
     issueId: string,
     query?: ListIssueTimelineQuery,
   ): Promise<ListIssueTimelineResponse>;
   listAdminAuditLog?(query?: AdminAuditLogQuery): Promise<ListAdminAuditLogResponse>;
-  getPipeline(projectId: string, pipelineId: string): Promise<ApiPipeline>;
-  getPipelineLogs(
+  getRunLogs(
     projectId: string,
-    pipelineId: string,
-    query?: GetPipelineLogsQuery,
-  ): Promise<GetPipelineLogsResponse>;
-  getPipelineCheckpoints(
+    runId: string,
+    query?: GetRunLogsQuery,
+  ): Promise<GetRunLogsResponse>;
+  getRunCheckpoints(
     projectId: string,
-    pipelineId: string,
-  ): Promise<GetPipelineCheckpointsResponse>;
+    runId: string,
+  ): Promise<GetRunCheckpointsResponse>;
   getRepoTree(projectId: string, dir?: string): Promise<RepoTreeResponse>;
   getRepoStatus(projectId: string): Promise<RepoStatusResponse>;
   getRepoDiff(projectId: string, filePath: string): Promise<RepoDiffResponse>;
-  applyPipelineAction(
+  applyRunAction(
     projectId: string,
-    pipelineId: string,
-    body: PipelineActionRequest,
-  ): Promise<PipelineActionResponse>;
+    runId: string,
+    body: RunActionRequest,
+  ): Promise<RunActionResponse>;
 }
 
 export const createApiClient = (options: ApiClientOptions): ApiClient => {
@@ -500,23 +530,125 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       request<GetProjectCreateRequestResponse>({
         path: `/projects/create-requests/${requestId}`,
       }),
-    listPipelines: async (projectId, pagination) => {
-      const response = await request<ListPipelinesResponse>({
-        path: `/projects/${projectId}/pipelines`,
-        query: pagination,
+    listIssues: async (projectId, pagination) => {
+      const response = await request<ListIssuesResponse | ApiIssue[]>({
+        path: "/api/v2/issues",
+        query: {
+          project_id: projectId,
+          limit: pagination?.limit,
+          offset: pagination?.offset,
+        },
       });
+      if (Array.isArray(response)) {
+        return {
+          items: response.map(normalizeApiIssue),
+          total: response.length,
+          offset: pagination?.offset ?? 0,
+        };
+      }
+      const items = Array.isArray(response.items) ? response.items : [];
       return {
-        ...response,
-        items: response.items.map(normalizeApiPipeline),
+        items: items.map(normalizeApiIssue),
+        total: typeof response.total === "number" ? response.total : items.length,
+        offset: typeof response.offset === "number" ? response.offset : pagination?.offset ?? 0,
       };
     },
-    createPipeline: async (projectId, body) => {
-      const response = await request<ApiPipeline, CreatePipelineRequest>({
-        path: `/projects/${projectId}/pipelines`,
+    getIssue: async (issueId) => {
+      const response = await request<ApiIssue>({
+        path: `/api/v2/issues/${issueId}`,
+      });
+      return normalizeApiIssue(response);
+    },
+    listWorkflowProfiles: async () => {
+      const response = await request<{ items?: ApiWorkflowProfile[] }>({
+        path: "/api/v2/workflow-profiles",
+      });
+      const items = Array.isArray(response.items) ? response.items : [];
+      return {
+        items,
+        total: items.length,
+        offset: 0,
+      };
+    },
+    getWorkflowProfile: (profileType) =>
+      request<ApiWorkflowProfile>({
+        path: `/api/v2/workflow-profiles/${profileType}`,
+      }),
+    listRuns: async (projectId, pagination) => {
+      const response = await request<ListRunsResponse | ApiRun[]>({
+        path: "/api/v2/runs",
+        query: {
+          project_id: projectId,
+          limit: pagination?.limit,
+          offset: pagination?.offset,
+        },
+      });
+      if (Array.isArray(response)) {
+        return {
+          items: response.map(normalizeApiRun),
+          total: response.length,
+          offset: pagination?.offset ?? 0,
+        };
+      }
+      const items = Array.isArray(response.items) ? response.items : [];
+      return {
+        items: items.map(normalizeApiRun),
+        total: typeof response.total === "number" ? response.total : items.length,
+        offset: typeof response.offset === "number" ? response.offset : pagination?.offset ?? 0,
+      };
+    },
+    getRun: async (runId) => {
+      const response = await request<ApiRun>({
+        path: `/api/v2/runs/${runId}`,
+      });
+      return normalizeApiRun(response);
+    },
+    createIssue: async (projectId, body) => {
+      const response = await request<CreateIssueResponse, CreateIssueRequest>({
+        path: `/projects/${projectId}/issues`,
         method: "POST",
         body,
       });
-      return normalizeApiPipeline(response);
+      return normalizeApiIssue(response);
+    },
+    createIssueFromFiles: async (projectId, body) => {
+      const response = await request<CreateIssueResponse, CreateIssueFromFilesRequest>({
+        path: `/projects/${projectId}/issues/from-files`,
+        method: "POST",
+        body,
+      });
+      return normalizeApiIssue(response);
+    },
+    submitIssueReview: (projectId, issueId) =>
+      request<SubmitIssueReviewResponse>({
+        path: `/projects/${projectId}/issues/${issueId}/review`,
+        method: "POST",
+      }),
+    applyIssueAction: (projectId, issueId, body) =>
+      request<IssueActionResponse, IssueActionRequest>({
+        path: `/projects/${projectId}/issues/${issueId}/action`,
+        method: "POST",
+        body,
+      }),
+    getIssueDag: (projectId, issueId) =>
+      request<IssueDagResponse>({
+        path: `/projects/${projectId}/issues/${issueId}/dag`,
+      }),
+    listIssueReviews: (projectId, issueId) =>
+      request<IssueReviewRecord[]>({
+        path: `/projects/${projectId}/issues/${issueId}/reviews`,
+      }),
+    listIssueChanges: (projectId, issueId) =>
+      request<IssueChangeRecord[]>({
+        path: `/projects/${projectId}/issues/${issueId}/changes`,
+      }),
+    createRun: async (projectId, body) => {
+      const response = await request<ApiRun, CreateRunRequest>({
+        path: `/projects/${projectId}/Runs`,
+        method: "POST",
+        body,
+      });
+      return normalizeApiRun(response);
     },
     listChats: (projectId) =>
       request<ListChatsResponse>({
@@ -542,29 +674,29 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         path: `/projects/${projectId}/chat/${sessionId}`,
       }),
     createPlan: async (projectId, body) => {
-      const response = await request<CreatePlanResponse, CreatePlanRequest>({
-        path: `/projects/${projectId}/plans`,
+      const response = await request<CreateIssueResponse, CreateIssueRequest>({
+        path: `/projects/${projectId}/issues`,
         method: "POST",
         body,
       });
-      return normalizeApiTaskPlan(response);
+      return normalizeApiIssue(response);
     },
     createPlanFromFiles: async (projectId, body) => {
-      const response = await request<CreatePlanResponse, CreatePlanFromFilesRequest>({
-        path: `/projects/${projectId}/plans/from-files`,
+      const response = await request<CreateIssueResponse, CreateIssueFromFilesRequest>({
+        path: `/projects/${projectId}/issues/from-files`,
         method: "POST",
         body,
       });
-      return normalizeApiTaskPlan(response);
+      return normalizeApiIssue(response);
     },
     submitPlanReview: (projectId, planId) =>
-      request<SubmitPlanReviewResponse>({
-        path: `/projects/${projectId}/plans/${planId}/review`,
+      request<SubmitIssueReviewResponse>({
+        path: `/projects/${projectId}/issues/${planId}/review`,
         method: "POST",
       }),
     applyPlanAction: (projectId, planId, body) =>
-      request<PlanActionResponse, PlanActionRequest>({
-        path: `/projects/${projectId}/plans/${planId}/action`,
+      request<IssueActionResponse, IssueActionRequest>({
+        path: `/projects/${projectId}/issues/${planId}/action`,
         method: "POST",
         body,
       }),
@@ -574,42 +706,46 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         method: "POST",
         body,
       }),
-    applyTaskAction: (projectId, planId, taskId, body) =>
-      request<TaskActionResponse, TaskActionRequest>({
-        path: `/projects/${projectId}/plans/${planId}/tasks/${taskId}/action`,
+    applyTaskAction: (projectId, issueId, _taskId, body) =>
+      request<IssueActionResponse, IssueActionRequest>({
+        path: `/projects/${projectId}/issues/${issueId}/action`,
         method: "POST",
         body,
       }),
     listPlans: async (projectId, pagination) => {
-      const response = await request<ListPlansResponse | ApiTaskPlan[]>({
-        path: `/projects/${projectId}/plans`,
-        query: pagination,
+      const response = await request<ListIssuesResponse | ApiIssue[]>({
+        path: "/api/v2/issues",
+        query: {
+          project_id: projectId,
+          limit: pagination?.limit,
+          offset: pagination?.offset,
+        },
       });
       if (Array.isArray(response)) {
         return {
-          items: response.map(normalizeApiTaskPlan),
+          items: response.map(normalizeApiIssue),
           total: response.length,
           offset: pagination?.offset ?? 0,
         };
       }
       const items = Array.isArray(response.items) ? response.items : [];
       return {
-        items: items.map(normalizeApiTaskPlan),
+        items: items.map(normalizeApiIssue),
         total: typeof response.total === "number" ? response.total : items.length,
         offset: typeof response.offset === "number" ? response.offset : pagination?.offset ?? 0,
       };
     },
     getPlanDag: (projectId, planId) =>
-      request<PlanDagResponse>({
-        path: `/projects/${projectId}/plans/${planId}/dag`,
+      request<IssueDagResponse>({
+        path: `/projects/${projectId}/issues/${planId}/dag`,
       }),
     listPlanReviews: (projectId, planId) =>
-      request<PlanReviewRecord[]>({
-        path: `/projects/${projectId}/plans/${planId}/reviews`,
+      request<IssueReviewRecord[]>({
+        path: `/projects/${projectId}/issues/${planId}/reviews`,
       }),
     listPlanChanges: (projectId, planId) =>
-      request<PlanChangeRecord[]>({
-        path: `/projects/${projectId}/plans/${planId}/changes`,
+      request<IssueChangeRecord[]>({
+        path: `/projects/${projectId}/issues/${planId}/changes`,
       }),
     listIssueTimeline: async (projectId, issueId, query) => {
       const response = await request<ListIssueTimelineResponse>({
@@ -639,24 +775,18 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
           offset: query?.offset,
         },
       }),
-    getPipeline: async (projectId, pipelineId) => {
-      const response = await request<ApiPipeline>({
-        path: `/projects/${projectId}/pipelines/${pipelineId}`,
-      });
-      return normalizeApiPipeline(response);
-    },
-    getPipelineLogs: (projectId, pipelineId, query) =>
-      request<GetPipelineLogsResponse>({
-        path: `/projects/${projectId}/pipelines/${pipelineId}/logs`,
+    getRunLogs: (projectId, runId, query) =>
+      request<GetRunLogsResponse>({
+        path: `/projects/${projectId}/Runs/${runId}/logs`,
         query: {
           stage: query?.stage?.trim() ? query.stage : undefined,
           limit: query?.limit,
           offset: query?.offset,
         },
       }),
-    getPipelineCheckpoints: (projectId, pipelineId) =>
-      request<GetPipelineCheckpointsResponse>({
-        path: `/projects/${projectId}/pipelines/${pipelineId}/checkpoints`,
+    getRunCheckpoints: (projectId, runId) =>
+      request<GetRunCheckpointsResponse>({
+        path: `/projects/${projectId}/Runs/${runId}/checkpoints`,
       }),
     getRepoTree: (projectId, dir) =>
       request<RepoTreeResponse>({
@@ -676,9 +806,9 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
           file: filePath,
         },
       }),
-    applyPipelineAction: (projectId, pipelineId, body) =>
-      request<PipelineActionResponse, PipelineActionRequest>({
-        path: `/projects/${projectId}/pipelines/${pipelineId}/action`,
+    applyRunAction: (projectId, runId, body) =>
+      request<RunActionResponse, RunActionRequest>({
+        path: `/projects/${projectId}/Runs/${runId}/action`,
         method: "POST",
         body,
       }),

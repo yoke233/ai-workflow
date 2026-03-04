@@ -3,18 +3,18 @@ package config
 import "time"
 
 type Config struct {
-	Agents    AgentsConfig    `yaml:"agents"`
-	Roles     []RoleConfig    `yaml:"roles"`
-	RoleBinds RoleBindings    `yaml:"role_bindings"`
-	Runtime   RuntimeConfig   `yaml:"runtime"`
-	Pipeline  PipelineConfig  `yaml:"pipeline"`
-	Scheduler SchedulerConfig `yaml:"scheduler"`
-	Secretary SecretaryConfig `yaml:"secretary"`
-	A2A       A2AConfig       `yaml:"a2a"`
-	Server    ServerConfig    `yaml:"server"`
-	GitHub    GitHubConfig    `yaml:"github"`
-	Store     StoreConfig     `yaml:"store"`
-	Log       LogConfig       `yaml:"log"`
+	Agents     AgentsConfig     `yaml:"agents"`
+	Roles      []RoleConfig     `yaml:"roles"`
+	RoleBinds  RoleBindings     `yaml:"role_bindings"`
+	Runtime    RuntimeConfig    `yaml:"runtime"`
+	Run        RunConfig        `yaml:"Run"`
+	Scheduler  SchedulerConfig  `yaml:"scheduler"`
+	TeamLeader TeamLeaderConfig `yaml:"team_leader"`
+	A2A        A2AConfig        `yaml:"a2a"`
+	Server     ServerConfig     `yaml:"server"`
+	GitHub     GitHubConfig     `yaml:"github"`
+	Store      StoreConfig      `yaml:"store"`
+	Log        LogConfig        `yaml:"log"`
 }
 
 type AgentsConfig struct {
@@ -36,7 +36,7 @@ type AgentConfig struct {
 	CapabilitiesMax *CapabilitiesConfig `yaml:"capabilities_max"`
 }
 
-type PipelineConfig struct {
+type RunConfig struct {
 	DefaultTemplate   string        `yaml:"default_template"`
 	GlobalTimeout     time.Duration `yaml:"global_timeout"`
 	AutoInferTemplate bool          `yaml:"auto_infer_template"`
@@ -48,11 +48,11 @@ type RuntimeConfig struct {
 }
 
 type SchedulerConfig struct {
-	MaxGlobalAgents     int `yaml:"max_global_agents"`
-	MaxProjectPipelines int `yaml:"max_project_pipelines"`
+	MaxGlobalAgents int `yaml:"max_global_agents"`
+	MaxProjectRuns  int `yaml:"max_project_Runs"`
 }
 
-type SecretaryConfig struct {
+type TeamLeaderConfig struct {
 	ReviewGatePlugin   string                   `yaml:"review_gate_plugin"`
 	ReviewOrchestrator ReviewOrchestratorConfig `yaml:"review_orchestrator"`
 	DAGScheduler       DAGSchedulerConfig       `yaml:"dag_scheduler"`
@@ -120,18 +120,18 @@ type LogConfig struct {
 
 // ConfigLayer 表示可选覆盖层。nil 字段表示“未设置”，用于多层配置继承合并。
 type ConfigLayer struct {
-	Agents    *AgentsLayer       `yaml:"agents"`
-	Roles     *[]RoleConfig      `yaml:"roles"`
-	RoleBinds *RoleBindingsLayer `yaml:"role_bindings"`
-	Runtime   *RuntimeLayer      `yaml:"runtime"`
-	Pipeline  *PipelineLayer     `yaml:"pipeline"`
-	Scheduler *SchedulerLayer    `yaml:"scheduler"`
-	Secretary *SecretaryLayer    `yaml:"secretary"`
-	A2A       *A2ALayer          `yaml:"a2a"`
-	Server    *ServerLayer       `yaml:"server"`
-	GitHub    *GitHubLayer       `yaml:"github"`
-	Store     *StoreLayer        `yaml:"store"`
-	Log       *LogLayer          `yaml:"log"`
+	Agents     *AgentsLayer       `yaml:"agents"`
+	Roles      *[]RoleConfig      `yaml:"roles"`
+	RoleBinds  *RoleBindingsLayer `yaml:"role_bindings"`
+	Runtime    *RuntimeLayer      `yaml:"runtime"`
+	Run        *RunLayer          `yaml:"Run"`
+	Scheduler  *SchedulerLayer    `yaml:"scheduler"`
+	TeamLeader *TeamLeaderLayer   `yaml:"team_leader"`
+	A2A        *A2ALayer          `yaml:"a2a"`
+	Server     *ServerLayer       `yaml:"server"`
+	GitHub     *GitHubLayer       `yaml:"github"`
+	Store      *StoreLayer        `yaml:"store"`
+	Log        *LogLayer          `yaml:"log"`
 }
 
 type AgentsLayer struct {
@@ -141,7 +141,7 @@ type AgentsLayer struct {
 	Profiles *[]AgentProfileConfig `yaml:"-"`
 }
 
-type PipelineLayer struct {
+type RunLayer struct {
 	DefaultTemplate   *string        `yaml:"default_template"`
 	GlobalTimeout     *time.Duration `yaml:"global_timeout"`
 	AutoInferTemplate *bool          `yaml:"auto_infer_template"`
@@ -153,11 +153,11 @@ type RuntimeLayer struct {
 }
 
 type SchedulerLayer struct {
-	MaxGlobalAgents     *int `yaml:"max_global_agents"`
-	MaxProjectPipelines *int `yaml:"max_project_pipelines"`
+	MaxGlobalAgents *int `yaml:"max_global_agents"`
+	MaxProjectRuns  *int `yaml:"max_project_Runs"`
 }
 
-type SecretaryLayer struct {
+type TeamLeaderLayer struct {
 	ReviewGatePlugin   *string                  `yaml:"review_gate_plugin"`
 	ReviewOrchestrator *ReviewOrchestratorLayer `yaml:"review_orchestrator"`
 	DAGScheduler       *DAGSchedulerLayer       `yaml:"dag_scheduler"`
@@ -266,17 +266,17 @@ type MCPConfig struct {
 }
 
 type RoleBindings struct {
-	Secretary          SingleRoleBinding    `yaml:"secretary"`
-	Pipeline           PipelineRoleBindings `yaml:"pipeline"`
-	ReviewOrchestrator ReviewRoleBindings   `yaml:"review_orchestrator"`
-	PlanParser         SingleRoleBinding    `yaml:"plan_parser"`
+	TeamLeader         SingleRoleBinding  `yaml:"team_leader"`
+	Run                RunRoleBindings    `yaml:"Run"`
+	ReviewOrchestrator ReviewRoleBindings `yaml:"review_orchestrator"`
+	PlanParser         SingleRoleBinding  `yaml:"plan_parser"`
 }
 
 type SingleRoleBinding struct {
 	Role string `yaml:"role"`
 }
 
-type PipelineRoleBindings struct {
+type RunRoleBindings struct {
 	StageRoles map[string]string `yaml:"stage_roles"`
 }
 
@@ -286,17 +286,17 @@ type ReviewRoleBindings struct {
 }
 
 type RoleBindingsLayer struct {
-	Secretary          *SingleRoleBindingLayer    `yaml:"secretary"`
-	Pipeline           *PipelineRoleBindingsLayer `yaml:"pipeline"`
-	ReviewOrchestrator *ReviewRoleBindingsLayer   `yaml:"review_orchestrator"`
-	PlanParser         *SingleRoleBindingLayer    `yaml:"plan_parser"`
+	TeamLeader         *SingleRoleBindingLayer  `yaml:"team_leader"`
+	Run                *RunRoleBindingsLayer    `yaml:"Run"`
+	ReviewOrchestrator *ReviewRoleBindingsLayer `yaml:"review_orchestrator"`
+	PlanParser         *SingleRoleBindingLayer  `yaml:"plan_parser"`
 }
 
 type SingleRoleBindingLayer struct {
 	Role *string `yaml:"role"`
 }
 
-type PipelineRoleBindingsLayer struct {
+type RunRoleBindingsLayer struct {
 	StageRoles *map[string]string `yaml:"stage_roles"`
 }
 

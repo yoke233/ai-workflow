@@ -8,7 +8,7 @@ import (
 
 	"github.com/yoke233/ai-workflow/internal/core"
 	storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
 func TestAIReviewGate_UnknownReview(t *testing.T) {
@@ -27,12 +27,102 @@ func TestAIReviewGate_UnknownReview(t *testing.T) {
 	}
 }
 
+func TestAIReviewGate_ProfileDefaultsToNormal(t *testing.T) {
+	store, issue := newTestStoreWithIssue(t)
+	issue.Labels = nil
+	issue.Template = "standard"
+
+	done := make(chan struct{})
+	capturedLabels := []string{}
+	panel := fakePanel{
+		run: func(_ context.Context, issues []*core.Issue) (*teamleader.ReviewSessionResult, error) {
+			if len(issues) != 1 {
+				return nil, errors.New("expected one issue")
+			}
+			capturedLabels = append([]string(nil), issues[0].Labels...)
+			close(done)
+			return &teamleader.ReviewSessionResult{
+				Status:   core.ReviewStatusApproved,
+				Decision: teamleader.DecisionApprove,
+			}, nil
+		},
+	}
+	gate := New(store, panel)
+	if err := gate.Init(context.Background()); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := gate.Submit(context.Background(), []*core.Issue{issue}); err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("review run did not complete")
+	}
+
+	if profile := resolveIssueProfile(&core.Issue{Labels: capturedLabels}); profile != core.WorkflowProfileNormal {
+		t.Fatalf("normalized profile = %q, want %q", profile, core.WorkflowProfileNormal)
+	}
+}
+
+func TestAIReviewGate_ProfileStrictAndFastReleasePassThrough(t *testing.T) {
+	tests := []struct {
+		name    string
+		profile core.WorkflowProfileType
+	}{
+		{name: "strict", profile: core.WorkflowProfileStrict},
+		{name: "fast_release", profile: core.WorkflowProfileFastRelease},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			store, issue := newTestStoreWithIssue(t)
+			issue.Labels = []string{"profile:" + string(tc.profile)}
+
+			done := make(chan struct{})
+			capturedLabels := []string{}
+			panel := fakePanel{
+				run: func(_ context.Context, issues []*core.Issue) (*teamleader.ReviewSessionResult, error) {
+					if len(issues) != 1 {
+						return nil, errors.New("expected one issue")
+					}
+					capturedLabels = append([]string(nil), issues[0].Labels...)
+					close(done)
+					return &teamleader.ReviewSessionResult{
+						Status:   core.ReviewStatusApproved,
+						Decision: teamleader.DecisionApprove,
+					}, nil
+				},
+			}
+			gate := New(store, panel)
+			if err := gate.Init(context.Background()); err != nil {
+				t.Fatalf("Init() error = %v", err)
+			}
+			if _, err := gate.Submit(context.Background(), []*core.Issue{issue}); err != nil {
+				t.Fatalf("Submit() error = %v", err)
+			}
+
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("review run did not complete")
+			}
+
+			if profile := resolveIssueProfile(&core.Issue{Labels: capturedLabels}); profile != tc.profile {
+				t.Fatalf("normalized profile = %q, want %q", profile, tc.profile)
+			}
+		})
+	}
+}
+
 func TestAIReviewGate_CancelWinsOverAsyncError(t *testing.T) {
 	store, issue := newTestStoreWithIssue(t)
 	started := make(chan struct{})
 
 	panel := fakePanel{
-		run: func(ctx context.Context, _ []*core.Issue) (*secretary.ReviewSessionResult, error) {
+		run: func(ctx context.Context, _ []*core.Issue) (*teamleader.ReviewSessionResult, error) {
 			close(started)
 			<-ctx.Done()
 			return nil, errors.New("runner returned non-context error after cancellation")
@@ -71,7 +161,7 @@ func TestAIReviewGate_SubmitPendingDuplicateAndCancelIdempotent(t *testing.T) {
 	store, issue := newTestStoreWithIssue(t)
 	started := make(chan struct{})
 	panel := fakePanel{
-		run: func(ctx context.Context, _ []*core.Issue) (*secretary.ReviewSessionResult, error) {
+		run: func(ctx context.Context, _ []*core.Issue) (*teamleader.ReviewSessionResult, error) {
 			close(started)
 			<-ctx.Done()
 			return nil, ctx.Err()
@@ -169,7 +259,7 @@ func TestAIReviewGate_CheckCompletedStatusMapping(t *testing.T) {
 			store, issue := newTestStoreWithIssue(t)
 			done := make(chan struct{})
 			panel := fakePanel{
-				run: func(_ context.Context, _ []*core.Issue) (*secretary.ReviewSessionResult, error) {
+				run: func(_ context.Context, _ []*core.Issue) (*teamleader.ReviewSessionResult, error) {
 					if err := store.SaveReviewRecord(&core.ReviewRecord{
 						IssueID:  issue.ID,
 						Round:    1,
@@ -220,7 +310,7 @@ func TestAIReviewGate_SessionDecisionPersistsFinalVerdict(t *testing.T) {
 	store, issue := newTestStoreWithIssue(t)
 	done := make(chan struct{})
 	panel := fakePanel{
-		run: func(_ context.Context, _ []*core.Issue) (*secretary.ReviewSessionResult, error) {
+		run: func(_ context.Context, _ []*core.Issue) (*teamleader.ReviewSessionResult, error) {
 			if err := store.SaveReviewRecord(&core.ReviewRecord{
 				IssueID:  issue.ID,
 				Round:    1,
@@ -230,9 +320,9 @@ func TestAIReviewGate_SessionDecisionPersistsFinalVerdict(t *testing.T) {
 				t.Fatalf("SaveReviewRecord() error = %v", err)
 			}
 			close(done)
-			return &secretary.ReviewSessionResult{
+			return &teamleader.ReviewSessionResult{
 				Status:   core.ReviewStatusRejected,
-				Decision: secretary.DecisionEscalate,
+				Decision: teamleader.DecisionEscalate,
 				Verdicts: map[string]core.ReviewVerdict{
 					issue.ID: {
 						Reviewer: "aggregator",
@@ -276,14 +366,14 @@ func TestAIReviewGate_SessionDecisionPersistsFinalVerdict(t *testing.T) {
 }
 
 type fakePanel struct {
-	run func(ctx context.Context, issues []*core.Issue) (*secretary.ReviewSessionResult, error)
+	run func(ctx context.Context, issues []*core.Issue) (*teamleader.ReviewSessionResult, error)
 }
 
-func (f fakePanel) Run(ctx context.Context, issues []*core.Issue) (*secretary.ReviewSessionResult, error) {
+func (f fakePanel) Run(ctx context.Context, issues []*core.Issue) (*teamleader.ReviewSessionResult, error) {
 	if f.run == nil {
-		return &secretary.ReviewSessionResult{
+		return &teamleader.ReviewSessionResult{
 			Status:   core.ReviewStatusApproved,
-			Decision: secretary.DecisionApprove,
+			Decision: teamleader.DecisionApprove,
 		}, nil
 	}
 	return f.run(ctx, cloneIssues(issues))

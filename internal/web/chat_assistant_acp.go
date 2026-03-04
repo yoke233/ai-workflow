@@ -11,11 +11,11 @@ import (
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/core"
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
 const (
-	defaultWebChatRoleID  = "secretary"
+	defaultWebChatRoleID  = "team_leader"
 	defaultWebChatTimeout = 90 * time.Second
 )
 
@@ -50,7 +50,7 @@ type ACPChatAssistantDeps struct {
 	RoleResolver     ChatRoleResolver
 	ClientFactory    ChatACPClientFactory
 	EventPublisher   ChatEventPublisher
-	RunEventRecorder secretary.ChatRunEventRecorder
+	RunEventRecorder teamleader.ChatRunEventRecorder
 }
 
 // ACPChatAssistant runs one-turn chat on ACP protocol.
@@ -130,7 +130,7 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 	runCtx, cancel := withDefaultTimeout(ctx, a.deps.Timeout)
 	defer cancel()
 
-	handler := secretary.NewACPHandler(launchCfg.WorkDir, strings.TrimSpace(req.AgentSessionID), a.deps.EventPublisher)
+	handler := teamleader.NewACPHandler(launchCfg.WorkDir, strings.TrimSpace(req.AgentSessionID), a.deps.EventPublisher)
 	handler.SetProjectID(strings.TrimSpace(req.ProjectID))
 	handler.SetChatSessionID(strings.TrimSpace(req.ChatSessionID))
 	handler.SetPermissionPolicy(role.PermissionPolicy)
@@ -243,7 +243,7 @@ func startWebChatSession(
 		"role_id": roleID,
 	}
 	trimmedCWD := strings.TrimSpace(cwd)
-	effectiveMCPServers := secretary.MCPToolsFromRoleConfig(role)
+	effectiveMCPServers := teamleader.MCPToolsFromRoleConfig(role)
 	if sessionID := strings.TrimSpace(persistedSessionID); shouldLoadPersistedChatSession(role.SessionPolicy, sessionID) {
 		loaded, err := client.LoadSession(ctx, acpproto.LoadSessionRequest{
 			SessionId:  acpproto.SessionId(sessionID),
@@ -374,7 +374,7 @@ func newLegacyProviderRoleResolver(
 	}
 	roles := []acpclient.RoleProfile{
 		{
-			ID:      "secretary",
+			ID:      "team_leader",
 			AgentID: agentID,
 			Capabilities: acpclient.ClientCapabilities{
 				FSRead:   true,

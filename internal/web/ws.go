@@ -21,19 +21,19 @@ const (
 )
 
 type WSMessage struct {
-	Type       string         `json:"type"`
-	PipelineID string         `json:"pipeline_id,omitempty"`
-	ProjectID  string         `json:"project_id,omitempty"`
-	IssueID    string         `json:"issue_id,omitempty"`
-	SessionID  string         `json:"session_id,omitempty"`
-	Data       map[string]any `json:"data,omitempty"`
+	Type      string         `json:"type"`
+	RunID     string         `json:"run_id,omitempty"`
+	ProjectID string         `json:"project_id,omitempty"`
+	IssueID   string         `json:"issue_id,omitempty"`
+	SessionID string         `json:"session_id,omitempty"`
+	Data      map[string]any `json:"data,omitempty"`
 }
 
 type wsClientMessage struct {
-	Type       string `json:"type"`
-	PipelineID string `json:"pipeline_id,omitempty"`
-	IssueID    string `json:"issue_id,omitempty"`
-	SessionID  string `json:"session_id,omitempty"`
+	Type      string `json:"type"`
+	RunID     string `json:"run_id,omitempty"`
+	IssueID   string `json:"issue_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
 }
 
 type Hub struct {
@@ -50,9 +50,9 @@ type wsClient struct {
 	conn *websocket.Conn
 	send chan []byte
 
-	subMu        sync.RWMutex
-	pipelineSubs map[string]struct{}
-	issueSubs    map[string]struct{}
+	subMu     sync.RWMutex
+	Runsubs   map[string]struct{}
+	issueSubs map[string]struct{}
 }
 
 func NewHub() *Hub {
@@ -77,11 +77,11 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &wsClient{
-		hub:          h,
-		conn:         conn,
-		send:         make(chan []byte, 64),
-		pipelineSubs: make(map[string]struct{}),
-		issueSubs:    make(map[string]struct{}),
+		hub:       h,
+		conn:      conn,
+		send:      make(chan []byte, 64),
+		Runsubs:   make(map[string]struct{}),
+		issueSubs: make(map[string]struct{}),
 	}
 
 	h.register(client)
@@ -203,12 +203,12 @@ func (h *Hub) BroadcastCoreEvent(evt core.Event) {
 	}
 
 	h.Broadcast(WSMessage{
-		Type:       string(evt.Type),
-		PipelineID: evt.PipelineID,
-		ProjectID:  evt.ProjectID,
-		IssueID:    issueID,
-		SessionID:  sessionID,
-		Data:       data,
+		Type:      string(evt.Type),
+		RunID:     evt.RunID,
+		ProjectID: evt.ProjectID,
+		IssueID:   issueID,
+		SessionID: sessionID,
+		Data:      data,
 	})
 }
 
@@ -262,26 +262,26 @@ func (c *wsClient) writePump() {
 
 func (c *wsClient) handleClientMessage(msg wsClientMessage) {
 	switch msg.Type {
-	case "subscribe_pipeline":
-		id := strings.TrimSpace(msg.PipelineID)
+	case "subscribe_run":
+		id := strings.TrimSpace(msg.RunID)
 		if id == "" {
-			c.sendError("pipeline_id is required")
+			c.sendError("run_id is required")
 			return
 		}
 		c.subMu.Lock()
-		c.pipelineSubs[id] = struct{}{}
+		c.Runsubs[id] = struct{}{}
 		c.subMu.Unlock()
-		c.sendJSON(WSMessage{Type: "subscribed", PipelineID: id})
-	case "unsubscribe_pipeline":
-		id := strings.TrimSpace(msg.PipelineID)
+		c.sendJSON(WSMessage{Type: "subscribed", RunID: id})
+	case "unsubscribe_run":
+		id := strings.TrimSpace(msg.RunID)
 		if id == "" {
-			c.sendError("pipeline_id is required")
+			c.sendError("run_id is required")
 			return
 		}
 		c.subMu.Lock()
-		delete(c.pipelineSubs, id)
+		delete(c.Runsubs, id)
 		c.subMu.Unlock()
-		c.sendJSON(WSMessage{Type: "unsubscribed", PipelineID: id})
+		c.sendJSON(WSMessage{Type: "unsubscribed", RunID: id})
 	case "subscribe_issue":
 		id := strings.TrimSpace(msg.IssueID)
 		if id == "" {
@@ -330,11 +330,11 @@ func (c *wsClient) shouldReceive(msg WSMessage) bool {
 	}
 
 	if msg.Type == "agent_output" {
-		if msg.PipelineID == "" {
+		if msg.RunID == "" {
 			return false
 		}
 		c.subMu.RLock()
-		_, ok := c.pipelineSubs[msg.PipelineID]
+		_, ok := c.Runsubs[msg.RunID]
 		c.subMu.RUnlock()
 		return ok
 	}
@@ -466,11 +466,11 @@ func (h *Hub) appendChatSessionEventCacheLocked(sessionID string, payload []byte
 
 func isChatSessionEventType(eventType string) bool {
 	switch core.EventType(strings.TrimSpace(eventType)) {
-	case core.EventChatRunStarted,
-		core.EventChatRunUpdate,
-		core.EventChatRunCompleted,
-		core.EventChatRunFailed,
-		core.EventChatRunCancelled:
+	case core.EventRunStarted,
+		core.EventRunUpdate,
+		core.EventRunCompleted,
+		core.EventRunFailed,
+		core.EventRunCancelled:
 		return true
 	default:
 		return false
