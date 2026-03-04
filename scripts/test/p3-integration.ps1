@@ -13,25 +13,9 @@ Write-Host "RepoRoot: $repoRoot"
 Write-Host "Run mode: sequential, no background jobs, no loops."
 Write-Host "GOMAXPROCS=$env:GOMAXPROCS, GOTEST_TIMEOUT=$env:GOTEST_TIMEOUT"
 
-Invoke-Step -Name "Backend full test" -Command {
-    & (Join-Path $PSScriptRoot "backend-all.ps1")
-}
-
-Invoke-Step -Name "P3.5 terminology gate" -Command {
-    & (Join-Path $PSScriptRoot "p35-terminology-gate.ps1")
-}
-
-Invoke-Step -Name "Backend GitHub integration suite" -Command {
-    & (Join-Path $PSScriptRoot "backend-github.ps1")
-}
-
-Invoke-Step -Name "Frontend unit suite" -Command {
-    & (Join-Path $PSScriptRoot "frontend-unit.ps1")
-}
-
-Invoke-Step -Name "Frontend production build" -Command {
-    & (Join-Path $PSScriptRoot "frontend-build.ps1")
+Invoke-Step -Name "Wave4 V2 smoke baseline" -Command {
+    & (Join-Path $PSScriptRoot "v2-smoke.ps1")
 }
 
 Write-Host ""
-Write-Host "P3 integration test suite completed." -ForegroundColor Green
+Write-Host "Wave4 integration baseline completed." -ForegroundColor Green

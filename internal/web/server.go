@@ -12,7 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/core"
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 	webassets "github.com/yoke233/ai-workflow/web"
 )
 
@@ -71,9 +71,9 @@ type PipelineExecutor interface {
 
 // A2ABridge defines A2A task bridge methods.
 type A2ABridge interface {
-	SendMessage(ctx context.Context, input secretary.A2ASendMessageInput) (*secretary.A2ATaskSnapshot, error)
-	GetTask(ctx context.Context, input secretary.A2AGetTaskInput) (*secretary.A2ATaskSnapshot, error)
-	CancelTask(ctx context.Context, input secretary.A2ACancelTaskInput) (*secretary.A2ATaskSnapshot, error)
+	SendMessage(ctx context.Context, input teamleader.A2ASendMessageInput) (*teamleader.A2ATaskSnapshot, error)
+	GetTask(ctx context.Context, input teamleader.A2AGetTaskInput) (*teamleader.A2ATaskSnapshot, error)
+	CancelTask(ctx context.Context, input teamleader.A2ACancelTaskInput) (*teamleader.A2ATaskSnapshot, error)
 }
 
 // WebhookDeliveryReplayer replays failed webhook deliveries by delivery id.
@@ -95,13 +95,11 @@ type Config struct {
 	Frontend               fs.FS
 	Store                  core.Store
 	IssueManager           IssueManager
-	PlanManager            IssueManager // deprecated: use IssueManager
 	ChatAssistant          ChatAssistant
 	EventPublisher         chatEventPublisher
 	PipelineExec           PipelineExecutor
 	PipelineStageRoles     map[string]string
 	IssueParserRoleID      string
-	PlanParserRoleID       string
 	WebhookReplayer        WebhookDeliveryReplayer
 	Hub                    *Hub
 	ProjectRepoProvisioner ProjectRepoProvisioner
@@ -157,13 +155,7 @@ func NewServer(cfg Config) *Server {
 		webhookReplayer = cfg.WebhookReplayer
 	}
 	issueManager := cfg.IssueManager
-	if issueManager == nil {
-		issueManager = cfg.PlanManager
-	}
 	issueParserRoleID := strings.TrimSpace(cfg.IssueParserRoleID)
-	if issueParserRoleID == "" {
-		issueParserRoleID = strings.TrimSpace(cfg.PlanParserRoleID)
-	}
 	r.Route("/api/v1", func(r chi.Router) {
 		if cfg.AuthEnabled {
 			r.Use(BearerAuthMiddleware(cfg.BearerToken))

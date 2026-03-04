@@ -60,7 +60,7 @@ func Defaults() Config {
 			{
 				Name:           "team_leader",
 				Agent:          "claude",
-				PromptTemplate: "secretary_system",
+				PromptTemplate: "team_leader",
 				Capabilities: CapabilitiesConfig{
 					FSRead:   true,
 					FSWrite:  true,
@@ -124,7 +124,7 @@ func Defaults() Config {
 			},
 		},
 		RoleBinds: RoleBindings{
-			Secretary: SingleRoleBinding{
+			TeamLeader: SingleRoleBinding{
 				Role: "team_leader",
 			},
 			Pipeline: PipelineRoleBindings{
@@ -161,7 +161,7 @@ func Defaults() Config {
 			MaxGlobalAgents:     3,
 			MaxProjectPipelines: 2,
 		},
-		Secretary: SecretaryConfig{
+		TeamLeader: TeamLeaderConfig{
 			ReviewGatePlugin: "review-ai-panel",
 			ReviewOrchestrator: ReviewOrchestratorConfig{
 				MaxRounds: 2,

@@ -82,15 +82,15 @@ func TestACPChatAssistantRejectsMissingWorkDirForAgentSDKInproc(t *testing.T) {
 			LaunchCommand: agentsdkInprocLaunchCommand,
 		},
 		roles: map[string]acpclient.RoleProfile{
-			"secretary": {
-				ID:      "secretary",
+			"team_leader": {
+				ID:      "team_leader",
 				AgentID: "agentsdk",
 			},
 		},
 	}
 	factory := &recordingACPClientFactory{client: &stubACPClient{}}
 	assistant := newACPChatAssistant(ACPChatAssistantDeps{
-		DefaultRoleID: "secretary",
+		DefaultRoleID: "team_leader",
 		RoleResolver:  resolver,
 		ClientFactory: factory,
 	})

@@ -1,4 +1,4 @@
-package secretary
+package teamleader
 
 import (
 	"context"
@@ -14,11 +14,6 @@ const (
 	IssueActionApprove = "approve"
 	IssueActionReject  = "reject"
 	IssueActionAbandon = "abandon"
-
-	// 兼容旧常量命名，统一映射到 issue action 语义。
-	PlanActionApprove = IssueActionApprove
-	PlanActionReject  = IssueActionReject
-	PlanActionAbandon = IssueActionAbandon
 )
 
 type CreateIssueSpec struct {

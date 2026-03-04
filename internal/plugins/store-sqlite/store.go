@@ -114,13 +114,11 @@ func (s *SQLiteStore) SavePipeline(p *core.Pipeline) error {
 	if err != nil {
 		return err
 	}
-	issueColumn := s.pipelineIssueColumn()
-
-	query := fmt.Sprintf(`
+	query := `
 INSERT INTO pipelines (
 	id, project_id, name, description, template, status, current_stage,
 	stages_json, artifacts_json, config_json, branch_name, worktree_path,
-	error_message, max_total_retries, total_retries, run_count, last_error_type, %s,
+	error_message, max_total_retries, total_retries, run_count, last_error_type, issue_id,
 	queued_at, last_heartbeat_at, started_at, finished_at
 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
@@ -140,12 +138,12 @@ ON CONFLICT(id) DO UPDATE SET
 	total_retries=excluded.total_retries,
 	run_count=excluded.run_count,
 	last_error_type=excluded.last_error_type,
-	%[1]s=excluded.%[1]s,
+	issue_id=excluded.issue_id,
 	queued_at=excluded.queued_at,
 	last_heartbeat_at=excluded.last_heartbeat_at,
 	started_at=excluded.started_at,
 	finished_at=excluded.finished_at,
-	updated_at=CURRENT_TIMESTAMP`, issueColumn)
+	updated_at=CURRENT_TIMESTAMP`
 	_, err = s.db.Exec(query,
 		p.ID, p.ProjectID, p.Name, p.Description, p.Template, p.Status, p.CurrentStage,
 		string(stagesJSON), string(artifactsJSON), string(configJSON), p.BranchName, p.WorktreePath,
@@ -166,14 +164,12 @@ func (s *SQLiteStore) GetPipeline(id string) (*core.Pipeline, error) {
 		startedAt     sql.NullTime
 		finishedAt    sql.NullTime
 	)
-	issueExpr := s.pipelineIssueSelectExpr()
-
-	query := fmt.Sprintf(`
+	query := `
 SELECT id, project_id, name, description, template, status, current_stage,
        stages_json, artifacts_json, config_json, branch_name, worktree_path, error_message,
-       max_total_retries, total_retries, run_count, last_error_type, %s, queued_at, last_heartbeat_at,
+       max_total_retries, total_retries, run_count, last_error_type, COALESCE(issue_id, ''), queued_at, last_heartbeat_at,
 	   started_at, finished_at, created_at, updated_at
-FROM pipelines WHERE id=?`, issueExpr)
+FROM pipelines WHERE id=?`
 	err := s.db.QueryRow(query,
 		id,
 	).Scan(
@@ -214,10 +210,7 @@ FROM pipelines WHERE id=?`, issueExpr)
 }
 
 func (s *SQLiteStore) ListPipelines(projectID string, filter core.PipelineFilter) ([]core.Pipeline, error) {
-	query := fmt.Sprintf(
-		`SELECT id, project_id, name, template, status, current_stage, %s, created_at FROM pipelines WHERE project_id=?`,
-		s.pipelineIssueSelectExpr(),
-	)
+	query := `SELECT id, project_id, name, template, status, current_stage, COALESCE(issue_id, ''), created_at FROM pipelines WHERE project_id=?`
 	args := []any{projectID}
 	if filter.Status != "" {
 		query += ` AND status=?`
@@ -993,8 +986,7 @@ func (s *SQLiteStore) GetIssueByPipeline(pipelineID string) (*core.Issue, error)
 	}
 
 	var mappedIssueID string
-	query := fmt.Sprintf(`SELECT %s FROM pipelines WHERE id=?`, s.pipelineIssueSelectExpr())
-	err := s.db.QueryRow(query, pipelineID).Scan(&mappedIssueID)
+	err := s.db.QueryRow(`SELECT COALESCE(issue_id, '') FROM pipelines WHERE id=?`, pipelineID).Scan(&mappedIssueID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
@@ -1168,14 +1160,9 @@ func (s *SQLiteStore) SaveReviewRecord(record *core.ReviewRecord) error {
 	if record.Score != nil {
 		score = *record.Score
 	}
-	issueColumn := s.reviewRecordIssueColumn()
-	query := fmt.Sprintf(
-		`INSERT INTO review_records (%s, round, reviewer, verdict, summary, raw_output, issues, fixes, score)
-		 VALUES (?,?,?,?,?,?,?,?,?)`,
-		issueColumn,
-	)
 	result, err := s.db.Exec(
-		query,
+		`INSERT INTO review_records (issue_id, round, reviewer, verdict, summary, raw_output, issues, fixes, score)
+		 VALUES (?,?,?,?,?,?,?,?,?)`,
 		record.IssueID, record.Round, record.Reviewer, record.Verdict, record.Summary, record.RawOutput, issuesJSON, fixesJSON, score,
 	)
 	if err != nil {
@@ -1190,16 +1177,11 @@ func (s *SQLiteStore) SaveReviewRecord(record *core.ReviewRecord) error {
 }
 
 func (s *SQLiteStore) GetReviewRecords(issueID string) ([]core.ReviewRecord, error) {
-	issueColumn := s.reviewRecordIssueColumn()
-	query := fmt.Sprintf(
-		`SELECT id, %s, round, reviewer, verdict, summary, raw_output, issues, fixes, score, created_at
-		 FROM review_records
-		 WHERE %s=?
-		 ORDER BY id`,
-		issueColumn, issueColumn,
-	)
 	rows, err := s.db.Query(
-		query,
+		`SELECT id, issue_id, round, reviewer, verdict, summary, raw_output, issues, fixes, score, created_at
+		 FROM review_records
+		 WHERE issue_id=?
+		 ORDER BY id`,
 		issueID,
 	)
 	if err != nil {
@@ -1242,14 +1224,13 @@ func (s *SQLiteStore) bindPipelineIssueLink(pipelineID, issueID string) error {
 	if pipelineID == "" || issueID == "" {
 		return nil
 	}
-	issueColumn := s.pipelineIssueColumn()
-	query := fmt.Sprintf(`
+	query := `
 UPDATE pipelines
-SET %[1]s = CASE
-	WHEN COALESCE(%[1]s, '') = '' THEN ?
-	ELSE %[1]s
+SET issue_id = CASE
+	WHEN COALESCE(issue_id, '') = '' THEN ?
+	ELSE issue_id
 END
-WHERE id=?`, issueColumn)
+WHERE id=?`
 	_, err := s.db.Exec(query, issueID, pipelineID)
 	return err
 }
@@ -1309,11 +1290,6 @@ CREATE INDEX IF NOT EXISTS idx_issue_changes_issue ON issue_changes(issue_id);
 	if err != nil {
 		return fmt.Errorf("ensure issue tables: %w", err)
 	}
-	if err := ensureColumns(s.db, "issues", map[string]string{
-		"auto_merge": "auto_merge INTEGER NOT NULL DEFAULT 1",
-	}); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -1350,30 +1326,6 @@ func normalizeIssueForPersist(issue *core.Issue) core.Issue {
 		normalized.Version = 1
 	}
 	return normalized
-}
-
-func (s *SQLiteStore) pipelineIssueColumn() string {
-	exists, err := hasColumn(s.db, "pipelines", "issue_id")
-	if err == nil && exists {
-		return "issue_id"
-	}
-	return "task_item_id"
-}
-
-func (s *SQLiteStore) pipelineIssueSelectExpr() string {
-	exists, err := hasColumn(s.db, "pipelines", "issue_id")
-	if err == nil && exists {
-		return "COALESCE(issue_id, '')"
-	}
-	return "COALESCE(task_item_id, '')"
-}
-
-func (s *SQLiteStore) reviewRecordIssueColumn() string {
-	exists, err := hasColumn(s.db, "review_records", "issue_id")
-	if err == nil && exists {
-		return "issue_id"
-	}
-	return "plan_id"
 }
 
 func marshalJSON(v any) (string, error) {

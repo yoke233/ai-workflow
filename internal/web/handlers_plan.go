@@ -1379,7 +1379,8 @@ func timelineActorTypeFromName(name string) string {
 		strings.Contains(normalized, "reviewer") ||
 		strings.Contains(normalized, "codex") ||
 		strings.Contains(normalized, "claude") ||
-		strings.Contains(normalized, "secretary") {
+		strings.Contains(normalized, "team_leader") ||
+		strings.Contains(normalized, "teamleader") {
 		return "agent"
 	}
 	return "human"

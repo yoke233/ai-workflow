@@ -46,7 +46,7 @@ func validateConfig(cfg *Config) error {
 		}
 	}
 
-	if err := validateRoleRef("role_bindings.secretary.role", cfg.RoleBinds.Secretary.Role, roles); err != nil {
+	if err := validateRoleRef("role_bindings.team_leader.role", cfg.RoleBinds.TeamLeader.Role, roles); err != nil {
 		return err
 	}
 	if err := validateRoleRef("role_bindings.plan_parser.role", cfg.RoleBinds.PlanParser.Role, roles); err != nil {
@@ -73,7 +73,7 @@ func hasRoleDrivenData(cfg *Config) bool {
 	if len(cfg.Agents.Profiles) > 0 || len(cfg.Roles) > 0 {
 		return true
 	}
-	if strings.TrimSpace(cfg.RoleBinds.Secretary.Role) != "" {
+	if strings.TrimSpace(cfg.RoleBinds.TeamLeader.Role) != "" {
 		return true
 	}
 	if strings.TrimSpace(cfg.RoleBinds.PlanParser.Role) != "" {

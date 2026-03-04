@@ -16,7 +16,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/engine"
 	"github.com/yoke233/ai-workflow/internal/eventbus"
 	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 	"github.com/yoke233/ai-workflow/internal/web"
 )
 
@@ -173,7 +173,7 @@ func TestRunServer_PortPriority(t *testing.T) {
 			newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
 				return fakeScheduler, nil
 			}
-			newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.SecretaryConfig, _ config.RoleBindings) (serverIssueManager, error) {
+			newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.TeamLeaderConfig, _ config.RoleBindings) (serverIssueManager, error) {
 				return fakeIssueManager, nil
 			}
 			newAPIServer = func(cfg web.Config) apiServer {
@@ -220,7 +220,7 @@ func TestRunServer_StartFailureJoinsSchedulerStopError(t *testing.T) {
 	newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
 		return fakeScheduler, nil
 	}
-	newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.SecretaryConfig, _ config.RoleBindings) (serverIssueManager, error) {
+	newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.TeamLeaderConfig, _ config.RoleBindings) (serverIssueManager, error) {
 		return fakeIssueManager, nil
 	}
 	newAPIServer = func(_ web.Config) apiServer {
@@ -267,7 +267,7 @@ func TestRunServer_IssueManagerReceivesReviewRoleBindings(t *testing.T) {
 	newServerScheduler = func(_ *engine.Executor, _ core.Store) (serverScheduler, error) {
 		return fakeScheduler, nil
 	}
-	newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.SecretaryConfig, roleBinds config.RoleBindings) (serverIssueManager, error) {
+	newServerIssueManager = func(_ *engine.Executor, _ *pluginfactory.BootstrapSet, _ *eventbus.Bus, _ config.TeamLeaderConfig, roleBinds config.RoleBindings) (serverIssueManager, error) {
 		capturedRoleBinds = roleBinds
 		return fakeIssueManager, nil
 	}
@@ -349,9 +349,9 @@ func TestCLI_ServerCommandStartsAndHealth(t *testing.T) {
 	t.Fatalf("health check did not return 200 within timeout")
 }
 
-func TestSecretaryIssueManagerAdapterCreateIssuesDelegatesToManager(t *testing.T) {
-	fakeManager := &fakeSecretaryIssueService{
-		createIssuesFn: func(_ context.Context, input secretary.CreateIssuesInput) ([]*core.Issue, error) {
+func TestTeamLeaderIssueManagerAdapterCreateIssuesDelegatesToManager(t *testing.T) {
+	fakeManager := &fakeTeamLeaderIssueService{
+		createIssuesFn: func(_ context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error) {
 			if input.ProjectID != "proj-1" {
 				t.Fatalf("create issues project id = %q, want %q", input.ProjectID, "proj-1")
 			}
@@ -394,7 +394,7 @@ func TestSecretaryIssueManagerAdapterCreateIssuesDelegatesToManager(t *testing.T
 		},
 	}
 
-	adapter := &secretaryIssueManagerAdapter{manager: fakeManager}
+	adapter := &teamLeaderIssueManagerAdapter{manager: fakeManager}
 	issues, err := adapter.CreateIssues(context.Background(), web.IssueCreateInput{
 		ProjectID:  "proj-1",
 		SessionID:  "chat-1",
@@ -419,9 +419,9 @@ func TestSecretaryIssueManagerAdapterCreateIssuesDelegatesToManager(t *testing.T
 	}
 }
 
-func TestSecretaryIssueManagerAdapterCreateIssuesDefaultFailPolicy(t *testing.T) {
-	fakeManager := &fakeSecretaryIssueService{
-		createIssuesFn: func(_ context.Context, input secretary.CreateIssuesInput) ([]*core.Issue, error) {
+func TestTeamLeaderIssueManagerAdapterCreateIssuesDefaultFailPolicy(t *testing.T) {
+	fakeManager := &fakeTeamLeaderIssueService{
+		createIssuesFn: func(_ context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error) {
 			if len(input.Issues) != 1 {
 				t.Fatalf("create issues size = %d, want 1", len(input.Issues))
 			}
@@ -436,7 +436,7 @@ func TestSecretaryIssueManagerAdapterCreateIssuesDefaultFailPolicy(t *testing.T)
 		},
 	}
 
-	adapter := &secretaryIssueManagerAdapter{manager: fakeManager}
+	adapter := &teamLeaderIssueManagerAdapter{manager: fakeManager}
 	issues, err := adapter.CreateIssues(context.Background(), web.IssueCreateInput{
 		ProjectID: "proj-2",
 		SessionID: "chat-2",
@@ -454,7 +454,7 @@ func TestSecretaryIssueManagerAdapterCreateIssuesDefaultFailPolicy(t *testing.T)
 
 func TestResolveTeamLeaderRoleIDReturnsBindingRole(t *testing.T) {
 	roleBindings := config.RoleBindings{
-		Secretary: config.SingleRoleBinding{Role: " team-leader "},
+		TeamLeader: config.SingleRoleBinding{Role: " team-leader "},
 	}
 
 	if got := resolveTeamLeaderRoleID(roleBindings); got != "team-leader" {
@@ -542,37 +542,37 @@ func (m *testServerIssueManager) ApplyIssueAction(_ context.Context, issueID str
 	return &core.Issue{ID: issueID}, nil
 }
 
-type fakeSecretaryIssueService struct {
+type fakeTeamLeaderIssueService struct {
 	startErr          error
 	stopErr           error
-	createIssuesFn    func(ctx context.Context, input secretary.CreateIssuesInput) ([]*core.Issue, error)
+	createIssuesFn    func(ctx context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error)
 	submitForReviewFn func(ctx context.Context, issueIDs []string) error
 	applyActionFn     func(ctx context.Context, issueID, action, feedback string) (*core.Issue, error)
 }
 
-func (s *fakeSecretaryIssueService) Start(_ context.Context) error {
+func (s *fakeTeamLeaderIssueService) Start(_ context.Context) error {
 	return s.startErr
 }
 
-func (s *fakeSecretaryIssueService) Stop(_ context.Context) error {
+func (s *fakeTeamLeaderIssueService) Stop(_ context.Context) error {
 	return s.stopErr
 }
 
-func (s *fakeSecretaryIssueService) CreateIssues(ctx context.Context, input secretary.CreateIssuesInput) ([]*core.Issue, error) {
+func (s *fakeTeamLeaderIssueService) CreateIssues(ctx context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error) {
 	if s.createIssuesFn == nil {
 		return nil, errors.New("unexpected CreateIssues call")
 	}
 	return s.createIssuesFn(ctx, input)
 }
 
-func (s *fakeSecretaryIssueService) SubmitForReview(ctx context.Context, issueIDs []string) error {
+func (s *fakeTeamLeaderIssueService) SubmitForReview(ctx context.Context, issueIDs []string) error {
 	if s.submitForReviewFn == nil {
 		return nil
 	}
 	return s.submitForReviewFn(ctx, issueIDs)
 }
 
-func (s *fakeSecretaryIssueService) ApplyIssueAction(ctx context.Context, issueID, action, feedback string) (*core.Issue, error) {
+func (s *fakeTeamLeaderIssueService) ApplyIssueAction(ctx context.Context, issueID, action, feedback string) (*core.Issue, error) {
 	if s.applyActionFn == nil {
 		return &core.Issue{ID: issueID}, nil
 	}

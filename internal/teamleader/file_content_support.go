@@ -1,4 +1,4 @@
-package secretary
+package teamleader
 
 func hasFileContents(fileContents map[string]string) bool {
 	return len(fileContents) > 0

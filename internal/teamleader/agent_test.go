@@ -1,4 +1,4 @@
-package secretary
+package teamleader
 
 import (
 	"context"
@@ -77,7 +77,7 @@ func (nopWriteCloser) Write(data []byte) (int, error) { return len(data), nil }
 
 func (nopWriteCloser) Close() error { return nil }
 
-type stubSecretarySessionClient struct {
+type stubTeamLeaderSessionClient struct {
 	loadReqs []acpproto.LoadSessionRequest
 	newReqs  []acpproto.NewSessionRequest
 	calls    []string
@@ -87,7 +87,7 @@ type stubSecretarySessionClient struct {
 	newErr   error
 }
 
-func (c *stubSecretarySessionClient) LoadSession(_ context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error) {
+func (c *stubTeamLeaderSessionClient) LoadSession(_ context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error) {
 	c.calls = append(c.calls, "load")
 	c.loadReqs = append(c.loadReqs, req)
 	if c.loadErr != nil {
@@ -96,7 +96,7 @@ func (c *stubSecretarySessionClient) LoadSession(_ context.Context, req acpproto
 	return c.loadResp, nil
 }
 
-func (c *stubSecretarySessionClient) NewSession(_ context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error) {
+func (c *stubTeamLeaderSessionClient) NewSession(_ context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error) {
 	c.calls = append(c.calls, "new")
 	c.newReqs = append(c.newReqs, req)
 	if c.newErr != nil {
@@ -122,7 +122,7 @@ func TestAgentDecomposeBuildsPromptAndReturnsRawOutput(t *testing.T) {
 
 	output := "```json\n{\n  \"name\": \"oauth-rollout\",\n  \"tasks\": [\n    {\n      \"id\": \"task-1\",\n      \"title\": \"后端接入 OAuth\",\n      \"description\": \"完成 OAuth 登录接口并补充单测。\",\n      \"labels\": [\"backend\", \"auth\"],\n      \"depends_on\": [],\n      \"inputs\": [\"oauth_app_id\", \"oauth_secret\"],\n      \"outputs\": [\"oauth_login_api\"],\n      \"acceptance\": [\"valid callback returns 200\"],\n      \"constraints\": [\"保持现有用户表结构\"],\n      \"template\": \"standard\"\n    },\n    {\n      \"id\": \"task-2\",\n      \"title\": \"审计日志落库\",\n      \"description\": \"记录登录审计日志并提供查询接口。\",\n      \"labels\": [\"backend\", \"database\"],\n      \"depends_on\": [\"task-1\"],\n      \"inputs\": [\"oauth_user_id\"],\n      \"outputs\": [\"audit_log_query_api\"],\n      \"acceptance\": [\"audit log query works\"],\n      \"constraints\": [\"最小化写放大\"],\n      \"template\": \"full\"\n    }\n  ]\n}\n```"
 	agent := &mockAgent{
-		cmd: []string{"mock-secretary"},
+		cmd: []string{"mock-TeamLeader"},
 		parser: &sliceParser{
 			events: []*core.StreamEvent{
 				{Type: "done", Content: output},
@@ -130,10 +130,10 @@ func TestAgentDecomposeBuildsPromptAndReturnsRawOutput(t *testing.T) {
 		},
 	}
 
-	templatePath := filepath.Join("..", "..", "configs", "prompts", "secretary.tmpl")
+	templatePath := filepath.Join("..", "..", "configs", "prompts", "team_leader.tmpl")
 	driver, err := NewAgentWithTemplatePath(agent, runtime, templatePath)
 	if err != nil {
-		t.Fatalf("new secretary agent: %v", err)
+		t.Fatalf("new TeamLeader agent: %v", err)
 	}
 
 	req := Request{
@@ -192,7 +192,7 @@ func TestAgentDecomposeBuildsPromptAndReturnsRawOutput(t *testing.T) {
 	if runtime.lastOpts.WorkDir != req.WorkDir {
 		t.Fatalf("runtime workdir mismatch, got %q", runtime.lastOpts.WorkDir)
 	}
-	if !reflect.DeepEqual(runtime.lastOpts.Command, []string{"mock-secretary"}) {
+	if !reflect.DeepEqual(runtime.lastOpts.Command, []string{"mock-TeamLeader"}) {
 		t.Fatalf("runtime command mismatch: %#v", runtime.lastOpts.Command)
 	}
 
@@ -203,10 +203,10 @@ func TestAgentDecomposeBuildsPromptAndReturnsRawOutput(t *testing.T) {
 
 func TestPlanParserUsesRoleBinding(t *testing.T) {
 	agent := &mockAgent{}
-	templatePath := filepath.Join("..", "..", "configs", "prompts", "secretary.tmpl")
+	templatePath := filepath.Join("..", "..", "configs", "prompts", "team_leader.tmpl")
 	driver, err := NewAgentWithTemplatePath(agent, nil, templatePath)
 	if err != nil {
-		t.Fatalf("new secretary agent: %v", err)
+		t.Fatalf("new TeamLeader agent: %v", err)
 	}
 
 	defaultReq := Request{
@@ -219,7 +219,7 @@ func TestPlanParserUsesRoleBinding(t *testing.T) {
 	if len(agent.opts) != 1 {
 		t.Fatalf("expected 1 exec opts, got %d", len(agent.opts))
 	}
-	assertRoleID(t, agent.opts[0].AppendContext, "plan_parser")
+	assertRoleID(t, agent.opts[0].AppendContext, "team_leader")
 
 	overrideReq := defaultReq
 	overrideReq.Role = "custom_role"
@@ -233,10 +233,10 @@ func TestPlanParserUsesRoleBinding(t *testing.T) {
 }
 
 func TestRenderPrompt_UsesFileContentsWhenConversationMissing(t *testing.T) {
-	templatePath := filepath.Join("..", "..", "configs", "prompts", "secretary.tmpl")
+	templatePath := filepath.Join("..", "..", "configs", "prompts", "team_leader.tmpl")
 	driver, err := NewAgentWithTemplatePath(&mockAgent{}, nil, templatePath)
 	if err != nil {
-		t.Fatalf("new secretary agent: %v", err)
+		t.Fatalf("new TeamLeader agent: %v", err)
 	}
 
 	prompt, err := driver.RenderPrompt(Request{
@@ -270,10 +270,10 @@ func TestRenderPrompt_UsesFileContentsWhenConversationMissing(t *testing.T) {
 }
 
 func TestRenderPrompt_AppendsFileContentsToConversation(t *testing.T) {
-	templatePath := filepath.Join("..", "..", "configs", "prompts", "secretary.tmpl")
+	templatePath := filepath.Join("..", "..", "configs", "prompts", "team_leader.tmpl")
 	driver, err := NewAgentWithTemplatePath(&mockAgent{}, nil, templatePath)
 	if err != nil {
-		t.Fatalf("new secretary agent: %v", err)
+		t.Fatalf("new TeamLeader agent: %v", err)
 	}
 
 	req := Request{
@@ -298,7 +298,7 @@ func TestRenderPrompt_AppendsFileContentsToConversation(t *testing.T) {
 	}
 }
 
-func TestSecretaryUsesBoundRole(t *testing.T) {
+func TestTeamLeaderUsesBoundRole(t *testing.T) {
 	resolver := acpclient.NewRoleResolver(
 		[]acpclient.AgentProfile{
 			{
@@ -312,7 +312,7 @@ func TestSecretaryUsesBoundRole(t *testing.T) {
 		},
 		[]acpclient.RoleProfile{
 			{
-				ID:      "secretary_custom",
+				ID:      "TeamLeader_custom",
 				AgentID: "codex",
 				Capabilities: acpclient.ClientCapabilities{
 					FSRead:   true,
@@ -327,26 +327,26 @@ func TestSecretaryUsesBoundRole(t *testing.T) {
 			},
 		},
 	)
-	client := &stubSecretarySessionClient{
+	client := &stubTeamLeaderSessionClient{
 		loadErr: errors.New("session not found"),
 		newResp: acpproto.SessionId("sid-new"),
 	}
 
-	session, roleID, err := startSecretarySession(
+	session, roleID, err := startTeamLeaderSession(
 		context.Background(),
 		client,
 		resolver,
 		"",
-		"secretary_custom",
+		"TeamLeader_custom",
 		"sid-old",
 		"D:/project/ai-workflow",
 		nil,
 	)
 	if err != nil {
-		t.Fatalf("startSecretarySession() error = %v", err)
+		t.Fatalf("startTeamLeaderSession() error = %v", err)
 	}
-	if roleID != "secretary_custom" {
-		t.Fatalf("role id = %q, want %q", roleID, "secretary_custom")
+	if roleID != "TeamLeader_custom" {
+		t.Fatalf("role id = %q, want %q", roleID, "TeamLeader_custom")
 	}
 	if string(session) != "sid-new" {
 		t.Fatalf("session id = %q, want %q", string(session), "sid-new")
@@ -360,11 +360,11 @@ func TestSecretaryUsesBoundRole(t *testing.T) {
 	if len(client.newReqs) != 1 {
 		t.Fatalf("NewSession calls = %d, want 1", len(client.newReqs))
 	}
-	if got, _ := client.loadReqs[0].Meta["role_id"].(string); got != "secretary_custom" {
-		t.Fatalf("load metadata role_id = %q, want %q", got, "secretary_custom")
+	if got, _ := client.loadReqs[0].Meta["role_id"].(string); got != "TeamLeader_custom" {
+		t.Fatalf("load metadata role_id = %q, want %q", got, "TeamLeader_custom")
 	}
-	if got, _ := client.newReqs[0].Meta["role_id"].(string); got != "secretary_custom" {
-		t.Fatalf("new metadata role_id = %q, want %q", got, "secretary_custom")
+	if got, _ := client.newReqs[0].Meta["role_id"].(string); got != "TeamLeader_custom" {
+		t.Fatalf("new metadata role_id = %q, want %q", got, "TeamLeader_custom")
 	}
 	if len(client.newReqs[0].McpServers) != 1 {
 		t.Fatalf("new session mcp servers = %d, want 1 from role config", len(client.newReqs[0].McpServers))
@@ -378,7 +378,7 @@ func TestSecretaryUsesBoundRole(t *testing.T) {
 	}
 }
 
-func TestStartSecretarySessionSkipsLoadWhenReuseDisabled(t *testing.T) {
+func TestStartTeamLeaderSessionSkipsLoadWhenReuseDisabled(t *testing.T) {
 	resolver := acpclient.NewRoleResolver(
 		[]acpclient.AgentProfile{
 			{
@@ -392,7 +392,7 @@ func TestStartSecretarySessionSkipsLoadWhenReuseDisabled(t *testing.T) {
 		},
 		[]acpclient.RoleProfile{
 			{
-				ID:      "secretary_custom",
+				ID:      "TeamLeader_custom",
 				AgentID: "codex",
 				Capabilities: acpclient.ClientCapabilities{
 					FSRead:   true,
@@ -406,26 +406,26 @@ func TestStartSecretarySessionSkipsLoadWhenReuseDisabled(t *testing.T) {
 			},
 		},
 	)
-	client := &stubSecretarySessionClient{
+	client := &stubTeamLeaderSessionClient{
 		loadResp: acpproto.SessionId("sid-loaded"),
 		newResp:  acpproto.SessionId("sid-new"),
 	}
 
-	session, roleID, err := startSecretarySession(
+	session, roleID, err := startTeamLeaderSession(
 		context.Background(),
 		client,
 		resolver,
 		"",
-		"secretary_custom",
+		"TeamLeader_custom",
 		"sid-old",
 		"D:/project/ai-workflow",
 		nil,
 	)
 	if err != nil {
-		t.Fatalf("startSecretarySession() error = %v", err)
+		t.Fatalf("startTeamLeaderSession() error = %v", err)
 	}
-	if roleID != "secretary_custom" {
-		t.Fatalf("role id = %q, want %q", roleID, "secretary_custom")
+	if roleID != "TeamLeader_custom" {
+		t.Fatalf("role id = %q, want %q", roleID, "TeamLeader_custom")
 	}
 	if string(session) != "sid-new" {
 		t.Fatalf("session id = %q, want %q", string(session), "sid-new")
@@ -438,7 +438,7 @@ func TestStartSecretarySessionSkipsLoadWhenReuseDisabled(t *testing.T) {
 	}
 }
 
-func TestStartSecretarySessionSkipsLoadWhenPreferLoadDisabled(t *testing.T) {
+func TestStartTeamLeaderSessionSkipsLoadWhenPreferLoadDisabled(t *testing.T) {
 	resolver := acpclient.NewRoleResolver(
 		[]acpclient.AgentProfile{
 			{
@@ -452,7 +452,7 @@ func TestStartSecretarySessionSkipsLoadWhenPreferLoadDisabled(t *testing.T) {
 		},
 		[]acpclient.RoleProfile{
 			{
-				ID:      "secretary_custom",
+				ID:      "TeamLeader_custom",
 				AgentID: "codex",
 				Capabilities: acpclient.ClientCapabilities{
 					FSRead:   true,
@@ -466,26 +466,26 @@ func TestStartSecretarySessionSkipsLoadWhenPreferLoadDisabled(t *testing.T) {
 			},
 		},
 	)
-	client := &stubSecretarySessionClient{
+	client := &stubTeamLeaderSessionClient{
 		loadResp: acpproto.SessionId("sid-loaded"),
 		newResp:  acpproto.SessionId("sid-new"),
 	}
 
-	session, roleID, err := startSecretarySession(
+	session, roleID, err := startTeamLeaderSession(
 		context.Background(),
 		client,
 		resolver,
 		"",
-		"secretary_custom",
+		"TeamLeader_custom",
 		"sid-old",
 		"D:/project/ai-workflow",
 		nil,
 	)
 	if err != nil {
-		t.Fatalf("startSecretarySession() error = %v", err)
+		t.Fatalf("startTeamLeaderSession() error = %v", err)
 	}
-	if roleID != "secretary_custom" {
-		t.Fatalf("role id = %q, want %q", roleID, "secretary_custom")
+	if roleID != "TeamLeader_custom" {
+		t.Fatalf("role id = %q, want %q", roleID, "TeamLeader_custom")
 	}
 	if string(session) != "sid-new" {
 		t.Fatalf("session id = %q, want %q", string(session), "sid-new")

@@ -9,13 +9,13 @@ import (
 	"sync"
 
 	"github.com/yoke233/ai-workflow/internal/core"
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
 const gateReviewer = "review_gate"
 
 type reviewPanel interface {
-	Run(ctx context.Context, issues []*core.Issue) (*secretary.ReviewSessionResult, error)
+	Run(ctx context.Context, issues []*core.Issue) (*teamleader.ReviewSessionResult, error)
 }
 
 type runState struct {
@@ -27,7 +27,7 @@ type runState struct {
 	terminalErr error
 }
 
-// AIReviewGate runs secretary.ReviewOrchestrator asynchronously and exposes polling/cancel APIs.
+// AIReviewGate runs teamleader.ReviewOrchestrator asynchronously and exposes polling/cancel APIs.
 type AIReviewGate struct {
 	store core.Store
 	panel reviewPanel
@@ -271,7 +271,7 @@ func (g *AIReviewGate) runAsync(reviewID string, round int, issues []*core.Issue
 	}
 }
 
-func (g *AIReviewGate) persistCompleted(reviewID string, fallbackRound int, session *secretary.ReviewSessionResult) error {
+func (g *AIReviewGate) persistCompleted(reviewID string, fallbackRound int, session *teamleader.ReviewSessionResult) error {
 	if session == nil {
 		return nil
 	}

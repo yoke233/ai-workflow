@@ -1,4 +1,4 @@
-package secretary
+package teamleader
 
 import (
 	"context"
@@ -175,17 +175,17 @@ func TestScheduler_RecoverExecutingIssuesReplaysDoneAndDispatchesNext(t *testing
 	}
 }
 
-func TestDepScheduler_StartPlanRejectsInvalidState(t *testing.T) {
+func TestDepScheduler_ScheduleIssuesRejectsEmptyPayload(t *testing.T) {
 	store := newSchedulerTestStore(t)
 	defer store.Close()
 
 	s := NewDepScheduler(store, nil, (&schedulerRunner{}).Run, nil, 1)
-	err := s.StartPlan(context.Background(), map[string]string{"legacy": "unsupported"})
+	err := s.ScheduleIssues(context.Background(), []*core.Issue{nil})
 	if err == nil {
-		t.Fatalf("StartPlan() expected error for unsupported payload")
+		t.Fatalf("ScheduleIssues() expected error for empty payload")
 	}
-	if got := strings.ToLower(err.Error()); !strings.Contains(got, "unsupported") {
-		t.Fatalf("StartPlan() error = %v, want contains unsupported", err)
+	if got := strings.ToLower(err.Error()); !strings.Contains(got, "no issues provided") {
+		t.Fatalf("ScheduleIssues() error = %v, want contains no issues provided", err)
 	}
 }
 

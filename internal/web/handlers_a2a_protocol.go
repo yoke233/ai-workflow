@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/a2aproject/a2a-go/a2a"
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
 const (
@@ -121,7 +121,7 @@ func decodeA2ARPCParams(raw json.RawMessage, out any) error {
 	return nil
 }
 
-func a2aTaskFromSnapshot(snapshot *secretary.A2ATaskSnapshot) *a2a.Task {
+func a2aTaskFromSnapshot(snapshot *teamleader.A2ATaskSnapshot) *a2a.Task {
 	task := &a2a.Task{
 		Status: a2a.TaskStatus{
 			State: a2a.TaskStateUnknown,
@@ -150,19 +150,19 @@ func a2aTaskFromSnapshot(snapshot *secretary.A2ATaskSnapshot) *a2a.Task {
 	return task
 }
 
-func a2aTaskStateFromSnapshot(state secretary.A2ATaskState) a2a.TaskState {
+func a2aTaskStateFromSnapshot(state teamleader.A2ATaskState) a2a.TaskState {
 	switch state {
-	case secretary.A2ATaskStateSubmitted:
+	case teamleader.A2ATaskStateSubmitted:
 		return a2a.TaskStateSubmitted
-	case secretary.A2ATaskStateWorking:
+	case teamleader.A2ATaskStateWorking:
 		return a2a.TaskStateWorking
-	case secretary.A2ATaskStateInputRequired:
+	case teamleader.A2ATaskStateInputRequired:
 		return a2a.TaskStateInputRequired
-	case secretary.A2ATaskStateCompleted:
+	case teamleader.A2ATaskStateCompleted:
 		return a2a.TaskStateCompleted
-	case secretary.A2ATaskStateFailed:
+	case teamleader.A2ATaskStateFailed:
 		return a2a.TaskStateFailed
-	case secretary.A2ATaskStateCanceled:
+	case teamleader.A2ATaskStateCanceled:
 		return a2a.TaskStateCanceled
 	default:
 		return a2a.TaskStateUnknown
@@ -173,11 +173,11 @@ func mapA2ABridgeError(err error) (int, string) {
 	switch {
 	case err == nil:
 		return 0, ""
-	case errors.Is(err, secretary.ErrA2AInvalidInput):
+	case errors.Is(err, teamleader.ErrA2AInvalidInput):
 		return a2aRPCInvalidParams, "invalid params"
-	case errors.Is(err, secretary.ErrA2ATaskNotFound):
+	case errors.Is(err, teamleader.ErrA2ATaskNotFound):
 		return a2aRPCTaskNotFound, "task not found"
-	case errors.Is(err, secretary.ErrA2AProjectScope):
+	case errors.Is(err, teamleader.ErrA2AProjectScope):
 		return a2aRPCProjectScopeCode, "project scope mismatch"
 	default:
 		return a2aRPCInternalError, "internal error"

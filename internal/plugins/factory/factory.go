@@ -24,7 +24,7 @@ import (
 	trackergithub "github.com/yoke233/ai-workflow/internal/plugins/tracker-github"
 	trackerlocal "github.com/yoke233/ai-workflow/internal/plugins/tracker-local"
 	workspaceworktree "github.com/yoke233/ai-workflow/internal/plugins/workspace-worktree"
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 )
 
 // BootstrapSet contains initialized plugins required by engine bootstrap.
@@ -189,7 +189,7 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 		}
 	}
 
-	reviewGateName := strings.TrimSpace(effective.Secretary.ReviewGatePlugin)
+	reviewGateName := strings.TrimSpace(effective.TeamLeader.ReviewGatePlugin)
 	if reviewGateName == "" {
 		reviewGateName = defaultReviewGatePlugin
 	}
@@ -199,12 +199,12 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 	}
 	reviewGateRaw, err := reviewGateModule.Factory(map[string]any{
 		"store": storePlugin.Store(),
-		"review_orchestrator_bindings": secretary.ReviewRoleBindingInput{
+		"review_orchestrator_bindings": teamleader.ReviewRoleBindingInput{
 			Reviewers:  cloneStringMapForFactory(effective.RoleBinds.ReviewOrchestrator.Reviewers),
 			Aggregator: effective.RoleBinds.ReviewOrchestrator.Aggregator,
 		},
 		"role_resolver": roleResolver,
-		"max_rounds":    effective.Secretary.ReviewOrchestrator.MaxRounds,
+		"max_rounds":    effective.TeamLeader.ReviewOrchestrator.MaxRounds,
 		"github":        effective.GitHub,
 	})
 	if err != nil {
@@ -371,14 +371,14 @@ func newDefaultRegistry() (*core.Registry, error) {
 					return nil, fmt.Errorf("%s requires valid store dependency", defaultReviewGatePlugin)
 				}
 
-				panel := secretary.NewDefaultReviewOrchestrator(store)
+				panel := teamleader.NewDefaultReviewOrchestrator(store)
 				if rawBindings, ok := cfg["review_orchestrator_bindings"]; ok {
-					bindings, ok := rawBindings.(secretary.ReviewRoleBindingInput)
+					bindings, ok := rawBindings.(teamleader.ReviewRoleBindingInput)
 					if !ok {
 						return nil, fmt.Errorf("%s requires valid review_orchestrator_bindings", defaultReviewGatePlugin)
 					}
 					resolver, _ := cfg["role_resolver"].(*acpclient.RoleResolver)
-					resolvedPanel, err := secretary.NewDefaultReviewOrchestratorFromBindings(store, bindings, resolver)
+					resolvedPanel, err := teamleader.NewDefaultReviewOrchestratorFromBindings(store, bindings, resolver)
 					if err != nil {
 						return nil, fmt.Errorf("build review orchestrator from role bindings: %w", err)
 					}
@@ -475,7 +475,7 @@ func withDefaults(cfg config.Config) config.Config {
 }
 
 func isRoleBindingsEmpty(binds config.RoleBindings) bool {
-	return strings.TrimSpace(binds.Secretary.Role) == "" &&
+	return strings.TrimSpace(binds.TeamLeader.Role) == "" &&
 		strings.TrimSpace(binds.PlanParser.Role) == "" &&
 		strings.TrimSpace(binds.ReviewOrchestrator.Aggregator) == "" &&
 		len(binds.Pipeline.StageRoles) == 0 &&

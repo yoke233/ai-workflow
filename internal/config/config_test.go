@@ -48,11 +48,11 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Scheduler.MaxGlobalAgents != 3 {
 		t.Errorf("expected max_global_agents 3, got %d", cfg.Scheduler.MaxGlobalAgents)
 	}
-	if cfg.Secretary.ReviewGatePlugin != "review-ai-panel" {
-		t.Errorf("expected secretary.review_gate_plugin review-ai-panel, got %s", cfg.Secretary.ReviewGatePlugin)
+	if cfg.TeamLeader.ReviewGatePlugin != "review-ai-panel" {
+		t.Errorf("expected team_leader.review_gate_plugin review-ai-panel, got %s", cfg.TeamLeader.ReviewGatePlugin)
 	}
-	if cfg.Secretary.ReviewOrchestrator.MaxRounds != 2 {
-		t.Errorf("expected secretary.review_orchestrator.max_rounds 2, got %d", cfg.Secretary.ReviewOrchestrator.MaxRounds)
+	if cfg.TeamLeader.ReviewOrchestrator.MaxRounds != 2 {
+		t.Errorf("expected team_leader.review_orchestrator.max_rounds 2, got %d", cfg.TeamLeader.ReviewOrchestrator.MaxRounds)
 	}
 	if cfg.Server.Host != "127.0.0.1" {
 		t.Errorf("expected server host 127.0.0.1, got %s", cfg.Server.Host)
@@ -113,7 +113,7 @@ func TestLoadDefaults_TeamLeaderRoleUsesClaude(t *testing.T) {
 
 func TestLoadDefaults_TeamLeaderRoleBindingDefault(t *testing.T) {
 	cfg := Defaults()
-	if got := cfg.RoleBinds.Secretary.Role; got != "team_leader" {
+	if got := cfg.RoleBinds.TeamLeader.Role; got != "team_leader" {
 		t.Fatalf("expected role_bindings.team_leader default to team_leader role, got %q", got)
 	}
 }
@@ -234,7 +234,7 @@ role_bindings:
 	if got := cfg.RoleBinds.Pipeline.StageRoles["implement"]; got != "worker" {
 		t.Fatalf("expected stage role implement=worker, got %q", got)
 	}
-	if got := cfg.RoleBinds.Secretary.Role; got != "worker" {
+	if got := cfg.RoleBinds.TeamLeader.Role; got != "worker" {
 		t.Fatalf("expected role_bindings.team_leader.role=worker, got %q", got)
 	}
 }
@@ -289,7 +289,7 @@ role_bindings:
 
 	ApplyConfigLayer(&cfg, layer)
 
-	if got := cfg.RoleBinds.Secretary.Role; got != "team_leader" {
+	if got := cfg.RoleBinds.TeamLeader.Role; got != "team_leader" {
 		t.Fatalf("expected team_leader role binding kept, got %q", got)
 	}
 	if got := cfg.RoleBinds.PlanParser.Role; got != "plan_parser" {
@@ -306,12 +306,12 @@ role_bindings:
 func TestRoleDrivenConfigLegacySecretaryBindingFailFast(t *testing.T) {
 	const raw = `
 role_bindings:
-  secretary:
+  TeamLeader:
     role: worker
 `
 	layer, err := loadLayerFromBytes([]byte(raw))
 	if err == nil || layer != nil {
-		t.Fatalf("expected strict unknown-field error for legacy role_bindings.secretary, got layer=%v err=%v", layer, err)
+		t.Fatalf("expected strict unknown-field error for legacy role_bindings.TeamLeader, got layer=%v err=%v", layer, err)
 	}
 }
 

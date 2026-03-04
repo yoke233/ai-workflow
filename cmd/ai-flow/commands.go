@@ -23,7 +23,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/engine"
 	"github.com/yoke233/ai-workflow/internal/eventbus"
 	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
-	"github.com/yoke233/ai-workflow/internal/secretary"
+	"github.com/yoke233/ai-workflow/internal/teamleader"
 	"github.com/yoke233/ai-workflow/internal/web"
 )
 
@@ -48,7 +48,7 @@ type serverIssueManager interface {
 }
 
 type depSchedulerIssueAdapter struct {
-	scheduler *secretary.DepScheduler
+	scheduler *teamleader.DepScheduler
 }
 
 func (a *depSchedulerIssueAdapter) Start(ctx context.Context) error {
@@ -79,34 +79,34 @@ func (a *depSchedulerIssueAdapter) StartIssue(ctx context.Context, issue *core.I
 	return a.scheduler.ScheduleIssues(ctx, []*core.Issue{issue})
 }
 
-type secretaryIssueManagerAdapter struct {
-	manager secretaryIssueService
+type teamLeaderIssueManagerAdapter struct {
+	manager teamLeaderIssueService
 	store   core.Store
 }
 
-type secretaryIssueService interface {
+type teamLeaderIssueService interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
-	CreateIssues(ctx context.Context, input secretary.CreateIssuesInput) ([]*core.Issue, error)
+	CreateIssues(ctx context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error)
 	SubmitForReview(ctx context.Context, issueIDs []string) error
 	ApplyIssueAction(ctx context.Context, issueID, action, feedback string) (*core.Issue, error)
 }
 
-func (a *secretaryIssueManagerAdapter) Start(ctx context.Context) error {
+func (a *teamLeaderIssueManagerAdapter) Start(ctx context.Context) error {
 	if a == nil || a.manager == nil {
 		return errors.New("issue manager is not configured")
 	}
 	return a.manager.Start(ctx)
 }
 
-func (a *secretaryIssueManagerAdapter) Stop(ctx context.Context) error {
+func (a *teamLeaderIssueManagerAdapter) Stop(ctx context.Context) error {
 	if a == nil || a.manager == nil {
 		return nil
 	}
 	return a.manager.Stop(ctx)
 }
 
-func (a *secretaryIssueManagerAdapter) CreateIssues(ctx context.Context, input web.IssueCreateInput) ([]core.Issue, error) {
+func (a *teamLeaderIssueManagerAdapter) CreateIssues(ctx context.Context, input web.IssueCreateInput) ([]core.Issue, error) {
 	if a == nil || a.manager == nil {
 		return nil, errors.New("issue manager is not configured")
 	}
@@ -121,10 +121,10 @@ func (a *secretaryIssueManagerAdapter) CreateIssues(ctx context.Context, input w
 		failPolicy = core.FailBlock
 	}
 
-	created, err := a.manager.CreateIssues(ctx, secretary.CreateIssuesInput{
+	created, err := a.manager.CreateIssues(ctx, teamleader.CreateIssuesInput{
 		ProjectID: projectID,
 		SessionID: strings.TrimSpace(input.SessionID),
-		Issues: []secretary.CreateIssueSpec{
+		Issues: []teamleader.CreateIssueSpec{
 			{
 				Title:      resolveIssueTitle(input),
 				Body:       buildIssueBody(input),
@@ -149,7 +149,7 @@ func (a *secretaryIssueManagerAdapter) CreateIssues(ctx context.Context, input w
 	return out, nil
 }
 
-func (a *secretaryIssueManagerAdapter) SubmitForReview(ctx context.Context, issueID string, _ web.IssueReviewInput) (*core.Issue, error) {
+func (a *teamLeaderIssueManagerAdapter) SubmitForReview(ctx context.Context, issueID string, _ web.IssueReviewInput) (*core.Issue, error) {
 	if a == nil || a.manager == nil {
 		return nil, errors.New("issue manager is not configured")
 	}
@@ -166,7 +166,7 @@ func (a *secretaryIssueManagerAdapter) SubmitForReview(ctx context.Context, issu
 	return a.store.GetIssue(id)
 }
 
-func (a *secretaryIssueManagerAdapter) ApplyIssueAction(ctx context.Context, issueID string, action web.IssueAction) (*core.Issue, error) {
+func (a *teamLeaderIssueManagerAdapter) ApplyIssueAction(ctx context.Context, issueID string, action web.IssueAction) (*core.Issue, error) {
 	if a == nil || a.manager == nil {
 		return nil, errors.New("issue manager is not configured")
 	}
@@ -253,7 +253,7 @@ var (
 		exec *engine.Executor,
 		bootstrapSet *pluginfactory.BootstrapSet,
 		bus *eventbus.Bus,
-		secretaryCfg config.SecretaryConfig,
+		teamLeaderCfg config.TeamLeaderConfig,
 		roleBinds config.RoleBindings,
 	) (serverIssueManager, error) {
 		if exec == nil {
@@ -262,18 +262,18 @@ var (
 		if bootstrapSet == nil {
 			return nil, errors.New("bootstrap set is required for issue manager")
 		}
-		agentPlugin, err := selectSecretaryAgentPlugin(bootstrapSet.Agents)
+		agentPlugin, err := selectTeamLeaderAgentPlugin(bootstrapSet.Agents)
 		if err != nil {
 			return nil, err
 		}
-		agent, err := secretary.NewAgent(agentPlugin, bootstrapSet.Runtime)
+		agent, err := teamleader.NewAgent(agentPlugin, bootstrapSet.Runtime)
 		if err != nil {
 			return nil, err
 		}
 
-		reviewPanel, err := secretary.NewDefaultReviewOrchestratorFromBindings(
+		reviewPanel, err := teamleader.NewDefaultReviewOrchestratorFromBindings(
 			bootstrapSet.Store,
-			secretary.ReviewRoleBindingInput{
+			teamleader.ReviewRoleBindingInput{
 				Reviewers:  cloneStringMap(roleBinds.ReviewOrchestrator.Reviewers),
 				Aggregator: roleBinds.ReviewOrchestrator.Aggregator,
 			},
@@ -282,8 +282,8 @@ var (
 		if err != nil {
 			return nil, fmt.Errorf("build review orchestrator from role bindings: %w", err)
 		}
-		if secretaryCfg.ReviewOrchestrator.MaxRounds > 0 {
-			reviewPanel.MaxRounds = secretaryCfg.ReviewOrchestrator.MaxRounds
+		if teamLeaderCfg.ReviewOrchestrator.MaxRounds > 0 {
+			reviewPanel.MaxRounds = teamLeaderCfg.ReviewOrchestrator.MaxRounds
 		}
 		runTaskPipeline := func(ctx context.Context, pipelineID string) error {
 			ok, err := bootstrapSet.Store.TryMarkPipelineRunning(pipelineID, core.StatusCreated)
@@ -296,19 +296,19 @@ var (
 			}
 			return exec.RunScheduled(ctx, pipelineID)
 		}
-		depScheduler := secretary.NewDepScheduler(
+		depScheduler := teamleader.NewDepScheduler(
 			bootstrapSet.Store,
 			bus,
 			runTaskPipeline,
 			bootstrapSet.Tracker,
-			secretaryCfg.DAGScheduler.MaxConcurrentTasks,
+			teamLeaderCfg.DAGScheduler.MaxConcurrentTasks,
 		)
 
-		opts := make([]secretary.ManagerOption, 0, 1)
+		opts := make([]teamleader.ManagerOption, 0, 1)
 		if bootstrapSet.ReviewGate != nil {
-			opts = append(opts, secretary.WithReviewGate(bootstrapSet.ReviewGate))
+			opts = append(opts, teamleader.WithReviewGate(bootstrapSet.ReviewGate))
 		}
-		manager, err := secretary.NewManager(
+		manager, err := teamleader.NewManager(
 			bootstrapSet.Store,
 			agent,
 			reviewPanel,
@@ -318,7 +318,7 @@ var (
 		if err != nil {
 			return nil, err
 		}
-		return &secretaryIssueManagerAdapter{
+		return &teamLeaderIssueManagerAdapter{
 			manager: manager,
 			store:   bootstrapSet.Store,
 		}, nil
@@ -743,7 +743,7 @@ func runServer(ctx context.Context, args []string) error {
 		return err
 	}
 
-	issueManager, err := newServerIssueManager(exec, bootstrapSet, bus, cfg.Secretary, cfg.RoleBinds)
+	issueManager, err := newServerIssueManager(exec, bootstrapSet, bus, cfg.TeamLeader, cfg.RoleBinds)
 	if err != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -768,8 +768,8 @@ func runServer(ctx context.Context, args []string) error {
 	if bootstrapSet.RoleResolver == nil {
 		return errors.New("chat assistant requires role resolver")
 	}
-	var runEventRecorder secretary.ChatRunEventRecorder
-	if recorder, ok := store.(secretary.ChatRunEventRecorder); ok {
+	var runEventRecorder teamleader.ChatRunEventRecorder
+	if recorder, ok := store.(teamleader.ChatRunEventRecorder); ok {
 		runEventRecorder = recorder
 	}
 	chatAssistant := web.NewACPChatAssistantWithDeps(web.ACPChatAssistantDeps{
@@ -856,9 +856,9 @@ func runServer(ctx context.Context, args []string) error {
 	return shutdownErr
 }
 
-func selectSecretaryAgentPlugin(agents map[string]core.AgentPlugin) (core.AgentPlugin, error) {
+func selectTeamLeaderAgentPlugin(agents map[string]core.AgentPlugin) (core.AgentPlugin, error) {
 	if len(agents) == 0 {
-		return nil, errors.New("no agent plugins configured for secretary manager")
+		return nil, errors.New("no agent plugins configured for TeamLeader manager")
 	}
 	if agent, ok := agents["codex"]; ok && agent != nil {
 		return agent, nil
@@ -875,7 +875,7 @@ func selectSecretaryAgentPlugin(agents map[string]core.AgentPlugin) (core.AgentP
 		names = append(names, name)
 	}
 	if len(names) == 0 {
-		return nil, errors.New("no non-nil agent plugins configured for secretary manager")
+		return nil, errors.New("no non-nil agent plugins configured for TeamLeader manager")
 	}
 	sort.Strings(names)
 	return agents[names[0]], nil
@@ -893,7 +893,7 @@ func cloneStringMap(in map[string]string) map[string]string {
 }
 
 func resolveTeamLeaderRoleID(roleBindings config.RoleBindings) string {
-	return strings.TrimSpace(roleBindings.Secretary.Role)
+	return strings.TrimSpace(roleBindings.TeamLeader.Role)
 }
 
 func parseServerPort(args []string) (int, error) {

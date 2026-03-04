@@ -1,4 +1,4 @@
-package secretary
+package teamleader
 
 import (
 	"context"
@@ -61,7 +61,7 @@ func TestHandleWriteFilePublishesChangedEvent(t *testing.T) {
 
 	req := acpproto.WriteTextFileRequest{
 		Path:    "./plans/plan-a.md",
-		Content: "hello secretary",
+		Content: "hello TeamLeader",
 	}
 	_, err := handler.WriteTextFile(context.Background(), req)
 	if err != nil {

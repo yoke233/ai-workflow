@@ -119,7 +119,7 @@ func TestFactoryBuildsRoleResolver_TrimmedNamesResolve(t *testing.T) {
 		},
 	}
 	cfg.RoleBinds = config.RoleBindings{
-		Secretary: config.SingleRoleBinding{
+		TeamLeader: config.SingleRoleBinding{
 			Role: "worker",
 		},
 		Pipeline: config.PipelineRoleBindings{
@@ -189,7 +189,7 @@ func TestFactoryBuildUnknownRuntimePlugin(t *testing.T) {
 func TestFactoryBuildReviewGateCanSwitchToLocal(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Store.Path = ":memory:"
-	cfg.Secretary.ReviewGatePlugin = "review-local"
+	cfg.TeamLeader.ReviewGatePlugin = "review-local"
 
 	set, err := BuildFromConfig(cfg)
 	if err != nil {
@@ -245,7 +245,7 @@ func TestFactoryBuildRoleAgentMustBeExecutable(t *testing.T) {
 		},
 	}
 	cfg.RoleBinds = config.RoleBindings{
-		Secretary: config.SingleRoleBinding{
+		TeamLeader: config.SingleRoleBinding{
 			Role: "worker",
 		},
 		Pipeline: config.PipelineRoleBindings{

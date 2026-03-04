@@ -136,8 +136,8 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 	}
 
 	if binds := layer.RoleBinds; binds != nil {
-		if v := binds.Secretary; v != nil && v.Role != nil {
-			cfg.RoleBinds.Secretary.Role = *v.Role
+		if v := binds.TeamLeader; v != nil && v.Role != nil {
+			cfg.RoleBinds.TeamLeader.Role = *v.Role
 		}
 		if v := binds.PlanParser; v != nil && v.Role != nil {
 			cfg.RoleBinds.PlanParser.Role = *v.Role
@@ -185,18 +185,18 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		}
 	}
 
-	if secretary := layer.Secretary; secretary != nil {
-		if secretary.ReviewGatePlugin != nil {
-			cfg.Secretary.ReviewGatePlugin = *secretary.ReviewGatePlugin
+	if teamLeader := layer.TeamLeader; teamLeader != nil {
+		if teamLeader.ReviewGatePlugin != nil {
+			cfg.TeamLeader.ReviewGatePlugin = *teamLeader.ReviewGatePlugin
 		}
-		if panel := secretary.ReviewOrchestrator; panel != nil {
+		if panel := teamLeader.ReviewOrchestrator; panel != nil {
 			if panel.MaxRounds != nil {
-				cfg.Secretary.ReviewOrchestrator.MaxRounds = *panel.MaxRounds
+				cfg.TeamLeader.ReviewOrchestrator.MaxRounds = *panel.MaxRounds
 			}
 		}
-		if dag := secretary.DAGScheduler; dag != nil {
+		if dag := teamLeader.DAGScheduler; dag != nil {
 			if dag.MaxConcurrentTasks != nil {
-				cfg.Secretary.DAGScheduler.MaxConcurrentTasks = *dag.MaxConcurrentTasks
+				cfg.TeamLeader.DAGScheduler.MaxConcurrentTasks = *dag.MaxConcurrentTasks
 			}
 		}
 	}

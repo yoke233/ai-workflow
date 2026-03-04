@@ -1,4 +1,4 @@
-package secretary
+package teamleader
 
 import (
 	"context"
@@ -210,39 +210,6 @@ func (s *DepScheduler) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-}
-
-// StartPlan is a compatibility wrapper. New code should call ScheduleIssues.
-func (s *DepScheduler) StartPlan(ctx context.Context, legacy any) error {
-	switch v := legacy.(type) {
-	case nil:
-		return errors.New("legacy start payload is nil")
-	case *core.Issue:
-		return s.ScheduleIssues(ctx, []*core.Issue{v})
-	case core.Issue:
-		issue := v
-		return s.ScheduleIssues(ctx, []*core.Issue{&issue})
-	case []*core.Issue:
-		return s.ScheduleIssues(ctx, v)
-	case []core.Issue:
-		ptrs := make([]*core.Issue, 0, len(v))
-		for i := range v {
-			ptrs = append(ptrs, &v[i])
-		}
-		return s.ScheduleIssues(ctx, ptrs)
-	default:
-		return fmt.Errorf("unsupported legacy start payload type: %T", legacy)
-	}
-}
-
-// RecoverExecutingPlans is a compatibility wrapper. New code should call RecoverExecutingIssues.
-func (s *DepScheduler) RecoverExecutingPlans(ctx context.Context) error {
-	return s.RecoverExecutingIssues(ctx, "")
-}
-
-// RecoverPlan is a compatibility wrapper retained for older call sites.
-func (s *DepScheduler) RecoverPlan(ctx context.Context, _ string) error {
-	return s.RecoverExecutingIssues(ctx, "")
 }
 
 // ScheduleIssues puts issues into profile-aware ready queues and dispatches runnable items.

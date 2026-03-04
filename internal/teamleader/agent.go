@@ -1,4 +1,4 @@
-package secretary
+package teamleader
 
 import (
 	"bytes"
@@ -21,15 +21,15 @@ import (
 )
 
 const (
-	defaultTemplatePath    = "configs/prompts/secretary.tmpl"
-	defaultMaxTurns        = 12
-	defaultRoleID          = "plan_parser"
-	defaultSecretaryRoleID = "secretary"
+	defaultTemplatePath     = "configs/prompts/team_leader.tmpl"
+	defaultMaxTurns         = 12
+	defaultRoleID           = "team_leader"
+	defaultTeamLeaderRoleID = "team_leader"
 )
 
 var defaultAllowedTools = []string{"Read(*)"}
 
-// Request is the input payload for secretary decomposition.
+// Request is the input payload for TeamLeader decomposition.
 type Request struct {
 	Conversation string
 	ProjectName  string
@@ -65,7 +65,7 @@ type promptVars struct {
 	HumanFeedbackJSON           string
 }
 
-// Agent is the secretary decomposition driver based on core.AgentPlugin.
+// Agent is the TeamLeader decomposition driver based on core.AgentPlugin.
 type Agent struct {
 	agent        core.AgentPlugin
 	runtime      core.RuntimePlugin
@@ -74,7 +74,7 @@ type Agent struct {
 	maxTurns     int
 }
 
-type secretarySessionClient interface {
+type TeamLeaderSessionClient interface {
 	LoadSession(ctx context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error)
 	NewSession(ctx context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error)
 }
@@ -95,7 +95,7 @@ func NewAgentWithTemplatePath(agent core.AgentPlugin, runtime core.RuntimePlugin
 
 	tmpl, err := template.New(filepath.Base(resolvedPath)).Option("missingkey=error").Parse(string(content))
 	if err != nil {
-		return nil, fmt.Errorf("parse secretary template %q: %w", resolvedPath, err)
+		return nil, fmt.Errorf("parse TeamLeader template %q: %w", resolvedPath, err)
 	}
 
 	return &Agent{
@@ -122,7 +122,7 @@ func (a *Agent) BuildCommand(req Request) ([]string, error) {
 	return cmd, nil
 }
 
-// Decompose executes secretary decomposition and returns the raw model output.
+// Decompose executes TeamLeader decomposition and returns the raw model output.
 func (a *Agent) Decompose(ctx context.Context, req Request) (string, error) {
 	if a.runtime == nil {
 		return "", errors.New("runtime plugin is required for decompose")
@@ -138,7 +138,7 @@ func (a *Agent) Decompose(ctx context.Context, req Request) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("build command: %w", err)
 	}
-	log.Printf("[secretary] decompose agent=%s cmd=%v", a.agent.Name(), cmd)
+	log.Printf("[TeamLeader] decompose agent=%s cmd=%v", a.agent.Name(), cmd)
 
 	sess, err := a.runtime.Create(ctx, core.RuntimeOpts{
 		WorkDir: req.WorkDir,
@@ -235,7 +235,7 @@ func (a *Agent) RenderPrompt(req Request) (string, error) {
 
 	var b strings.Builder
 	if err := a.promptTmpl.Execute(&b, vars); err != nil {
-		return "", fmt.Errorf("render secretary template: %w", err)
+		return "", fmt.Errorf("render TeamLeader template: %w", err)
 	}
 	return strings.TrimSpace(b.String()), nil
 }
@@ -323,7 +323,7 @@ func readTemplateContent(explicitPath string) ([]byte, string, error) {
 		errs = append(errs, fmt.Sprintf("%s: %v", path, err))
 	}
 
-	return nil, "", fmt.Errorf("secretary template not found (%s)", strings.Join(errs, "; "))
+	return nil, "", fmt.Errorf("TeamLeader template not found (%s)", strings.Join(errs, "; "))
 }
 
 func defaultJSONPlaceholder(value string) string {
@@ -419,19 +419,19 @@ func resolveRoleID(role string) string {
 	return trimmed
 }
 
-func resolveSecretaryRoleID(explicitRole, boundRole string) string {
+func resolveTeamLeaderRoleID(explicitRole, boundRole string) string {
 	if trimmed := strings.TrimSpace(explicitRole); trimmed != "" {
 		return trimmed
 	}
 	if trimmed := strings.TrimSpace(boundRole); trimmed != "" {
 		return trimmed
 	}
-	return defaultSecretaryRoleID
+	return defaultTeamLeaderRoleID
 }
 
-func startSecretarySession(
+func startTeamLeaderSession(
 	ctx context.Context,
-	client secretarySessionClient,
+	client TeamLeaderSessionClient,
 	resolver *acpclient.RoleResolver,
 	explicitRole string,
 	boundRole string,
@@ -440,15 +440,15 @@ func startSecretarySession(
 	mcpServers []acpproto.McpServer,
 ) (acpproto.SessionId, string, error) {
 	if client == nil {
-		return "", "", errors.New("secretary session client is required")
+		return "", "", errors.New("TeamLeader session client is required")
 	}
 
-	roleID := resolveSecretaryRoleID(explicitRole, boundRole)
+	roleID := resolveTeamLeaderRoleID(explicitRole, boundRole)
 	resolvedRole := acpclient.RoleProfile{}
 	if resolver != nil {
 		_, role, err := resolver.Resolve(roleID)
 		if err != nil {
-			return "", "", fmt.Errorf("resolve secretary role %q: %w", roleID, err)
+			return "", "", fmt.Errorf("resolve TeamLeader role %q: %w", roleID, err)
 		}
 		resolvedRole = role
 	}
@@ -461,7 +461,7 @@ func startSecretarySession(
 	if len(effectiveMCPServers) == 0 {
 		effectiveMCPServers = MCPToolsFromRoleConfig(resolvedRole)
 	}
-	if sessionID := strings.TrimSpace(persistedSessionID); shouldLoadPersistedSecretarySession(resolvedRole.SessionPolicy, sessionID) {
+	if sessionID := strings.TrimSpace(persistedSessionID); shouldLoadPersistedTeamLeaderSession(resolvedRole.SessionPolicy, sessionID) {
 		loaded, err := client.LoadSession(ctx, acpproto.LoadSessionRequest{
 			SessionId:  acpproto.SessionId(sessionID),
 			Cwd:        trimmedCWD,
@@ -484,7 +484,7 @@ func startSecretarySession(
 	return session, roleID, nil
 }
 
-func shouldLoadPersistedSecretarySession(policy acpclient.SessionPolicy, persistedSessionID string) bool {
+func shouldLoadPersistedTeamLeaderSession(policy acpclient.SessionPolicy, persistedSessionID string) bool {
 	if strings.TrimSpace(persistedSessionID) == "" {
 		return false
 	}

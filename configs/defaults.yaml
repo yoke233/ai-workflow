@@ -133,8 +133,8 @@ scheduler:
   max_global_agents: 3             # 全局最多同时运行几个 Agent
   max_project_pipelines: 2         # 每个项目最多几条活跃 Pipeline
 
-# Secretary Layer 配置（P2a 新增）
-secretary:
+# Team Leader 配置（P2a 新增）
+team_leader:
   role: team_leader                # 引用 role_bindings.team_leader.role
   session_idle_timeout: 30m        # 空闲超时自动关闭 session
   # 具体 ACP 权限、MCP 工具、会话策略由 roles.team_leader 定义
