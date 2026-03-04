@@ -53,9 +53,108 @@ func TestReviewOrchestratorRunApprovePath(t *testing.T) {
 		if len(records) != 2 {
 			t.Fatalf("record count for issue %s = %d, want 2", issue.ID, len(records))
 		}
-		if got := collectReviewers(records); !slices.Equal(got, []string{phase1ReviewerName, phase2ReviewerName}) {
-			t.Fatalf("reviewers = %v, want [%s %s]", got, phase1ReviewerName, phase2ReviewerName)
+		if got := collectReviewers(records); !slices.Equal(got, []string{phase2ReviewerName, phase1ReviewerName}) {
+			t.Fatalf("reviewers = %v, want [%s %s]", got, phase2ReviewerName, phase1ReviewerName)
 		}
+	}
+}
+
+func TestReviewOrchestratorProfileStrictRunsThreeReviewersAndAggregator(t *testing.T) {
+	t.Parallel()
+
+	store := newMockReviewStore()
+	panel := ReviewOrchestrator{
+		Store: store,
+		Reviewer: stubDemandReviewer{fn: func(_ context.Context, _ *core.Issue) (core.ReviewVerdict, error) {
+			return core.ReviewVerdict{Status: "pass", Score: 91}, nil
+		}},
+	}
+
+	issue := newReviewTestIssue("issue-review-strict")
+	issue.Labels = []string{"profile:strict"}
+
+	result, err := panel.Run(context.Background(), []*core.Issue{issue})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Decision != DecisionApprove {
+		t.Fatalf("decision = %q, want %q", result.Decision, DecisionApprove)
+	}
+
+	records, err := store.GetReviewRecords(issue.ID)
+	if err != nil {
+		t.Fatalf("GetReviewRecords() error = %v", err)
+	}
+	if len(records) != 4 {
+		t.Fatalf("record count = %d, want 4 (3 strict reviewers + 1 aggregator)", len(records))
+	}
+	if got := collectReviewers(records); !slices.Equal(got, []string{
+		phase2ReviewerName,
+		strictReviewerNamePrefix + "_1",
+		strictReviewerNamePrefix + "_2",
+		strictReviewerNamePrefix + "_3",
+	}) {
+		t.Fatalf("reviewers = %v, want strict trio + aggregator", got)
+	}
+}
+
+func TestReviewOrchestratorProfileNormalUsesSingleReviewerAndAggregator(t *testing.T) {
+	t.Parallel()
+
+	store := newMockReviewStore()
+	panel := ReviewOrchestrator{
+		Store: store,
+		Reviewer: stubDemandReviewer{fn: func(_ context.Context, _ *core.Issue) (core.ReviewVerdict, error) {
+			return core.ReviewVerdict{Status: "pass", Score: 90}, nil
+		}},
+	}
+
+	issue := newReviewTestIssue("issue-review-normal")
+	issue.Labels = []string{"profile:normal"}
+
+	if _, err := panel.Run(context.Background(), []*core.Issue{issue}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	records, err := store.GetReviewRecords(issue.ID)
+	if err != nil {
+		t.Fatalf("GetReviewRecords() error = %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("record count = %d, want 2", len(records))
+	}
+	if got := collectReviewers(records); !slices.Equal(got, []string{
+		phase2ReviewerName,
+		phase1ReviewerName,
+	}) {
+		t.Fatalf("reviewers = %v, want [%s %s]", got, phase2ReviewerName, phase1ReviewerName)
+	}
+}
+
+func TestReviewOrchestratorProfileFastReleaseBypassesThreshold(t *testing.T) {
+	t.Parallel()
+
+	store := newMockReviewStore()
+	panel := ReviewOrchestrator{
+		Store:                store,
+		AutoApproveThreshold: 95,
+		Reviewer: stubDemandReviewer{fn: func(_ context.Context, _ *core.Issue) (core.ReviewVerdict, error) {
+			return core.ReviewVerdict{Status: "pass", Score: 70}, nil
+		}},
+	}
+
+	issue := newReviewTestIssue("issue-review-fast-release")
+	issue.Labels = []string{"profile:fast_release"}
+
+	result, err := panel.Run(context.Background(), []*core.Issue{issue})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Decision != DecisionApprove {
+		t.Fatalf("decision = %q, want %q", result.Decision, DecisionApprove)
+	}
+	if result.Status != core.ReviewStatusApproved {
+		t.Fatalf("status = %q, want %q", result.Status, core.ReviewStatusApproved)
 	}
 }
 

@@ -27,6 +27,96 @@ func TestAIReviewGate_UnknownReview(t *testing.T) {
 	}
 }
 
+func TestAIReviewGate_ProfileDefaultsToNormal(t *testing.T) {
+	store, issue := newTestStoreWithIssue(t)
+	issue.Labels = nil
+	issue.Template = "standard"
+
+	done := make(chan struct{})
+	capturedLabels := []string{}
+	panel := fakePanel{
+		run: func(_ context.Context, issues []*core.Issue) (*secretary.ReviewSessionResult, error) {
+			if len(issues) != 1 {
+				return nil, errors.New("expected one issue")
+			}
+			capturedLabels = append([]string(nil), issues[0].Labels...)
+			close(done)
+			return &secretary.ReviewSessionResult{
+				Status:   core.ReviewStatusApproved,
+				Decision: secretary.DecisionApprove,
+			}, nil
+		},
+	}
+	gate := New(store, panel)
+	if err := gate.Init(context.Background()); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := gate.Submit(context.Background(), []*core.Issue{issue}); err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("review run did not complete")
+	}
+
+	if profile := resolveIssueProfile(&core.Issue{Labels: capturedLabels}); profile != core.WorkflowProfileNormal {
+		t.Fatalf("normalized profile = %q, want %q", profile, core.WorkflowProfileNormal)
+	}
+}
+
+func TestAIReviewGate_ProfileStrictAndFastReleasePassThrough(t *testing.T) {
+	tests := []struct {
+		name    string
+		profile core.WorkflowProfileType
+	}{
+		{name: "strict", profile: core.WorkflowProfileStrict},
+		{name: "fast_release", profile: core.WorkflowProfileFastRelease},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			store, issue := newTestStoreWithIssue(t)
+			issue.Labels = []string{"profile:" + string(tc.profile)}
+
+			done := make(chan struct{})
+			capturedLabels := []string{}
+			panel := fakePanel{
+				run: func(_ context.Context, issues []*core.Issue) (*secretary.ReviewSessionResult, error) {
+					if len(issues) != 1 {
+						return nil, errors.New("expected one issue")
+					}
+					capturedLabels = append([]string(nil), issues[0].Labels...)
+					close(done)
+					return &secretary.ReviewSessionResult{
+						Status:   core.ReviewStatusApproved,
+						Decision: secretary.DecisionApprove,
+					}, nil
+				},
+			}
+			gate := New(store, panel)
+			if err := gate.Init(context.Background()); err != nil {
+				t.Fatalf("Init() error = %v", err)
+			}
+			if _, err := gate.Submit(context.Background(), []*core.Issue{issue}); err != nil {
+				t.Fatalf("Submit() error = %v", err)
+			}
+
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("review run did not complete")
+			}
+
+			if profile := resolveIssueProfile(&core.Issue{Labels: capturedLabels}); profile != tc.profile {
+				t.Fatalf("normalized profile = %q, want %q", profile, tc.profile)
+			}
+		})
+	}
+}
+
 func TestAIReviewGate_CancelWinsOverAsyncError(t *testing.T) {
 	store, issue := newTestStoreWithIssue(t)
 	started := make(chan struct{})

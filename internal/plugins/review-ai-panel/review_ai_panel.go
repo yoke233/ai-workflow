@@ -595,6 +595,7 @@ func normalizeSubmitIssues(issues []*core.Issue) ([]*core.Issue, error) {
 
 		cloned := cloneIssue(issue)
 		cloned.ID = issueID
+		normalizeIssueProfile(cloned)
 		out = append(out, cloned)
 	}
 	return out, nil
@@ -633,6 +634,46 @@ func cloneIssue(issue *core.Issue) *core.Issue {
 	out.DependsOn = append([]string(nil), issue.DependsOn...)
 	out.Blocks = append([]string(nil), issue.Blocks...)
 	return &out
+}
+
+func normalizeIssueProfile(issue *core.Issue) {
+	if issue == nil {
+		return
+	}
+	profile := resolveIssueProfile(issue)
+	labels := make([]string, 0, len(issue.Labels)+1)
+	for _, label := range issue.Labels {
+		trimmed := strings.TrimSpace(label)
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "profile:") {
+			continue
+		}
+		if trimmed != "" {
+			labels = append(labels, trimmed)
+		}
+	}
+	labels = append(labels, "profile:"+string(profile))
+	issue.Labels = labels
+}
+
+func resolveIssueProfile(issue *core.Issue) core.WorkflowProfileType {
+	if issue == nil {
+		return core.WorkflowProfileNormal
+	}
+	for _, label := range issue.Labels {
+		lower := strings.ToLower(strings.TrimSpace(label))
+		if !strings.HasPrefix(lower, "profile:") {
+			continue
+		}
+		candidate := core.WorkflowProfileType(strings.TrimSpace(strings.TrimPrefix(lower, "profile:")))
+		if candidate.Validate() == nil {
+			return candidate
+		}
+	}
+	if candidate := core.WorkflowProfileType(strings.ToLower(strings.TrimSpace(issue.Template))); candidate.Validate() == nil {
+		return candidate
+	}
+	return core.WorkflowProfileNormal
 }
 
 func recordsToVerdicts(records []core.ReviewRecord, round int) []core.ReviewVerdict {

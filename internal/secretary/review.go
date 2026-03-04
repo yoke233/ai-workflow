@@ -16,8 +16,9 @@ const (
 
 	defaultReviewMaxRounds = 2
 
-	phase1ReviewerName = "demand_reviewer"
-	phase2ReviewerName = "dependency_analyzer"
+	phase1ReviewerName       = "demand_reviewer"
+	phase2ReviewerName       = "aggregator"
+	strictReviewerNamePrefix = "strict_reviewer"
 )
 
 // ReviewStore persists review records using IssueID as the primary key.
@@ -187,18 +188,19 @@ func (r *TwoPhaseReview) Run(ctx context.Context, issues []*core.Issue) (*Review
 	if err != nil {
 		return nil, err
 	}
+	profile := resolveReviewProfile(normalizedIssues)
 
 	round, err := r.nextRound(normalizedIssues)
 	if err != nil {
 		return nil, err
 	}
 
-	verdicts, phase1NeedsFix, allMeetThreshold, err := r.runPhase1(ctx, normalizedIssues, round)
+	verdicts, phase1NeedsFix, allMeetThreshold, err := r.runPhase1(ctx, normalizedIssues, round, profile)
 	if err != nil {
 		return nil, err
 	}
 
-	analysis, err := r.runPhase2(ctx, normalizedIssues, round)
+	analysis, err := r.runPhase2(ctx, normalizedIssues, round, profile, verdicts)
 	if err != nil {
 		return nil, err
 	}
@@ -242,50 +244,86 @@ func (r *TwoPhaseReview) nextRound(issues []*core.Issue) (int, error) {
 	return maxRound + 1, nil
 }
 
-func (r *TwoPhaseReview) runPhase1(ctx context.Context, issues []*core.Issue, round int) (map[string]core.ReviewVerdict, bool, bool, error) {
-	threshold := clampThreshold(r.AutoApproveThreshold)
+func (r *TwoPhaseReview) runPhase1(
+	ctx context.Context,
+	issues []*core.Issue,
+	round int,
+	profile core.WorkflowProfileType,
+) (map[string]core.ReviewVerdict, bool, bool, error) {
+	policy := reviewProfilePolicy(profile, r.AutoApproveThreshold)
+	threshold := policy.Threshold
 	allMeetThreshold := true
 	needsFix := false
 
 	out := make(map[string]core.ReviewVerdict, len(issues))
 	for i := range issues {
 		issue := issues[i]
-		verdict, err := r.Reviewer.Review(ctx, cloneIssueForReview(issue))
-		if err != nil {
-			return nil, false, false, fmt.Errorf("phase1 review issue %s: %w", issue.ID, err)
+
+		aggregated := core.ReviewVerdict{
+			Reviewer: phase1ReviewerName,
+			Status:   "pass",
+			Score:    100,
+			Issues:   []core.ReviewIssue{},
 		}
 
-		normalized := normalizeVerdict(issue.ID, verdict)
-		out[issue.ID] = normalized
+		for reviewerIndex := 0; reviewerIndex < policy.ReviewerCount; reviewerIndex++ {
+			verdict, err := r.Reviewer.Review(ctx, cloneIssueForReview(issue))
+			if err != nil {
+				return nil, false, false, fmt.Errorf("phase1 review issue %s: %w", issue.ID, err)
+			}
 
-		if verdictNeedsFix(normalized) {
+			normalized := normalizeVerdict(issue.ID, verdict)
+			recordReviewer := normalizedReviewer(normalized.Reviewer, phase1ReviewerName)
+			if policy.ReviewerCount > 1 {
+				recordReviewer = fmt.Sprintf("%s_%d", strictReviewerNamePrefix, reviewerIndex+1)
+			}
+
+			score := normalized.Score
+			record := &core.ReviewRecord{
+				IssueID:   issue.ID,
+				Round:     round,
+				Reviewer:  recordReviewer,
+				Verdict:   normalized.Status,
+				Summary:   strings.TrimSpace(normalized.Summary),
+				RawOutput: strings.TrimSpace(normalized.RawOutput),
+				Issues:    append([]core.ReviewIssue(nil), normalized.Issues...),
+				Score:     &score,
+			}
+			if err := r.Store.SaveReviewRecord(record); err != nil {
+				return nil, false, false, fmt.Errorf("persist phase1 review record for issue %s: %w", issue.ID, err)
+			}
+
+			if verdictNeedsFix(normalized) {
+				aggregated.Status = "issues_found"
+				aggregated.Issues = append(aggregated.Issues, normalized.Issues...)
+			}
+			if normalized.Score < aggregated.Score {
+				aggregated.Score = normalized.Score
+			}
+		}
+		aggregated.Summary = defaultVerdictSummary(aggregated.Status, aggregated.Score, len(aggregated.Issues))
+		aggregated.RawOutput = fmt.Sprintf("profile=%s reviewers=%d", profile, policy.ReviewerCount)
+		out[issue.ID] = aggregated
+
+		if verdictNeedsFix(aggregated) {
 			needsFix = true
 		}
-		if threshold > 0 && normalized.Score < threshold {
+		if threshold > 0 && aggregated.Score < threshold {
 			allMeetThreshold = false
-		}
-
-		score := normalized.Score
-		record := &core.ReviewRecord{
-			IssueID:   issue.ID,
-			Round:     round,
-			Reviewer:  normalizedReviewer(normalized.Reviewer, phase1ReviewerName),
-			Verdict:   normalized.Status,
-			Summary:   strings.TrimSpace(normalized.Summary),
-			RawOutput: strings.TrimSpace(normalized.RawOutput),
-			Issues:    append([]core.ReviewIssue(nil), normalized.Issues...),
-			Score:     &score,
-		}
-		if err := r.Store.SaveReviewRecord(record); err != nil {
-			return nil, false, false, fmt.Errorf("persist phase1 review record for issue %s: %w", issue.ID, err)
 		}
 	}
 	return out, needsFix, allMeetThreshold, nil
 }
 
-func (r *TwoPhaseReview) runPhase2(ctx context.Context, issues []*core.Issue, round int) (*DependencyAnalysis, error) {
+func (r *TwoPhaseReview) runPhase2(
+	ctx context.Context,
+	issues []*core.Issue,
+	round int,
+	profile core.WorkflowProfileType,
+	phase1Verdicts map[string]core.ReviewVerdict,
+) (*DependencyAnalysis, error) {
 	analysis := &DependencyAnalysis{}
-	if len(issues) > 1 && r.Analyzer != nil {
+	if len(issues) > 1 && r.Analyzer != nil && profile != core.WorkflowProfileFastRelease {
 		out, err := r.Analyzer.Analyze(ctx, cloneIssueListForReview(issues))
 		if err != nil {
 			return nil, fmt.Errorf("phase2 dependency analyze: %w", err)
@@ -297,14 +335,23 @@ func (r *TwoPhaseReview) runPhase2(ctx context.Context, issues []*core.Issue, ro
 
 	for i := range issues {
 		issueID := issues[i].ID
+		phase1 := phase1Verdicts[issueID]
 		analysisIssues := dependencyIssuesForIssue(issueID, analysis)
 		verdict := "pass"
 		score := 100
+		if verdictNeedsFix(phase1) {
+			verdict = "issues_found"
+			score = 60
+		}
+		analysisIssues = append(analysisIssues, phase1.Issues...)
 		if len(analysisIssues) > 0 {
 			verdict = "issues_found"
 			score = 60
 		}
 		summary := dependencyReviewSummary(verdict, len(analysisIssues))
+		if profile == core.WorkflowProfileFastRelease && verdict == "pass" {
+			summary = "fast_release profile quick pass"
+		}
 		rawOutput := dependencyReviewRawOutput(issueID, verdict, score, analysis, analysisIssues, summary)
 
 		record := &core.ReviewRecord{
@@ -323,6 +370,52 @@ func (r *TwoPhaseReview) runPhase2(ctx context.Context, issues []*core.Issue, ro
 	}
 
 	return analysis, nil
+}
+
+type profileReviewPolicy struct {
+	ReviewerCount int
+	Threshold     int
+}
+
+func reviewProfilePolicy(profile core.WorkflowProfileType, autoApproveThreshold int) profileReviewPolicy {
+	switch profile {
+	case core.WorkflowProfileStrict:
+		threshold := clampThreshold(autoApproveThreshold)
+		if threshold < 85 {
+			threshold = 85
+		}
+		return profileReviewPolicy{
+			ReviewerCount: 3,
+			Threshold:     threshold,
+		}
+	case core.WorkflowProfileFastRelease:
+		return profileReviewPolicy{
+			ReviewerCount: 1,
+			Threshold:     0,
+		}
+	default:
+		return profileReviewPolicy{
+			ReviewerCount: 1,
+			Threshold:     clampThreshold(autoApproveThreshold),
+		}
+	}
+}
+
+func resolveReviewProfile(issues []*core.Issue) core.WorkflowProfileType {
+	resolved := core.WorkflowProfileFastRelease
+	for i := range issues {
+		profile := workflowProfileFromIssue(issues[i])
+		switch profile {
+		case core.WorkflowProfileStrict:
+			return core.WorkflowProfileStrict
+		case core.WorkflowProfileNormal:
+			resolved = core.WorkflowProfileNormal
+		}
+	}
+	if resolved.Validate() == nil {
+		return resolved
+	}
+	return core.WorkflowProfileNormal
 }
 
 func decideSession(phase1NeedsFix bool, allMeetThreshold bool, threshold int, analysis *DependencyAnalysis) (decision string, status string, autoApproved bool) {
