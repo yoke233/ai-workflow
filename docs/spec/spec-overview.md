@@ -1,62 +1,109 @@
-# V2 总览规范（issue / profile / run / Team Leader）
+# V2 总览规范（Issue / WorkflowProfile / WorkflowRun / Team Leader）
 
 ## 目标
 
-Wave4 起统一采用 `issue -> profile -> run` 模型：
+本规范定义 V2 的唯一主链路：`issue -> workflow_profile -> workflow_run`，
+并由 Team Leader 负责用户入口与编排。
 
-- Team Leader 负责面向用户的持续对话与编排。
-- issue 是唯一交付单元。
-- profile 决定 Agent 的角色能力与执行策略。
-- run 是执行与观测的最小实例。
+- `issue`：唯一需求/交付单元。
+- `workflow_profile`：流程档位与审核策略（`normal | strict | fast_release`）。
+- `workflow_run`：一次执行实例及其状态机。
+- `Team Leader`：统一对话与调度入口（替代旧 Secretary 语义）。
 
-## 架构分层
+## 非目标（断代声明）
 
-1. `Web API`：提供项目、issue、chat、事件查询接口。
-2. `Team Leader`：接收用户输入，维护上下文，触发 issue 与 run。
-3. `Issue Service`：issue 创建、review、变更追踪。
-4. `Run Engine`：按 profile 执行 run，产出运行事件。
-5. `Event Store`：持久化 `chat_run_*` 与 issue review 事件。
-6. `Integration`：GitHub 等外部系统对接。
+- 不保留 `task/plan` 业务实体与 API 兼容层。
+- 不保留 DAG 运行时依赖调度能力。
+- 不保留旧事件名与旧路由别名。
 
-## 统一对象
+## 核心领域模型
 
 ### Issue
 
-- `id`：`issue-*`
-- `title/body`
-- `status`：`draft | reviewing | ready | executing | done | failed | abandoned`
-- `session_id`：所属 Team Leader 会话
-- `auto_merge`：自动合并开关
+关键字段：
 
-### Profile
+- `id`: `issue-*`
+- `project_id`
+- `session_id`
+- `title`
+- `body`
+- `status`: `draft | reviewing | ready | executing | done | failed | abandoned`
+- `workflow_profile`: `normal | strict | fast_release`
+- `input_mode`: `text | files`
+- `review_scope.files`（文件模式时必填）
+- `auto_merge`
+- `created_at` / `updated_at`
 
-- `id`：如 `team_leader`、`reviewer`、`implementer`
-- `capabilities`：工具权限与资源范围
-- `session_policy`：是否复用会话、是否重置提示
+约束：
 
-### Run
+- `title` 为必填字段，去除首尾空白后长度必须在 `1..120`。
+- 任意状态变化必须记录到 issue 时间线。
+- `executing` 状态必须可关联至少一个 `workflow_run`。
+- `timeout` 由 run 层处理，issue 最终落为 `failed` 并记录超时原因。
+- 创建 issue 时必须在 `text/files` 模式中二选一，不允许混合主输入。
+- 文件模式下 review 仅覆盖 `review_scope.files`，范围变更必须显式留痕。
 
-- `run_id`（内部可由 session + 时间推导）
+### WorkflowProfile
+
+关键字段：
+
+- `id`: `normal | strict | fast_release`
+- `review_policy`（评审人数、聚合策略、通过阈值）
+- `sla_minutes`（默认 60）
+- `concurrency_limit`（可选）
+- `retry_policy`（可选）
+
+约束：
+
+- `sla_minutes` 必须大于 0，V2 默认 60 分钟。
+- `strict` 必须支持并行 reviewer + aggregator。
+- `fast_release` 必须走轻量审核路径，但仍要留痕。
+
+### WorkflowRun
+
+关键字段：
+
+- `id`: `run-*`
 - `issue_id`
-- `profile_id`
-- `status`：`started | running | completed | failed | cancelled`
-- `events[]`：流式更新与持久化事件
+- `workflow_profile`
+- `status`: `created | running | waiting_review | done | failed | timeout | cancelled`
+- `started_at` / `finished_at`
+- `summary`
+- `error`
+
+约束：
+
+- 每个 run 必须有明确结束态（`done/failed/timeout/cancelled`）。
+- run 事件必须可按时间排序查询。
+- 取消与超时必须产出显式结束事件。
+
+## 架构分层
+
+1. `Web API`：提供项目、issue、workflow profile、run、事件查询接口。
+2. `Team Leader`：维护会话上下文，决定 issue 推进与 profile 选择。
+3. `Issue Service`：issue 生命周期与时间线写入。
+4. `Run Engine`：基于 profile 规则执行 run（非 DAG）。
+5. `Event Bus + Event Store`：解耦触发与推进，持久化 run/review 事件。
+6. `Integrations`：GitHub 等外部系统对接。
 
 ## 标准主链路
 
 1. 用户向 Team Leader 发送消息。
-2. Team Leader 选择 profile。
-3. 系统创建或更新 issue。
-4. 系统启动 run。
-5. run 输出 `chat_run_started / chat_run_update / chat_run_completed` 等事件。
-6. review 结果写入 issue 时间线，并可通过 API 查询。
+2. Team Leader 创建或更新 issue，并确定 `workflow_profile`。
+3. Scheduler 将 issue 推入 profile 队列并创建 run。
+4. Run Engine 执行 run，并持续发布 `run_*` 事件。
+5. Review Orchestrator 按 `workflow_profile` 产生评审结论。
+6. issue 时间线写入 review/action/checkpoint 事件并推进状态。
+7. 用户或系统可通过 API 统一查询 run 与 review 轨迹。
 
 ## 事件观测基线
 
-- 运行事件：`GET /api/v1/projects/{projectID}/chat/{sessionID}/events`
-- review 事件：`GET /api/v1/projects/{projectID}/issues/{issueID}/timeline?kinds=review`
+- 会话运行事件：`GET /api/v2/sessions/{sessionID}/runs/events?project_id={projectID}`
+- issue 时间线：`GET /api/v2/issues/{issueID}/timeline?project_id={projectID}`
+- run 详情：`GET /api/v2/runs/{runID}?project_id={projectID}`
 
-## 非目标
+## 验收基线
 
-- 不再维护旧命名模型与旧文档叙述。
-- 不提供兼容层说明。
+- `task/plan` 与 DAG 语义不再作为主路径出现。
+- Team Leader 命名在接口与文案中统一。
+- `v2-smoke` 可验证 issue/profile/run 全链路可用。
