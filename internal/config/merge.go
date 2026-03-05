@@ -296,6 +296,15 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		}
 	}
 
+	if ctx := layer.Context; ctx != nil {
+		if ctx.Provider != nil {
+			cfg.Context.Provider = *ctx.Provider
+		}
+		if ctx.Path != nil {
+			cfg.Context.Path = *ctx.Path
+		}
+	}
+
 	if log := layer.Log; log != nil {
 		if log.Level != nil {
 			cfg.Log.Level = *log.Level

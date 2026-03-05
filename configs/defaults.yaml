@@ -253,6 +253,11 @@ server:
   auth_enabled: false
   auth_token: ""
 
+# 上下文存储
+context:
+  provider: ""                         # context-sqlite | mock | openviking | ""(disabled)
+  path: .ai-workflow/context.db        # SQLite file path (context-sqlite only)
+
 # 存储
 store:
   driver: sqlite

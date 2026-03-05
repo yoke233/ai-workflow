@@ -11,6 +11,8 @@ import (
 	"github.com/yoke233/ai-workflow/internal/config"
 	"github.com/yoke233/ai-workflow/internal/core"
 	githubsvc "github.com/yoke233/ai-workflow/internal/github"
+	contextmock "github.com/yoke233/ai-workflow/internal/plugins/context-mock"
+	contextsqlite "github.com/yoke233/ai-workflow/internal/plugins/context-sqlite"
 	notifierdesktop "github.com/yoke233/ai-workflow/internal/plugins/notifier-desktop"
 	reviewaipanel "github.com/yoke233/ai-workflow/internal/plugins/review-ai-panel"
 	reviewgithubpr "github.com/yoke233/ai-workflow/internal/plugins/review-github-pr"
@@ -33,6 +35,7 @@ type BootstrapSet struct {
 	SCM          core.SCM
 	Notifier     core.Notifier
 	Workspace    core.WorkspacePlugin
+	ContextStore core.ContextStore // nil when context provider is not configured
 }
 
 const (
@@ -234,6 +237,30 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 		return nil, fmt.Errorf("plugin is not a workspace plugin: slot=%s name=%s", core.SlotWorkspace, defaultWorkspacePlugin)
 	}
 
+	var contextStore core.ContextStore
+	if provider := strings.TrimSpace(effective.Context.Provider); provider != "" {
+		contextModule, ok := registry.Get(core.SlotContext, provider)
+		if !ok {
+			return nil, fmt.Errorf("unknown plugin: slot=%s name=%s", core.SlotContext, provider)
+		}
+		contextPath := expandPath(stringFromMap(map[string]any{"path": effective.Context.Path}, "path", ".ai-workflow/context.db"))
+		if contextPath != ":memory:" {
+			if err := os.MkdirAll(filepath.Dir(contextPath), 0o755); err != nil {
+				return nil, fmt.Errorf("ensure context db dir: %w", err)
+			}
+		}
+		contextRaw, err := contextModule.Factory(map[string]any{
+			"path": contextPath,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("build context plugin %q: %w", provider, err)
+		}
+		contextStore, ok = contextRaw.(core.ContextStore)
+		if !ok {
+			return nil, fmt.Errorf("plugin is not a context store: slot=%s name=%s", core.SlotContext, provider)
+		}
+	}
+
 	return &BootstrapSet{
 		RoleResolver: roleResolver,
 		Store:        storePlugin.Store(),
@@ -242,6 +269,7 @@ func buildWithRegistry(registry *core.Registry, cfg config.Config) (*BootstrapSe
 		SCM:          scmPlugin,
 		Notifier:     notifierPlugin,
 		Workspace:    workspacePlugin,
+		ContextStore: contextStore,
 	}, nil
 }
 
@@ -344,6 +372,8 @@ func newDefaultRegistry() (*core.Registry, error) {
 			},
 		},
 		workspaceworktree.Module(),
+		contextmock.Module(),
+		contextsqlite.Module(),
 	}
 
 	for _, module := range modules {

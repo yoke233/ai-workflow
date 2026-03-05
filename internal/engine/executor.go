@@ -43,8 +43,9 @@ type Executor struct {
 	roleResolver      *acpclient.RoleResolver
 	stageRoles        map[core.StageID]string
 	workspace         core.WorkspacePlugin
-	acpHandlerFactory ACPHandlerFactory
-	logger            *slog.Logger
+	acpHandlerFactory  ACPHandlerFactory
+	mcpServerResolver func(role acpclient.RoleProfile) []acpproto.McpServer
+	logger             *slog.Logger
 
 	// testStageFunc is a test-only hook that bypasses real ACP execution.
 	testStageFunc func(ctx context.Context, runID string, stage core.StageID, agentName, prompt string) error
@@ -74,6 +75,10 @@ func (e *Executor) SetRoleResolver(resolver *acpclient.RoleResolver) {
 
 func (e *Executor) SetACPHandlerFactory(factory ACPHandlerFactory) {
 	e.acpHandlerFactory = factory
+}
+
+func (e *Executor) SetMCPServerResolver(fn func(role acpclient.RoleProfile) []acpproto.McpServer) {
+	e.mcpServerResolver = fn
 }
 
 func (e *Executor) SetWorkspace(workspace core.WorkspacePlugin) {
@@ -729,8 +734,13 @@ func (e *Executor) runACPStage(
 		return fmt.Errorf("acp initialize for stage %s: %w", stage.Name, err)
 	}
 
+	var effectiveMCPServers []acpproto.McpServer
+	if e.mcpServerResolver != nil {
+		effectiveMCPServers = e.mcpServerResolver(roleProfile)
+	}
 	session, err := client.NewSession(stageCtx, acpproto.NewSessionRequest{
-		Cwd: p.WorktreePath,
+		Cwd:        p.WorktreePath,
+		McpServers: effectiveMCPServers,
 	})
 	if err != nil {
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

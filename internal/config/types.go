@@ -13,6 +13,7 @@ type Config struct {
 	Server     ServerConfig     `yaml:"server"`
 	GitHub     GitHubConfig     `yaml:"github"`
 	Store      StoreConfig      `yaml:"store"`
+	Context    ContextConfig    `yaml:"context"`
 	Log        LogConfig        `yaml:"log"`
 }
 
@@ -106,6 +107,11 @@ type StoreConfig struct {
 	Path   string `yaml:"path"`
 }
 
+type ContextConfig struct {
+	Provider string `yaml:"provider"` // "mock" | "context-sqlite" | "openviking" | "" (disabled)
+	Path     string `yaml:"path"`     // SQLite file path, only used by context-sqlite
+}
+
 type LogConfig struct {
 	Level      string `yaml:"level"`
 	File       string `yaml:"file"`
@@ -125,6 +131,7 @@ type ConfigLayer struct {
 	Server     *ServerLayer       `yaml:"server"`
 	GitHub     *GitHubLayer       `yaml:"github"`
 	Store      *StoreLayer        `yaml:"store"`
+	Context    *ContextLayer      `yaml:"context"`
 	Log        *LogLayer          `yaml:"log"`
 }
 
@@ -204,6 +211,11 @@ type GitHubPRLayer struct {
 type StoreLayer struct {
 	Driver *string `yaml:"driver"`
 	Path   *string `yaml:"path"`
+}
+
+type ContextLayer struct {
+	Provider *string `yaml:"provider"`
+	Path     *string `yaml:"path"`
 }
 
 type LogLayer struct {

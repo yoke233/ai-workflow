@@ -353,6 +353,12 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, *ev
 	exec.SetWorkspace(bootstrapSet.Workspace)
 	exec.SetRunstageRoles(cfg.RoleBinds.Run.StageRoles)
 	exec.SetACPHandlerFactory(&acpHandlerFactoryAdapter{})
+	mcpEnv := teamleader.MCPEnvConfig{
+		DBPath: expandStorePath(cfg.Store.Path),
+	}
+	exec.SetMCPServerResolver(func(role acpclient.RoleProfile) []acpproto.McpServer {
+		return teamleader.MCPToolsFromRoleConfig(role, mcpEnv)
+	})
 
 	recoveryOnce.Do(func() {
 		go func() {

@@ -13,6 +13,7 @@ const (
 	SlotNotifier   PluginSlot = "notifier"
 	SlotStore      PluginSlot = "store"
 	SlotTerminal   PluginSlot = "terminal"
+	SlotContext    PluginSlot = "context"
 )
 
 // Plugin is the common interface every pluggable component must satisfy.
