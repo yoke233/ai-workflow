@@ -30,6 +30,22 @@ func TestProjectRepoProvisionerLocalPathUsesSubmittedRepoPath(t *testing.T) {
 	}
 }
 
+func TestProjectRepoProvisionerResolveReposRootDefaultsToWorkingDirectory(t *testing.T) {
+	workingDir := t.TempDir()
+	t.Chdir(workingDir)
+
+	provisioner := newProjectRepoProvisioner("", &recordingGitRunner{})
+	got, err := provisioner.resolveReposRoot()
+	if err != nil {
+		t.Fatalf("resolveReposRoot() error = %v", err)
+	}
+
+	want := filepath.Join(workingDir, ".ai-workflow", "repos")
+	if got != want {
+		t.Fatalf("resolveReposRoot() = %s, want %s", got, want)
+	}
+}
+
 func TestProjectRepoProvisionerLocalNewCreatesGitRepository(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repos-root")
 	runner := &recordingGitRunner{

@@ -213,7 +213,7 @@ github:
 #   backup:
 #     enabled: false
 #     interval: 24h                # 备份间隔
-#     path: ~/.ai-workflow/backups/  # 备份目录
+#     path: .ai-workflow/backups/  # 备份目录
 #     max_copies: 7                # 保留最近 N 份
 
 # Web Server（同时承载 API + WebSocket + GitHub Webhook）
@@ -231,11 +231,11 @@ server:
 # 存储
 store:
   driver: sqlite
-  path: ~/.ai-workflow/data.db
+  path: .ai-workflow/data.db
 
 # 日志
 log:
   level: info                      # debug / info / warn / error
-  file: ~/.ai-workflow/logs/app.log
+  file: .ai-workflow/logs/app.log
   max_size_mb: 100
   max_age_days: 30

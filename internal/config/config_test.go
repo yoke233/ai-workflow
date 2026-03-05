@@ -60,6 +60,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Server.Port != 8080 {
 		t.Errorf("expected server port 8080, got %d", cfg.Server.Port)
 	}
+	if cfg.Store.Path != ".ai-workflow/data.db" {
+		t.Errorf("expected default store path .ai-workflow/data.db, got %s", cfg.Store.Path)
+	}
+	if cfg.Log.File != ".ai-workflow/logs/app.log" {
+		t.Errorf("expected default log file .ai-workflow/logs/app.log, got %s", cfg.Log.File)
+	}
 }
 
 func TestLoadDefaults_UsesACPAgentProfiles(t *testing.T) {

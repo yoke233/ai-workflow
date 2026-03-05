@@ -18,6 +18,24 @@
 
 ## 本地启动
 
+### 0) 初始化配置（推荐）
+
+首次进入仓库目录后，先生成项目内配置文件：
+
+```powershell
+go run ./cmd/ai-flow config init
+```
+
+这会创建 `./.ai-workflow/config.yaml`，后续按需修改该文件即可。
+
+如需覆盖已存在配置：
+
+```powershell
+go run ./cmd/ai-flow config init --force
+```
+
+> 如果不执行这一步，程序也能启动，会自动使用内置默认配置。
+
 ### 1) 启动后端
 
 ```powershell
@@ -64,4 +82,3 @@ pwsh -NoProfile -File .\scripts\test\v2-smoke.ps1
 ```powershell
 pwsh -NoProfile -File .\scripts\test\p3-integration.ps1
 ```
-

@@ -83,7 +83,7 @@ type remoteClonePlugin interface {
 	Clone(ctx context.Context, req workspaceclone.CloneRequest) (workspaceclone.CloneResult, error)
 }
 
-// NewProjectRepoProvisioner creates a default provisioner. reposRoot can be empty to use ~/.ai-workflow/repos.
+// NewProjectRepoProvisioner creates a default provisioner. reposRoot can be empty to use ./.ai-workflow/repos.
 func NewProjectRepoProvisioner(reposRoot string) ProjectRepoProvisioner {
 	return newProjectRepoProvisioner(reposRoot, shellGitCommandRunner{})
 }
@@ -219,11 +219,11 @@ func (p *projectRepoProvisioner) resolveReposRoot() (string, error) {
 		return filepath.Clean(p.reposRoot), nil
 	}
 
-	homeDir, err := os.UserHomeDir()
+	workingDir, err := os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("resolve home directory for repos root: %w", err)
+		return "", fmt.Errorf("resolve working directory for repos root: %w", err)
 	}
-	return filepath.Join(homeDir, ".ai-workflow", "repos"), nil
+	return filepath.Join(workingDir, ".ai-workflow", "repos"), nil
 }
 
 func normalizeProjectSlug(raw string) string {

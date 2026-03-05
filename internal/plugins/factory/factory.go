@@ -252,7 +252,7 @@ func newDefaultRegistry() (*core.Registry, error) {
 			Name: "sqlite",
 			Slot: core.SlotStore,
 			Factory: func(cfg map[string]any) (core.Plugin, error) {
-				storePath := expandPath(stringFromMap(cfg, "path", "~/.ai-workflow/data.db"))
+				storePath := expandPath(stringFromMap(cfg, "path", ".ai-workflow/data.db"))
 				if storePath != ":memory:" {
 					if err := os.MkdirAll(filepath.Dir(storePath), 0o755); err != nil {
 						return nil, fmt.Errorf("ensure sqlite dir: %w", err)

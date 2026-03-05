@@ -83,6 +83,16 @@ func runWithArgs(args []string) error {
 		}
 	case "server":
 		return cmdServer(args[1:])
+	case "config":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: ai-flow config <init> [--force]")
+		}
+		switch args[1] {
+		case "init":
+			return cmdConfigInit(args[2:])
+		default:
+			return fmt.Errorf("unknown config command: %s", args[1])
+		}
 	case "mcp-serve":
 		return cmdMCPServe()
 	default:
@@ -108,6 +118,7 @@ Usage:
   ai-flow scheduler once
   ai-flow github replay --delivery-id <id>
   ai-flow github validate
+  ai-flow config init [--force]
   ai-flow server [--port <port>]
   ai-flow mcp-serve                  (MCP server over stdio, requires AI_WORKFLOW_DB_PATH)`)
 }

@@ -30,7 +30,10 @@ import (
 	"github.com/yoke233/ai-workflow/internal/web"
 )
 
-var recoveryOnce sync.Once
+var (
+	recoveryOnce          sync.Once
+	missingConfigHintOnce sync.Once
+)
 
 const defaultServerPort = 8080
 
@@ -363,11 +366,11 @@ func bootstrapWithEventBus() (*engine.Executor, *pluginfactory.BootstrapSet, *ev
 }
 
 func loadBootstrapConfig() (*config.Config, error) {
-	home, err := os.UserHomeDir()
+	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
-	dataDir := filepath.Join(home, ".ai-workflow")
+	dataDir := filepath.Join(cwd, ".ai-workflow")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -377,6 +380,9 @@ func loadBootstrapConfig() (*config.Config, error) {
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return nil, statErr
 	}
+	missingConfigHintOnce.Do(func() {
+		fmt.Fprintf(os.Stderr, "config not found at %s, using built-in defaults (run `ai-flow config init` to create it)\n", cfgPath)
+	})
 
 	cfg := config.Defaults()
 	if err := config.ApplyEnvOverrides(&cfg); err != nil {
@@ -1070,12 +1076,21 @@ func (f *acpHandlerFactoryAdapter) SetPermissionPolicy(handler acpproto.Client, 
 }
 
 func expandStorePath(path string) string {
-	if strings.HasPrefix(path, "~/") {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return trimmed
+	}
+	if strings.HasPrefix(trimmed, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, path[2:])
+			trimmed = filepath.Join(home, trimmed[2:])
 		}
 	}
-	return path
+	if !filepath.IsAbs(trimmed) {
+		if abs, err := filepath.Abs(trimmed); err == nil {
+			return abs
+		}
+	}
+	return trimmed
 }
 
 // isTransientChunkEvent returns true for high-frequency streaming chunk events

@@ -140,6 +140,7 @@ func TestRunServer_PortPriority(t *testing.T) {
 			tempHome := t.TempDir()
 			t.Setenv("HOME", tempHome)
 			t.Setenv("USERPROFILE", tempHome)
+			t.Chdir(tempHome)
 			if tt.unsetPort {
 				prev, existed := os.LookupEnv("AI_WORKFLOW_SERVER_PORT")
 				if err := os.Unsetenv("AI_WORKFLOW_SERVER_PORT"); err != nil {
@@ -202,6 +203,7 @@ func TestRunServer_StartFailureJoinsSchedulerStopError(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
 	t.Setenv("USERPROFILE", tempHome)
+	t.Chdir(tempHome)
 
 	origSchedulerFactory := newServerScheduler
 	origServerFactory := newAPIServer
@@ -249,6 +251,7 @@ func TestRunServer_IssueManagerReceivesReviewRoleBindings(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
 	t.Setenv("USERPROFILE", tempHome)
+	t.Chdir(tempHome)
 
 	origSchedulerFactory := newServerScheduler
 	origServerFactory := newAPIServer
@@ -297,6 +300,7 @@ func TestCLI_ServerCommandStartsAndHealth(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
 	t.Setenv("USERPROFILE", tempHome)
+	t.Chdir(tempHome)
 
 	port := reserveFreePort(t)
 	ctx, cancel := context.WithCancel(context.Background())

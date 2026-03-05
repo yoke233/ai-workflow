@@ -181,11 +181,11 @@ func Defaults() Config {
 		},
 		Store: StoreConfig{
 			Driver: "sqlite",
-			Path:   "~/.ai-workflow/data.db",
+			Path:   ".ai-workflow/data.db",
 		},
 		Log: LogConfig{
 			Level:      "info",
-			File:       "~/.ai-workflow/logs/app.log",
+			File:       ".ai-workflow/logs/app.log",
 			MaxSizeMB:  100,
 			MaxAgeDays: 30,
 		},
