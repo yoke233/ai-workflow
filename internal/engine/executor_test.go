@@ -210,6 +210,34 @@ func TestRenderPrompt_ImplementWorksWithoutLegacyFields(t *testing.T) {
 	}
 }
 
+func TestRenderPrompt_ImplementIncludesMergeConflictHint(t *testing.T) {
+	got, err := RenderPrompt("implement", PromptVars{
+		ProjectName:       "demo",
+		WorktreePath:      "C:/tmp/worktrees/demo",
+		Requirements:      "实现支付回调接口",
+		MergeConflictHint: "请先 rebase 解决冲突后再实现需求。",
+	})
+	if err != nil {
+		t.Fatalf("RenderPrompt(implement): %v", err)
+	}
+	if !strings.Contains(got, "请先 rebase 解决冲突后再实现需求。") {
+		t.Fatalf("rendered prompt should contain merge conflict hint, got: %s", got)
+	}
+}
+
+func TestMergeConflictHintFromConfig(t *testing.T) {
+	got := mergeConflictHintFromConfig(map[string]any{
+		"merge_conflict_hint": "  retry with rebase  ",
+	})
+	if got != "retry with rebase" {
+		t.Fatalf("mergeConflictHintFromConfig() = %q, want %q", got, "retry with rebase")
+	}
+
+	if got := mergeConflictHintFromConfig(map[string]any{}); got != "" {
+		t.Fatalf("mergeConflictHintFromConfig(empty) = %q, want empty", got)
+	}
+}
+
 func TestExecutorRun_PublishesEventsForStageLifecycleAndAgentOutput(t *testing.T) {
 	store := newTestStore(t)
 	defer store.Close()

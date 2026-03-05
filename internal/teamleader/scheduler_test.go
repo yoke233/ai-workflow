@@ -347,6 +347,50 @@ func TestScheduler_RecoverExecutingIssuesKeepsMergingAsRunning(t *testing.T) {
 	}
 }
 
+func TestBuildRunFromIssue_AddsMergeConflictHintOnRetry(t *testing.T) {
+	issue := &core.Issue{
+		ID:           "issue-hint-retry",
+		ProjectID:    "proj-hint-retry",
+		Title:        "hint retry",
+		Body:         "hint retry body",
+		Template:     "standard",
+		MergeRetries: 1,
+	}
+
+	run, err := buildRunFromIssue(issue, core.WorkflowProfileStrict, nil)
+	if err != nil {
+		t.Fatalf("buildRunFromIssue() error = %v", err)
+	}
+	if run.Config == nil {
+		t.Fatalf("run config should not be nil")
+	}
+	hint, _ := run.Config["merge_conflict_hint"].(string)
+	if strings.TrimSpace(hint) == "" {
+		t.Fatalf("expected merge_conflict_hint in run config")
+	}
+}
+
+func TestBuildRunFromIssue_NoMergeConflictHintWithoutRetry(t *testing.T) {
+	issue := &core.Issue{
+		ID:        "issue-hint-none",
+		ProjectID: "proj-hint-none",
+		Title:     "hint none",
+		Body:      "hint none body",
+		Template:  "standard",
+	}
+
+	run, err := buildRunFromIssue(issue, core.WorkflowProfileStrict, nil)
+	if err != nil {
+		t.Fatalf("buildRunFromIssue() error = %v", err)
+	}
+	if run.Config == nil {
+		t.Fatalf("run config should not be nil")
+	}
+	if _, ok := run.Config["merge_conflict_hint"]; ok {
+		t.Fatalf("merge_conflict_hint should not be present when MergeRetries=0")
+	}
+}
+
 func TestScheduler_FailPolicyBlockFailsRemainingQueuedIssues(t *testing.T) {
 	store := newSchedulerTestStore(t)
 	defer store.Close()

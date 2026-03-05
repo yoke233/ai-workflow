@@ -812,6 +812,7 @@ func runServer(ctx context.Context, args []string) error {
 		merger = ghwebhook.NewPRLifecycle(store, bootstrapSet.SCM)
 	}
 	autoMerger := teamleader.NewAutoMergeHandler(store, bus, merger)
+	tlTriageHandler := teamleader.NewTLTriageHandler(store, bus, 3)
 
 	// Decompose handler: listens for EventIssueDecomposing and creates child issues.
 	// DecomposeFunc is a placeholder; production implementation uses an ACP agent.
@@ -854,6 +855,7 @@ func runServer(ctx context.Context, args []string) error {
 					}
 				}
 				autoMerger.OnEvent(ctx, evt)
+				tlTriageHandler.OnEvent(ctx, evt)
 				decomposeHandler.OnEvent(ctx, evt)
 				childCompletionHandler.OnEvent(ctx, evt)
 			}

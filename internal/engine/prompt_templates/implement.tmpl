@@ -2,6 +2,8 @@
 
 {{if .RetryError}}上次执行失败，错误信息：{{.RetryError}}
 请避免同样的问题。{{end}}
+{{if .MergeConflictHint}}合并冲突提示：{{.MergeConflictHint}}
+请先处理 rebase 与冲突，再继续编码。{{end}}
 {{if .HumanFeedback}}用户反馈：{{.HumanFeedback}}
 请根据以上反馈调整方案。{{end}}
 

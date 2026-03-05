@@ -565,6 +565,32 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 				return err
 			}
 		}
+	case core.EventIssueFailed:
+		if err := s.syncIssueStateFromStoreLocked(issue); err != nil {
+			return err
+		}
+		_, running := rs.Running[ref.issueID]
+		if issue.Status != core.IssueStatusFailed {
+			issue.Status = core.IssueStatusFailed
+			if err := s.saveIssue(issue); err != nil {
+				return err
+			}
+		}
+		if !running {
+			if cleanupRunID != "" {
+				delete(s.RunIndex, cleanupRunID)
+			}
+			return nil
+		}
+		switch issue.FailPolicy {
+		case core.FailSkip:
+		case core.FailHuman:
+			rs.HaltNew = true
+		default:
+			if err := s.applyBlockPolicyLocked(rs, issue.ID); err != nil {
+				return err
+			}
+		}
 	case core.EventIssueMergeConflict:
 		return nil
 	default:
@@ -592,6 +618,7 @@ func isSchedulerHandledEvent(eventType core.EventType) bool {
 		core.EventIssueMerged,
 		core.EventMergeFailed,
 		core.EventIssueMergeRetry,
+		core.EventIssueFailed,
 		core.EventIssueMergeConflict:
 		return true
 	default:
@@ -1110,18 +1137,22 @@ func buildRunFromIssue(issue *core.Issue, profile core.WorkflowProfileType, stag
 	}
 
 	now := time.Now()
+	config := map[string]any{
+		"workflow_profile": string(profile),
+	}
+	if issue.MergeRetries > 0 {
+		config["merge_conflict_hint"] = "上一次实现与主干产生合并冲突，请先 rebase 解决冲突后再实现需求。"
+	}
 	return &core.Run{
-		ID:          engine.NewRunID(),
-		ProjectID:   issue.ProjectID,
-		Name:        name,
-		Description: issue.Body,
-		Template:    template,
-		Status:      core.StatusQueued,
-		Stages:      stages,
-		Artifacts:   map[string]string{},
-		Config: map[string]any{
-			"workflow_profile": string(profile),
-		},
+		ID:              engine.NewRunID(),
+		ProjectID:       issue.ProjectID,
+		Name:            name,
+		Description:     issue.Body,
+		Template:        template,
+		Status:          core.StatusQueued,
+		Stages:          stages,
+		Artifacts:       map[string]string{},
+		Config:          config,
 		IssueID:         issue.ID,
 		MaxTotalRetries: 5,
 		QueuedAt:        now,

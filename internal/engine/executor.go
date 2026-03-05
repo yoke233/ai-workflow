@@ -468,7 +468,6 @@ func latestCheckpointForStage(checkpoints []core.Checkpoint, stage core.StageID)
 	return nil
 }
 
-
 func (e *Executor) isRunActionRequired(RunID string) (bool, error) {
 	p, err := e.store.GetRun(RunID)
 	if err != nil {
@@ -556,13 +555,14 @@ func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *c
 		return fmt.Errorf("build prompt execution context: %w", err)
 	}
 	prompt, err := RenderPrompt(promptStage, PromptVars{
-		ProjectName:      project.Name,
-		RepoPath:         project.RepoPath,
-		WorktreePath:     p.WorktreePath,
-		Requirements:     p.Description,
-		ExecutionContext: executionContext,
-		RetryError:       p.ErrorMessage,
-		RetryCount:       p.TotalRetries,
+		ProjectName:       project.Name,
+		RepoPath:          project.RepoPath,
+		WorktreePath:      p.WorktreePath,
+		Requirements:      p.Description,
+		ExecutionContext:  executionContext,
+		RetryError:        p.ErrorMessage,
+		MergeConflictHint: mergeConflictHintFromConfig(p.Config),
+		RetryCount:        p.TotalRetries,
 	})
 	if err != nil {
 		return fmt.Errorf("render prompt: %w", err)
@@ -1063,6 +1063,22 @@ func prNumberFromRunData(p *core.Run) int {
 		}
 	}
 	return 0
+}
+
+func mergeConflictHintFromConfig(config map[string]any) string {
+	if len(config) == 0 {
+		return ""
+	}
+	raw, ok := config["merge_conflict_hint"]
+	if !ok || raw == nil {
+		return ""
+	}
+	switch v := raw.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	default:
+		return strings.TrimSpace(fmt.Sprintf("%v", v))
+	}
 }
 
 func parseIssueNumberConfigValue(raw any) int {
