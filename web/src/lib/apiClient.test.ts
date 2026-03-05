@@ -243,23 +243,12 @@ describe("apiClient", () => {
     );
   });
 
-  it("Run logs 接口会命中正确路由并透传 stage/limit/offset", async () => {
+  it("run events 会命中 /api/v2/runs/{id}/events", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          items: [
-            {
-              id: 2,
-              run_id: "pipe-1",
-              stage: "implement",
-              type: "stdout",
-              agent: "codex",
-              content: "implement-log-2",
-              timestamp: "2026-03-03T10:02:00Z",
-            },
-          ],
-          total: 2,
-          offset: 1,
+          items: [],
+          total: 0,
         }),
         {
           status: 200,
@@ -273,20 +262,12 @@ describe("apiClient", () => {
       baseUrl: "http://localhost:8080/api/v1",
     });
 
-    const logs = await client.getRunLogs("proj-1", "pipe-1", {
-      stage: "implement",
-      limit: 1,
-      offset: 1,
-    });
+    await client.listRunEvents("pipe-1");
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "http://localhost:8080/api/v1/projects/proj-1/Runs/pipe-1/logs?stage=implement&limit=1&offset=1",
+      "http://localhost:8080/api/v2/runs/pipe-1/events",
     );
-    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    expect(requestInit.method).toBe("GET");
-    expect(logs.total).toBe(2);
-    expect(logs.offset).toBe(1);
-    expect(logs.items[0]?.content).toBe("implement-log-2");
   });
 
   it("issue timeline 接口会命中正确路由并返回分页事件列表", async () => {

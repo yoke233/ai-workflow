@@ -38,6 +38,14 @@ const ISSUE_RUN_EVENT_TYPES = new Set([
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 const API_TOKEN = import.meta.env.VITE_API_TOKEN || "";
 
+const resolveA2AEnabledFromEnv = (): boolean => {
+  const raw = String(import.meta.env.VITE_A2A_ENABLED ?? "").trim().toLowerCase();
+  if (raw === "false" || raw === "0" || raw === "off") {
+    return false;
+  }
+  return true;
+};
+
 const parseViewFromLocation = (): AppView => {
   if (typeof window === "undefined") {
     return "chat";
@@ -98,7 +106,7 @@ interface AppProps {
 }
 
 const App = ({ a2aEnabledOverride }: AppProps = {}) => {
-  const a2aEnabled = a2aEnabledOverride ?? (import.meta.env.VITE_A2A_ENABLED === "true");
+  const a2aEnabled = a2aEnabledOverride ?? resolveA2AEnabledFromEnv();
   const apiClient = useMemo(
     () =>
       createApiClient({
@@ -346,7 +354,6 @@ const App = ({ a2aEnabledOverride }: AppProps = {}) => {
 };
 
 export default App;
-
 
 
 

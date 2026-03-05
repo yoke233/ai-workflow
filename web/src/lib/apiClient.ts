@@ -10,14 +10,10 @@ import type {
   CreateIssueRequest,
   CreateIssueResponse,
   CreatePlanResponse,
-  CreateRunRequest,
   CreateProjectCreateRequest,
   CreateProjectCreateRequestResponse,
   CreateProjectRequest,
   GetProjectCreateRequestResponse,
-  GetRunLogsQuery,
-  GetRunLogsResponse,
-  GetRunCheckpointsResponse,
   GetChatResponse,
   IssueActionRequest,
   IssueActionResponse,
@@ -35,8 +31,6 @@ import type {
   ListRunsResponse,
   ListWorkflowProfilesResponse,
   ListProjectsResponse,
-  RunActionRequest,
-  RunActionResponse,
   RepoDiffResponse,
   RepoStatusResponse,
   RepoTreeResponse,
@@ -230,34 +224,18 @@ const normalizeIssueNumberFromExternalId = (externalId: string): number | undefi
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
-const normalizeApiRun = (Run: ApiRun): ApiRun => {
-  const config = Run.config ?? {};
-  const issueNumber =
-    toSafeNumber(config.issue_number) ?? toSafeNumber(config.github_issue_number);
-  const prNumber = toSafeNumber(config.pr_number) ?? toSafeNumber(config.github_pr_number);
-  const issueUrl =
-    toSafeString(config.issue_url) ?? toSafeString(config.github_issue_url);
-  const prUrl = toSafeString(config.pr_url) ?? toSafeString(config.github_pr_url);
-  const rawConnectionStatus =
-    toSafeString(config.github_connection_status) ?? toSafeString(config.connection_status);
-
-  const connectionStatus =
-    rawConnectionStatus === "connected" ||
-    rawConnectionStatus === "degraded" ||
-    rawConnectionStatus === "disconnected"
-      ? rawConnectionStatus
-      : issueNumber || prNumber || issueUrl || prUrl
-        ? "connected"
-        : "disconnected";
-
+const normalizeApiRun = (run: ApiRun): ApiRun => {
+  if (!run.github) {
+    return run;
+  }
   return {
-    ...Run,
+    ...run,
     github: {
-      connection_status: connectionStatus,
-      issue_number: issueNumber,
-      issue_url: issueUrl,
-      pr_number: prNumber,
-      pr_url: prUrl,
+      connection_status: run.github.connection_status,
+      issue_number: run.github.issue_number,
+      issue_url: run.github.issue_url,
+      pr_number: run.github.pr_number,
+      pr_url: run.github.pr_url,
     },
   };
 };
@@ -363,7 +341,6 @@ export interface ApiClient {
   getWorkflowProfile(profileType: string): Promise<ApiWorkflowProfile>;
   listRuns(projectId: string, pagination?: PaginationParams): Promise<ListRunsResponse>;
   getRun(runId: string): Promise<ApiRun>;
-  createRun(projectId: string, body: CreateRunRequest): Promise<ApiRun>;
   createIssue(projectId: string, body: CreateIssueRequest): Promise<CreateIssueResponse>;
   createIssueFromFiles(
     projectId: string,
@@ -415,23 +392,9 @@ export interface ApiClient {
     query?: ListIssueTimelineQuery,
   ): Promise<ListIssueTimelineResponse>;
   listAdminAuditLog?(query?: AdminAuditLogQuery): Promise<ListAdminAuditLogResponse>;
-  getRunLogs(
-    projectId: string,
-    runId: string,
-    query?: GetRunLogsQuery,
-  ): Promise<GetRunLogsResponse>;
-  getRunCheckpoints(
-    projectId: string,
-    runId: string,
-  ): Promise<GetRunCheckpointsResponse>;
   getRepoTree(projectId: string, dir?: string): Promise<RepoTreeResponse>;
   getRepoStatus(projectId: string): Promise<RepoStatusResponse>;
   getRepoDiff(projectId: string, filePath: string): Promise<RepoDiffResponse>;
-  applyRunAction(
-    projectId: string,
-    runId: string,
-    body: RunActionRequest,
-  ): Promise<RunActionResponse>;
   listRunEvents(runId: string): Promise<ListRunEventsResponse>;
 }
 
@@ -644,14 +607,6 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       request<IssueChangeRecord[]>({
         path: `/projects/${projectId}/issues/${issueId}/changes`,
       }),
-    createRun: async (projectId, body) => {
-      const response = await request<ApiRun, CreateRunRequest>({
-        path: `/projects/${projectId}/Runs`,
-        method: "POST",
-        body,
-      });
-      return normalizeApiRun(response);
-    },
     listChats: (projectId) =>
       request<ListChatsResponse>({
         path: `/projects/${projectId}/chat`,
@@ -777,19 +732,6 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
           offset: query?.offset,
         },
       }),
-    getRunLogs: (projectId, runId, query) =>
-      request<GetRunLogsResponse>({
-        path: `/projects/${projectId}/Runs/${runId}/logs`,
-        query: {
-          stage: query?.stage?.trim() ? query.stage : undefined,
-          limit: query?.limit,
-          offset: query?.offset,
-        },
-      }),
-    getRunCheckpoints: (projectId, runId) =>
-      request<GetRunCheckpointsResponse>({
-        path: `/projects/${projectId}/Runs/${runId}/checkpoints`,
-      }),
     getRepoTree: (projectId, dir) =>
       request<RepoTreeResponse>({
         path: `/projects/${projectId}/repo/tree`,
@@ -807,12 +749,6 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         query: {
           file: filePath,
         },
-      }),
-    applyRunAction: (projectId, runId, body) =>
-      request<RunActionResponse, RunActionRequest>({
-        path: `/projects/${projectId}/Runs/${runId}/action`,
-        method: "POST",
-        body,
       }),
     listRunEvents: async (runId) => {
       const response = await request<ListRunEventsResponse>({

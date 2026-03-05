@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../lib/apiClient";
-import type { Run } from "../types/workflow";
-import type { RunActionRequest, RunCheckpoint, RunEvent } from "../types/api";
+import type { ApiRun, RunEvent } from "../types/api";
 import GitHubStatusBadge from "../components/GitHubStatusBadge";
 
 interface RunViewProps {
@@ -10,75 +9,14 @@ interface RunViewProps {
   refreshToken: number;
 }
 
-const Run_STAGE_ORDER: Record<string, string[]> = {
-  standard: [
-    "requirements",
-    "setup",
-    "implement",
-    "review",
-    "fixup",
-    "test",
-    "merge",
-    "cleanup",
-  ],
-  quick: [
-    "requirements",
-    "setup",
-    "implement",
-    "review",
-    "merge",
-    "cleanup",
-  ],
-  hotfix: ["requirements", "setup", "implement", "merge", "cleanup"],
-};
-
-const getErrorMessage = (error: unknown): string => {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-  return "请求失败，请稍后重试";
-};
-
 const PAGE_LIMIT = 50;
 const REFRESH_INTERVAL_MS = 10_000;
 
-const getRunProgress = (Run: Run) => {
-  const stages = Run_STAGE_ORDER[Run.template] ?? [];
-  const totalStages = stages.length;
-  if (totalStages === 0) {
-    return {
-      percentage: 0,
-      stageText: "未知模板，无法计算运行进度",
-    };
-  }
-
-  const currentIndex = stages.findIndex((stage) => stage === Run.current_stage);
-  if (Run.status === "done" || Run.status === "failed" || Run.status === "timeout") {
-    return {
-      percentage: 100,
-      stageText: `${totalStages}/${totalStages}`,
-    };
-  }
-  if (Run.status === "created") {
-    return {
-      percentage: 0,
-      stageText: `0/${totalStages}`,
-    };
-  }
-
-  const safeIndex = currentIndex >= 0 ? currentIndex : 0;
-  const completed = safeIndex + 0.5;
-  const percentage = Math.min(100, Math.max(0, Math.round((completed / totalStages) * 100)));
-  return {
-    percentage,
-    stageText: `${Math.max(0, safeIndex) + 1}/${totalStages}`,
-  };
-};
-
 const EVENT_TONE_MAP: Record<string, "neutral" | "success" | "warning" | "danger"> = {
-  run_done: "success",
+  run_completed: "success",
   auto_merged: "success",
   run_failed: "danger",
+  run_cancelled: "warning",
   run_started: "neutral",
   stage_started: "neutral",
 };
@@ -90,227 +28,175 @@ const EVENT_TONE_CLASS: Record<string, string> = {
   danger: "border-red-300 bg-red-50",
 };
 
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  return "请求失败，请稍后重试";
+};
+
 const formatEventType = (eventType: string): string =>
   eventType
     .split("_")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 
+const normalizeRunStatus = (run: ApiRun): string => {
+  const raw = String(run.status ?? "").trim();
+  return raw.length > 0 ? raw : "unknown";
+};
+
+const getRunTitle = (run: ApiRun): string => {
+  const issueID = String(run.issue_id ?? "").trim();
+  if (issueID.length > 0) {
+    return `Issue ${issueID}`;
+  }
+  return `Run ${run.id}`;
+};
+
+const getRunProgress = (run: ApiRun): { percentage: number; stageText: string } => {
+  const status = normalizeRunStatus(run).toLowerCase();
+  switch (status) {
+    case "queued":
+      return { percentage: 15, stageText: "Queued" };
+    case "in_progress":
+      return { percentage: 60, stageText: "In Progress" };
+    case "action_required":
+      return { percentage: 85, stageText: "Action Required" };
+    case "completed":
+      return { percentage: 100, stageText: "Completed" };
+    default:
+      return { percentage: 0, stageText: "Unknown" };
+  }
+};
+
 const RunView = ({ apiClient, projectId, refreshToken }: RunViewProps) => {
-  const [Runs, setRuns] = useState<Run[]>([]);
+  const [runs, setRuns] = useState<ApiRun[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [checkpoints, setCheckpoints] = useState<RunCheckpoint[]>([]);
   const [runEvents, setRunEvents] = useState<RunEvent[]>([]);
   const [loading, setLoading] = useState(false);
-  const [checkpointsLoading, setCheckpointsLoading] = useState(false);
   const [eventsLoading, setEventsLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [actionNotice, setActionNotice] = useState<string | null>(null);
-  const [actionMessage, setActionMessage] = useState("");
-  const [changeRoleValue, setChangeRoleValue] = useState("");
+  const requestSeqRef = useRef(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    let inFlight = false;
-    const loadRuns = async () => {
-      if (inFlight) {
+  const loadRuns = useCallback(async () => {
+    const requestSeq = requestSeqRef.current + 1;
+    requestSeqRef.current = requestSeq;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const allRuns: ApiRun[] = [];
+      let offset = 0;
+      while (true) {
+        const response = await apiClient.listRuns(projectId, {
+          limit: PAGE_LIMIT,
+          offset,
+        });
+        if (requestSeq !== requestSeqRef.current) {
+          return;
+        }
+        const pageItems = Array.isArray(response.items) ? response.items : [];
+        allRuns.push(...pageItems);
+        const currentCount = pageItems.length;
+        if (currentCount === 0 || currentCount < PAGE_LIMIT) {
+          break;
+        }
+        offset += currentCount;
+      }
+
+      if (requestSeq !== requestSeqRef.current) {
         return;
       }
-      inFlight = true;
-      setLoading(true);
-      setError(null);
 
-      try {
-        const allRuns: Run[] = [];
-        let offset = 0;
-        while (true) {
-          const response = await apiClient.listRuns(projectId, {
-            limit: PAGE_LIMIT,
-            offset,
-          });
-          if (cancelled) {
-            return;
-          }
-          allRuns.push(...response.items);
-          const currentCount = response.items.length;
-          if (currentCount === 0) {
-            break;
-          }
-          offset += currentCount;
-          if (currentCount < PAGE_LIMIT) {
-            break;
-          }
+      setRuns(allRuns);
+      setSelectedRunId((current) => {
+        if (current && allRuns.some((run) => run.id === current)) {
+          return current;
         }
-        if (!cancelled) {
-          setRuns(allRuns);
-          setSelectedRunId((current) => {
-            if (current && allRuns.some((item) => item.id === current)) {
-              return current;
-            }
-            return allRuns[0]?.id ?? null;
-          });
-        }
-      } catch (requestError) {
-        if (!cancelled) {
-          setRuns([]);
-          setSelectedRunId(null);
-          setCheckpoints([]);
-          setError(getErrorMessage(requestError));
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-        inFlight = false;
+        return allRuns[0]?.id ?? null;
+      });
+    } catch (requestError) {
+      if (requestSeq !== requestSeqRef.current) {
+        return;
       }
-    };
+      setRuns([]);
+      setSelectedRunId(null);
+      setRunEvents([]);
+      setError(getErrorMessage(requestError));
+    } finally {
+      if (requestSeq === requestSeqRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [apiClient, projectId]);
 
+  useEffect(() => {
     void loadRuns();
-    // Fallback refresh for non-board scenarios where WS events are not enough to keep list current.
     const intervalId = setInterval(() => {
       void loadRuns();
     }, REFRESH_INTERVAL_MS);
     return () => {
-      cancelled = true;
       clearInterval(intervalId);
     };
-  }, [apiClient, projectId, refreshToken]);
-
-  const loadCheckpoints = useCallback(
-    async (RunId: string) => {
-      setCheckpointsLoading(true);
-      setActionError(null);
-      try {
-        const response = await apiClient.getRunCheckpoints(projectId, RunId);
-        setCheckpoints(response);
-      } catch (requestError) {
-        setCheckpoints([]);
-        setActionError(getErrorMessage(requestError));
-      } finally {
-        setCheckpointsLoading(false);
-      }
-    },
-    [apiClient, projectId],
-  );
-
-  useEffect(() => {
-    if (!selectedRunId) {
-      setCheckpoints([]);
-      return;
-    }
-    void loadCheckpoints(selectedRunId);
-  }, [selectedRunId, loadCheckpoints]);
+  }, [loadRuns, refreshToken]);
 
   useEffect(() => {
     if (!selectedRunId) {
       setRunEvents([]);
       return;
     }
+
     let cancelled = false;
-    const loadEvents = async () => {
+    const loadRunEvents = async () => {
       setEventsLoading(true);
       try {
         const response = await apiClient.listRunEvents(selectedRunId);
-        if (!cancelled) {
-          setRunEvents(response.items);
+        if (cancelled) {
+          return;
         }
+        setRunEvents(Array.isArray(response.items) ? response.items : []);
       } catch {
-        if (!cancelled) {
-          setRunEvents([]);
+        if (cancelled) {
+          return;
         }
+        setRunEvents([]);
       } finally {
         if (!cancelled) {
           setEventsLoading(false);
         }
       }
     };
-    void loadEvents();
+
+    void loadRunEvents();
     return () => {
       cancelled = true;
     };
   }, [apiClient, selectedRunId]);
 
   const selectedRun = useMemo(
-    () => Runs.find((Run) => Run.id === selectedRunId) ?? null,
-    [Runs, selectedRunId],
+    () => runs.find((run) => run.id === selectedRunId) ?? null,
+    [runs, selectedRunId],
   );
+
   const progress = selectedRun ? getRunProgress(selectedRun) : null;
 
-  const currentStageTeamLeader = useMemo(() => {
-    if (!selectedRun) return null;
-    let cp: RunCheckpoint | undefined;
-    for (let i = checkpoints.length - 1; i >= 0; i -= 1) {
-      if (checkpoints[i]?.stage_name === selectedRun.current_stage) {
-        cp = checkpoints[i];
-        break;
+  const latestStage = useMemo(() => {
+    for (let i = runEvents.length - 1; i >= 0; i -= 1) {
+      const stage = String(runEvents[i]?.stage ?? "").trim();
+      if (stage.length > 0) {
+        return stage;
       }
     }
-    return cp?.agent_used || null;
-  }, [selectedRun, checkpoints]);
-
-  const isTerminal = selectedRun
-    ? ["done", "failed", "failed"].includes(selectedRun.status)
-    : true;
-
-  const handleRunAction = async (
-    action: RunActionRequest["action"],
-  ) => {
-    if (!selectedRun) {
-      return;
-    }
-
-    setActionLoading(true);
-    setActionError(null);
-    setActionNotice(null);
-    try {
-      const body: RunActionRequest = { action };
-      const trimmedMessage = actionMessage.trim();
-      if (action === "reject") {
-        body.stage = selectedRun.current_stage || undefined;
-        body.message = trimmedMessage || "人工驳回，请调整后重试。";
-      } else if (action === "change_role") {
-        body.role = changeRoleValue.trim();
-        body.stage = selectedRun.current_stage || undefined;
-        if (trimmedMessage) {
-          body.message = trimmedMessage;
-        }
-      } else if (trimmedMessage) {
-        body.message = trimmedMessage;
-      }
-
-      const response = await apiClient.applyRunAction(
-        projectId,
-        selectedRun.id,
-        body,
-      );
-      setRuns((current) =>
-        current.map((Run) =>
-          Run.id === selectedRun.id
-            ? {
-                ...Run,
-                status: response.status as Run["status"],
-                current_stage: response.current_stage ?? Run.current_stage,
-              }
-            : Run,
-        ),
-      );
-      setActionNotice(`动作 ${action} 已提交，状态：${response.status}`);
-      await loadCheckpoints(selectedRun.id);
-    } catch (requestError) {
-      setActionError(getErrorMessage(requestError));
-    } finally {
-      setActionLoading(false);
-    }
-  };
+    return "";
+  }, [runEvents]);
 
   return (
     <section className="flex flex-col gap-4">
       <header className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h1 className="text-xl font-bold">Runs</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Team Leader 视图：运行进度、输出区、checkpoint 区与人工动作入口。
+          Workflow Run 只读视图：列表、状态、事件流与 GitHub 关联信息。
         </p>
       </header>
 
@@ -323,7 +209,7 @@ const RunView = ({ apiClient, projectId, refreshToken }: RunViewProps) => {
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         {loading ? (
           <p className="text-sm text-slate-500">加载中...</p>
-        ) : Runs.length === 0 ? (
+        ) : runs.length === 0 ? (
           <p className="text-sm text-slate-500">当前项目暂无运行记录。</p>
         ) : (
           <div className="overflow-x-auto">
@@ -331,30 +217,34 @@ const RunView = ({ apiClient, projectId, refreshToken }: RunViewProps) => {
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
                   <th className="px-2 py-2 font-semibold">ID</th>
-                  <th className="px-2 py-2 font-semibold">Name</th>
+                  <th className="px-2 py-2 font-semibold">Title</th>
+                  <th className="px-2 py-2 font-semibold">Issue</th>
+                  <th className="px-2 py-2 font-semibold">Profile</th>
                   <th className="px-2 py-2 font-semibold">Status</th>
-                  <th className="px-2 py-2 font-semibold">Current Stage</th>
+                  <th className="px-2 py-2 font-semibold">Conclusion</th>
                   <th className="px-2 py-2 font-semibold">Updated</th>
                 </tr>
               </thead>
               <tbody>
-                {Runs.map((Run) => (
+                {runs.map((run) => (
                   <tr
-                    key={Run.id}
-                    data-testid="Run-row"
+                    key={run.id}
+                    data-testid="run-row"
                     className={`cursor-pointer border-b border-slate-100 ${
-                      selectedRunId === Run.id ? "bg-slate-50" : ""
+                      selectedRunId === run.id ? "bg-slate-50" : ""
                     }`}
                     onClick={() => {
-                      setSelectedRunId(Run.id);
+                      setSelectedRunId(run.id);
                     }}
                   >
-                    <td className="px-2 py-2 font-mono text-xs">{Run.id}</td>
-                    <td className="px-2 py-2">{Run.name}</td>
-                    <td className="px-2 py-2">{Run.status}</td>
-                    <td className="px-2 py-2">{Run.current_stage || "-"}</td>
+                    <td className="px-2 py-2 font-mono text-xs">{run.id}</td>
+                    <td className="px-2 py-2">{getRunTitle(run)}</td>
+                    <td className="px-2 py-2">{run.issue_id || "-"}</td>
+                    <td className="px-2 py-2">{run.profile || "-"}</td>
+                    <td className="px-2 py-2">{normalizeRunStatus(run)}</td>
+                    <td className="px-2 py-2">{run.conclusion || "-"}</td>
                     <td className="px-2 py-2">
-                      {Run.updated_at ? new Date(Run.updated_at).toLocaleString("zh-CN") : "-"}
+                      {run.updated_at ? new Date(run.updated_at).toLocaleString("zh-CN") : "-"}
                     </td>
                   </tr>
                 ))}
@@ -365,9 +255,9 @@ const RunView = ({ apiClient, projectId, refreshToken }: RunViewProps) => {
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold">阶段进度</h2>
+        <h2 className="text-sm font-semibold">运行概览</h2>
         {!selectedRun || !progress ? (
-          <p className="mt-2 text-xs text-slate-500">请选择运行记录查看阶段进度。</p>
+          <p className="mt-2 text-xs text-slate-500">请选择运行记录查看运行概览。</p>
         ) : (
           <>
             <div className="mt-2">
@@ -375,91 +265,79 @@ const RunView = ({ apiClient, projectId, refreshToken }: RunViewProps) => {
             </div>
             <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-200">
               <div
-                data-testid="Run-progress-value"
+                data-testid="run-progress-value"
                 className="h-full bg-slate-900 transition-all"
                 style={{ width: `${progress.percentage}%` }}
               />
             </div>
             <p className="mt-2 text-xs text-slate-600">
-              stage={selectedRun.current_stage || "-"}
-              {currentStageTeamLeader ? ` · team_leader=${currentStageTeamLeader}` : ""} · 进度{" "}
+              status={normalizeRunStatus(selectedRun)} · stage={latestStage || "-"} ·{" "}
               {progress.stageText} · {progress.percentage}%
             </p>
           </>
         )}
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
-        <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="text-sm font-semibold">输出区</h3>
-          {!selectedRun ? (
-            <p className="mt-2 text-xs text-slate-500">请选择运行记录查看输出。</p>
-          ) : (
-            <div className="mt-2 space-y-2 text-xs">
-              <p className="text-slate-600">GitHub</p>
-              <div data-testid="Run-github-links" className="rounded-md border border-slate-200 px-2 py-2">
-                <div className="flex flex-wrap gap-3">
-                  {selectedRun.github?.issue_url ? (
-                    <a
-                      href={selectedRun.github.issue_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-blue-700 underline"
-                    >
-                      {selectedRun.github.issue_number
-                        ? `Issue #${selectedRun.github.issue_number}`
-                        : "Issue Link"}
-                    </a>
-                  ) : null}
-                  {selectedRun.github?.pr_url ? (
-                    <a
-                      href={selectedRun.github.pr_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-blue-700 underline"
-                    >
-                      {selectedRun.github.pr_number
-                        ? `PR #${selectedRun.github.pr_number}`
-                        : "PR Link"}
-                    </a>
-                  ) : null}
-                </div>
-                {!selectedRun.github?.issue_url && !selectedRun.github?.pr_url ? (
-                  <p className="text-slate-500">暂无 GitHub Issue/PR 关联。</p>
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h3 className="text-sm font-semibold">输出区</h3>
+        {!selectedRun ? (
+          <p className="mt-2 text-xs text-slate-500">请选择运行记录查看输出。</p>
+        ) : (
+          <div className="mt-2 space-y-2 text-xs">
+            <p className="text-slate-600">GitHub</p>
+            <div data-testid="run-github-links" className="rounded-md border border-slate-200 px-2 py-2">
+              <div className="flex flex-wrap gap-3">
+                {selectedRun.github?.issue_url ? (
+                  <a
+                    href={selectedRun.github.issue_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-700 underline"
+                  >
+                    {selectedRun.github.issue_number
+                      ? `Issue #${selectedRun.github.issue_number}`
+                      : "Issue Link"}
+                  </a>
+                ) : null}
+                {selectedRun.github?.pr_url ? (
+                  <a
+                    href={selectedRun.github.pr_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-700 underline"
+                  >
+                    {selectedRun.github.pr_number ? `PR #${selectedRun.github.pr_number}` : "PR Link"}
+                  </a>
                 ) : null}
               </div>
-              <p className="text-slate-600">Artifacts</p>
-              <pre className="max-h-52 overflow-auto rounded-md bg-slate-950 p-3 text-slate-100">
-                {JSON.stringify(selectedRun.artifacts ?? {}, null, 2)}
-              </pre>
-              <p className="text-slate-600">Error</p>
-              <pre className="max-h-24 overflow-auto rounded-md bg-slate-100 p-2 text-slate-800">
-                {selectedRun.error_message || "-"}
-              </pre>
+              {!selectedRun.github?.issue_url && !selectedRun.github?.pr_url ? (
+                <p className="text-slate-500">暂无 GitHub Issue/PR 关联。</p>
+              ) : null}
             </div>
-          )}
-        </article>
-
-        <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="text-sm font-semibold">Checkpoint 区</h3>
-          {checkpointsLoading ? (
-            <p className="mt-2 text-xs text-slate-500">checkpoint 加载中...</p>
-          ) : checkpoints.length === 0 ? (
-            <p className="mt-2 text-xs text-slate-500">暂无 checkpoint 数据。</p>
-          ) : (
-            <ul className="mt-2 space-y-1 text-xs text-slate-700">
-              {checkpoints.map((checkpoint, index) => (
-                <li
-                  key={`${checkpoint.stage_name}-${checkpoint.started_at}-${index}`}
-                  className="rounded border border-slate-200 px-2 py-1"
-                >
-                  <span className="font-medium">{checkpoint.stage_name}</span> ·{" "}
-                  <span>{checkpoint.status}</span> · team_leader={checkpoint.agent_used || "-"} · retry={checkpoint.retry_count}
-                </li>
-              ))}
-            </ul>
-          )}
-        </article>
+            <p className="text-slate-600">Run</p>
+            <pre className="max-h-52 overflow-auto rounded-md bg-slate-950 p-3 text-slate-100">
+              {JSON.stringify(
+                {
+                  issue_id: selectedRun.issue_id ?? null,
+                  profile: selectedRun.profile ?? null,
+                  status: selectedRun.status,
+                  conclusion: selectedRun.conclusion ?? null,
+                  error: selectedRun.error ?? null,
+                  created_at: selectedRun.created_at,
+                  started_at: selectedRun.started_at ?? null,
+                  finished_at: selectedRun.finished_at ?? null,
+                  updated_at: selectedRun.updated_at,
+                },
+                null,
+                2,
+              )}
+            </pre>
+            <p className="text-slate-600">Error</p>
+            <pre className="max-h-24 overflow-auto rounded-md bg-slate-100 p-2 text-slate-800">
+              {selectedRun.error || "-"}
+            </pre>
+          </div>
+        )}
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -508,7 +386,7 @@ const RunView = ({ apiClient, projectId, refreshToken }: RunViewProps) => {
                       {Object.entries(event.data).map(([key, value]) => (
                         <div key={key} className="contents">
                           <dt className="font-medium text-slate-500">{key}</dt>
-                          <dd className="text-slate-700">{value}</dd>
+                          <dd className="text-slate-700">{String(value)}</dd>
                         </div>
                       ))}
                     </dl>
@@ -520,142 +398,8 @@ const RunView = ({ apiClient, projectId, refreshToken }: RunViewProps) => {
         )}
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h3 className="text-sm font-semibold">人工动作</h3>
-        <p className="mt-1 text-xs text-slate-500">
-          Run Action API：审批、流程控制与 Team Leader 切换。
-        </p>
-        <label htmlFor="Run-action-message" className="mt-2 block text-xs text-slate-700">
-          动作备注（可选）
-        </label>
-        <input
-          id="Run-action-message"
-          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
-          value={actionMessage}
-          onChange={(event) => {
-            setActionMessage(event.target.value);
-          }}
-          disabled={!selectedRun || actionLoading}
-        />
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <button
-            type="button"
-            className="rounded-md border border-emerald-300 px-3 py-2 text-sm text-emerald-700 disabled:opacity-50"
-            disabled={!selectedRun || actionLoading}
-            onClick={() => {
-              void handleRunAction("approve");
-            }}
-          >
-            Approve
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-rose-300 px-3 py-2 text-sm text-rose-700 disabled:opacity-50"
-            disabled={!selectedRun || actionLoading}
-            onClick={() => {
-              void handleRunAction("reject");
-            }}
-          >
-            Reject
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-amber-300 px-3 py-2 text-sm text-amber-700 disabled:opacity-50"
-            disabled={!selectedRun || actionLoading}
-            onClick={() => {
-              void handleRunAction("skip");
-            }}
-          >
-            Skip
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm disabled:opacity-50"
-            disabled={!selectedRun || actionLoading}
-            onClick={() => {
-              void handleRunAction("abort");
-            }}
-          >
-            Abort
-          </button>
-        </div>
-        <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <button
-            type="button"
-            className="rounded-md border border-sky-300 px-3 py-2 text-sm text-sky-700 disabled:opacity-50"
-            disabled={!selectedRun || actionLoading || selectedRun?.status !== "running"}
-            onClick={() => {
-              void handleRunAction("pause");
-            }}
-          >
-            Pause
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-sky-300 px-3 py-2 text-sm text-sky-700 disabled:opacity-50"
-            disabled={!selectedRun || actionLoading || selectedRun?.status !== "waiting_review"}
-            onClick={() => {
-              void handleRunAction("resume");
-            }}
-          >
-            Resume
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-indigo-300 px-3 py-2 text-sm text-indigo-700 disabled:opacity-50"
-            disabled={
-              !selectedRun ||
-              actionLoading ||
-              (selectedRun?.status !== "failed" && selectedRun?.status !== "done")
-            }
-            onClick={() => {
-              void handleRunAction("rerun");
-            }}
-          >
-            Rerun
-          </button>
-        </div>
-        <div className="mt-2 flex gap-2">
-          <input
-            id="Run-change-role"
-            className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
-            placeholder="目标 Team Leader（如 claude, codex）"
-            value={changeRoleValue}
-            onChange={(event) => {
-              setChangeRoleValue(event.target.value);
-            }}
-            disabled={!selectedRun || actionLoading || isTerminal}
-          />
-          <button
-            type="button"
-            className="rounded-md border border-violet-300 px-3 py-2 text-sm text-violet-700 disabled:opacity-50"
-            disabled={
-              !selectedRun ||
-              actionLoading ||
-              isTerminal ||
-              changeRoleValue.trim().length === 0
-            }
-            onClick={() => {
-              void handleRunAction("change_role");
-            }}
-          >
-            Change Team Leader
-          </button>
-        </div>
-        {actionNotice ? (
-          <p className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700">
-            {actionNotice}
-          </p>
-        ) : null}
-        {actionError ? (
-          <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700">
-            {actionError}
-          </p>
-        ) : null}
-      </section>
     </section>
   );
 };
 
 export default RunView;
-

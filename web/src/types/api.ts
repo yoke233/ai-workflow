@@ -4,13 +4,10 @@ import type {
   GitHubConnectionStatus,
   Issue,
   IssueStatus,
-  Run,
-  RunStatus,
   Project,
   WorkflowProfile,
   WorkflowProfileType,
   WorkflowRun,
-  WorkflowRunStatus,
 } from "./workflow";
 
 export interface CreateProjectRequest {
@@ -45,13 +42,6 @@ export interface GetProjectCreateRequestResponse {
   progress?: number;
   message?: string;
   error?: string;
-}
-
-export interface CreateRunRequest {
-  name: string;
-  description?: string;
-  template: string;
-  config?: Record<string, unknown>;
 }
 
 export interface CreateChatRequest {
@@ -150,42 +140,6 @@ export interface SetIssueAutoMergeResponse {
   auto_merge: boolean;
 }
 
-export interface RunActionRequest {
-  action:
-    | "approve"
-    | "reject"
-    | "modify"
-    | "skip"
-    | "rerun"
-    | "change_role"
-    | "abort"
-    | "pause"
-    | "resume";
-  stage?: string;
-  message?: string;
-  role?: string;
-}
-
-export interface RunActionResponse {
-  status: RunStatus | WorkflowRunStatus | string;
-  current_stage?: string;
-}
-
-export interface RunCheckpoint {
-  run_id: string;
-  stage_name: string;
-  status: "in_progress" | "success" | "failed" | "skipped" | "invalidated" | string;
-  artifacts: Record<string, string>;
-  started_at: string;
-  finished_at: string;
-  agent_used: string;
-  tokens_used: number;
-  retry_count: number;
-  error?: string;
-}
-
-export type GetRunCheckpointsResponse = RunCheckpoint[];
-
 export type ListProjectsResponse = Project[] | null;
 
 export interface PaginatedResponse<T> {
@@ -194,18 +148,16 @@ export interface PaginatedResponse<T> {
   offset: number;
 }
 
-export type ApiRun = Run &
-  Partial<WorkflowRun> & {
-    issue_id?: string;
-    profile?: WorkflowProfileType;
-    github?: {
-      connection_status?: GitHubConnectionStatus;
-      issue_number?: number;
-      issue_url?: string;
-      pr_number?: number;
-      pr_url?: string;
-    };
+export type ApiRun = WorkflowRun & {
+  conclusion?: string;
+  github?: {
+    connection_status?: GitHubConnectionStatus;
+    issue_number?: number;
+    issue_url?: string;
+    pr_number?: number;
+    pr_url?: string;
   };
+};
 
 export interface ApiIssue extends Issue {
   github?: {
@@ -286,24 +238,6 @@ export interface IssueChangeRecord {
   changed_by: string;
   created_at: string;
 }
-
-export interface RunLogEntry {
-  id: number;
-  run_id: string;
-  stage: string;
-  type: string;
-  agent: string;
-  content: string;
-  timestamp: string;
-}
-
-export interface GetRunLogsQuery {
-  stage?: string;
-  limit?: number;
-  offset?: number;
-}
-
-export type GetRunLogsResponse = PaginatedResponse<RunLogEntry>;
 
 export interface IssueTimelineRefs {
   issue_id: string;

@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import RunView from "./RunView";
 import type { ApiClient } from "../lib/apiClient";
@@ -8,19 +8,11 @@ import type { ApiRun } from "../types/api";
 
 const buildRun = (id: string): ApiRun => ({
   id,
-  project_id: "proj-1",  name: `Run ${id}`,
-  description: "",
-  template: "standard",
-  status: "running",
-  current_stage: "implement",
-  artifacts: {},
-  config: {},
-  branch_name: "",
-  worktree_path: "",
-  max_total_retries: 5,
-  total_retries: 0,
-  started_at: "2026-03-01T10:00:00.000Z",
-  finished_at: "",
+  project_id: "proj-1",
+  issue_id: "issue-1",
+  profile: "normal",
+  status: "in_progress",
+  conclusion: "",
   created_at: "2026-03-01T10:00:00.000Z",
   updated_at: "2026-03-01T10:10:00.000Z",
   github: {
@@ -38,39 +30,59 @@ const createMockApiClient = (): ApiClient => {
     getStats: vi.fn(),
     listProjects: vi.fn(),
     createProject: vi.fn(),
+    createProjectCreateRequest: vi.fn(),
+    getProjectCreateRequest: vi.fn(),
+    listIssues: vi.fn(),
+    getIssue: vi.fn(),
+    listWorkflowProfiles: vi.fn(),
+    getWorkflowProfile: vi.fn(),
     listRuns: vi.fn().mockResolvedValue({
-      items: [buildRun("pipe-1")],
+      items: [buildRun("run-1")],
       total: 1,
       offset: 0,
     }),
-    createRun: vi.fn(),
+    getRun: vi.fn().mockResolvedValue(buildRun("run-1")),
+    createIssue: vi.fn(),
+    createIssueFromFiles: vi.fn(),
+    submitIssueReview: vi.fn(),
+    applyIssueAction: vi.fn(),
+    getIssueDag: vi.fn(),
+    listIssueReviews: vi.fn(),
+    listIssueChanges: vi.fn(),
+    listChats: vi.fn(),
+    listChatRunEvents: vi.fn(),
     createChat: vi.fn(),
+    cancelChat: vi.fn(),
     getChat: vi.fn(),
     createPlan: vi.fn(),
+    createPlanFromFiles: vi.fn(),
     submitPlanReview: vi.fn(),
     applyPlanAction: vi.fn(),
+    setIssueAutoMerge: vi.fn(),
     applyTaskAction: vi.fn(),
-    getRun: vi.fn().mockResolvedValue(buildRun("pipe-1")),
-    getRunCheckpoints: vi.fn().mockResolvedValue([
-      {
-        run_id: "pipe-1",
-        stage_name: "requirements",
-        status: "success",
-        artifacts: { summary: "ok" },
-        started_at: "2026-03-01T10:00:00.000Z",
-        finished_at: "2026-03-01T10:01:00.000Z",
-        agent_used: "claude",
-        tokens_used: 12,
-        retry_count: 0,
-        error: "",
-      },
-    ]),
-    applyRunAction: vi.fn().mockResolvedValue({
-      status: "failed",
-      current_stage: "requirements",
-    }),
     listPlans: vi.fn(),
     getPlanDag: vi.fn(),
+    listPlanReviews: vi.fn(),
+    listPlanChanges: vi.fn(),
+    listIssueTimeline: vi.fn(),
+    listAdminAuditLog: vi.fn(),
+    getRepoTree: vi.fn(),
+    getRepoStatus: vi.fn(),
+    getRepoDiff: vi.fn(),
+    listRunEvents: vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          run_id: "run-1",
+          project_id: "proj-1",
+          event_type: "run_started",
+          stage: "implement",
+          agent: "codex",
+          created_at: "2026-03-01T10:11:00.000Z",
+        },
+      ],
+      total: 1,
+    }),
   } as unknown as ApiClient;
 };
 
@@ -88,7 +100,7 @@ describe("RunView", () => {
     vi.useRealTimers();
   });
 
-  it("调用 Runs API 并渲染最小列表", async () => {
+  it("调用 runs API 并渲染列表", async () => {
     const apiClient = createMockApiClient();
     render(<RunView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
 
@@ -99,40 +111,34 @@ describe("RunView", () => {
       });
     });
 
-    expect(screen.getByText("Run pipe-1")).toBeTruthy();
-    expect(screen.getByText("running")).toBeTruthy();
-    expect(screen.getAllByTestId("Run-row")).toHaveLength(1);
+    expect(screen.getByText("run-1")).toBeTruthy();
+    expect(screen.getByText("in_progress")).toBeTruthy();
+    expect(screen.getAllByTestId("run-row")).toHaveLength(1);
   });
 
-  it("会加载并显示 checkpoint 区，且人工动作按钮可调用 API", async () => {
+  it("会加载并显示 run events", async () => {
     const apiClient = createMockApiClient();
     render(<RunView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
 
     await waitFor(() => {
-      expect(apiClient.getRunCheckpoints).toHaveBeenCalledWith("proj-1", "pipe-1");
+      expect(apiClient.listRunEvents).toHaveBeenCalledWith("run-1");
     });
-    expect(screen.getByText("requirements")).toBeTruthy();
-    expect(screen.getByText("success")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Abort" }));
-    await waitFor(() => {
-      expect(apiClient.applyRunAction).toHaveBeenCalledWith("proj-1", "pipe-1", {
-        action: "abort",
-      });
-    });
+    expect(screen.getByText("Run Started")).toBeTruthy();
+    expect(screen.getByText(/stage: implement/)).toBeTruthy();
   });
 
   it("会循环拉取分页数据直到拉全量", async () => {
     const apiClient = createMockApiClient();
     vi.mocked(apiClient.listRuns)
       .mockResolvedValueOnce({
-        items: Array.from({ length: 50 }, (_, index) => buildRun(`pipe-${index}`)),
-        total: 50,
+        items: Array.from({ length: 50 }, (_, index) => buildRun(`run-${index}`)),
+        total: 51,
         offset: 0,
       })
       .mockResolvedValueOnce({
-        items: [buildRun("pipe-50")],
-        total: 1,
+        items: [buildRun("run-50")],
+        total: 51,
         offset: 50,
       });
 
@@ -149,7 +155,7 @@ describe("RunView", () => {
       });
     });
 
-    expect(screen.getAllByTestId("Run-row")).toHaveLength(51);
+    expect(screen.getAllByTestId("run-row")).toHaveLength(51);
   });
 
   it("项目切换后会忽略旧请求返回，避免脏回写", async () => {
@@ -164,7 +170,7 @@ describe("RunView", () => {
         return staleDeferred.promise;
       }
       return Promise.resolve({
-        items: [buildRun("pipe-fresh")],
+        items: [buildRun("run-fresh")],
         total: 1,
         offset: 0,
       });
@@ -174,7 +180,7 @@ describe("RunView", () => {
 
     rerender(<RunView apiClient={apiClient} projectId="proj-2" refreshToken={0} />);
     staleDeferred.resolve({
-      items: [buildRun("pipe-stale")],
+      items: [buildRun("run-stale")],
       total: 1,
       offset: 0,
     });
@@ -186,8 +192,8 @@ describe("RunView", () => {
       });
     });
 
-    expect(screen.getByText("Run pipe-fresh")).toBeTruthy();
-    expect(screen.queryByText("Run pipe-stale")).toBeNull();
+    expect(screen.getByText("run-fresh")).toBeTruthy();
+    expect(screen.queryByText("run-stale")).toBeNull();
   });
 
   it("refreshToken 变化后会立即触发一次刷新", async () => {
@@ -221,61 +227,12 @@ describe("RunView", () => {
     expect(apiClient.listRuns).toHaveBeenCalledTimes(2);
   });
 
-  it("checkpoint 区展示 team_leader 字段", async () => {
-    const apiClient = createMockApiClient();
-    render(<RunView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
-
-    await waitFor(() => {
-      expect(apiClient.getRunCheckpoints).toHaveBeenCalled();
-    });
-
-    expect(screen.getByText(/team_leader=claude/)).toBeTruthy();
-  });
-
-  it("change_role 按钮在无角色名时 disabled，有值时提交含 role 字段", async () => {
-    const apiClient = createMockApiClient();
-    render(<RunView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Run pipe-1")).toBeTruthy();
-    });
-
-    const changeRoleBtn = screen.getByRole("button", { name: "Change Team Leader" });
-    expect((changeRoleBtn as HTMLButtonElement).disabled).toBe(true);
-
-    const roleInput = screen.getByPlaceholderText(/目标 Team Leader/);
-    fireEvent.change(roleInput, { target: { value: "codex" } });
-    expect((changeRoleBtn as HTMLButtonElement).disabled).toBe(false);
-
-    fireEvent.click(changeRoleBtn);
-    await waitFor(() => {
-      expect(apiClient.applyRunAction).toHaveBeenCalledWith("proj-1", "pipe-1", {
-        action: "change_role",
-        role: "codex",
-        stage: "implement",
-      });
-    });
-  });
-
-  it("Pause 仅在 running 时启用, Resume 仅在 waiting_review 时启用", async () => {
-    const apiClient = createMockApiClient();
-    render(<RunView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Run pipe-1")).toBeTruthy();
-    });
-
-    expect((screen.getByRole("button", { name: "Pause" }) as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByRole("button", { name: "Resume" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Rerun" }) as HTMLButtonElement).disabled).toBe(true);
-  });
-
   it("显示 GitHub issue/pr 链接与状态徽标", async () => {
     const apiClient = createMockApiClient();
     vi.mocked(apiClient.listRuns).mockResolvedValue({
       items: [
         {
-          ...buildRun("pipe-github"),
+          ...buildRun("run-github"),
           github: {
             connection_status: "connected",
             issue_number: 201,
@@ -292,14 +249,23 @@ describe("RunView", () => {
     render(<RunView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Run pipe-github")).toBeTruthy();
+      expect(screen.getByText("run-github")).toBeTruthy();
     });
 
     expect(screen.getByText("Issue #201")).toBeTruthy();
     expect(screen.getByText("PR #301")).toBeTruthy();
     expect(screen.getByTestId("github-status-badge").textContent).toContain("Connected");
   });
+
+  it("移除旧版人工动作入口", async () => {
+    const apiClient = createMockApiClient();
+    render(<RunView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("run-1")).toBeTruthy();
+    });
+
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Abort" })).toBeNull();
+  });
 });
-
-
-

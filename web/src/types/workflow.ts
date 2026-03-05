@@ -1,4 +1,8 @@
 export type RunStatus =
+  | "queued"
+  | "in_progress"
+  | "action_required"
+  | "completed"
   | "created"
   | "running"
   | "waiting_review"
@@ -21,6 +25,10 @@ export type IssueStatus =
 
 export type WorkflowProfileType = "normal" | "strict" | "fast_release";
 export type WorkflowRunStatus =
+  | "queued"
+  | "in_progress"
+  | "action_required"
+  | "completed"
   | "created"
   | "running"
   | "waiting_review"

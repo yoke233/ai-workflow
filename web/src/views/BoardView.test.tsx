@@ -47,7 +47,6 @@ const createMockApiClient = (): ApiClient => {
     createProjectCreateRequest: vi.fn(),
     getProjectCreateRequest: vi.fn(),
     listRuns: vi.fn(),
-    createRun: vi.fn(),
     listChats: vi.fn(),
     listChatRunEvents: vi.fn(),
     createChat: vi.fn(),
@@ -72,12 +71,9 @@ const createMockApiClient = (): ApiClient => {
     }),
     listAdminAuditLog: vi.fn(),
     getRun: vi.fn(),
-    getRunLogs: vi.fn(),
-    getRunCheckpoints: vi.fn(),
     getRepoTree: vi.fn(),
     getRepoStatus: vi.fn(),
     getRepoDiff: vi.fn(),
-    applyRunAction: vi.fn(),
   } as unknown as ApiClient;
 };
 
@@ -564,7 +560,6 @@ describe("BoardView", () => {
     expect(interval.value).toBe("30000");
   });
 });
-
 
 
 

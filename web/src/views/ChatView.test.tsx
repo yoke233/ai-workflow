@@ -142,7 +142,6 @@ const createMockApiClient = (): ApiClient => {
     listProjects: vi.fn(),
     createProject: vi.fn(),
     listRuns: vi.fn(),
-    createRun: vi.fn(),
     createChat,
     cancelChat,
     getChat,
@@ -906,4 +905,3 @@ describe("ChatView", () => {
   });
 
 });
-
