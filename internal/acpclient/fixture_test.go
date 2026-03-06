@@ -90,6 +90,14 @@ func (c *eventCounter) Reset() {
 	c.events = nil
 }
 
+func (c *eventCounter) Events() []SessionUpdate {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]SessionUpdate, len(c.events))
+	copy(out, c.events)
+	return out
+}
+
 // suppressingCounter wraps eventCounter with a suppress flag.
 type suppressingCounter struct {
 	mu       sync.Mutex
@@ -413,5 +421,57 @@ func TestFixtureFileUsesRawNotificationFormat(t *testing.T) {
 				t.Fatalf("scenario %q event %d still uses legacy update field", scenarioName, index)
 			}
 		}
+	}
+}
+
+func TestFixtureCommandsAndConfigOptionsExtracted(t *testing.T) {
+	cfg := fixtureAgentConfig(t, "commands_and_config")
+	counter := newEventCounter()
+	handler := &NopHandler{}
+
+	client, err := New(cfg, handler, WithEventHandler(counter))
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	defer client.Close(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := client.Initialize(ctx, ClientCapabilities{FSRead: true}); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+
+	session, err := client.NewSession(ctx, acpproto.NewSessionRequest{
+		Cwd:        t.TempDir(),
+		McpServers: []acpproto.McpServer{},
+	})
+	if err != nil {
+		t.Fatalf("new session: %v", err)
+	}
+
+	if _, err := client.Prompt(ctx, acpproto.PromptRequest{
+		SessionId: session,
+		Prompt:    []acpproto.ContentBlock{{Text: &acpproto.ContentBlockText{Text: "show commands and config"}}},
+	}); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+
+	var gotCommands bool
+	var gotConfigOptions bool
+	for _, event := range counter.Events() {
+		if event.Type == "available_commands_update" && len(event.Commands) > 0 {
+			gotCommands = true
+		}
+		if event.Type == "config_option_update" && len(event.ConfigOptions) > 0 {
+			gotConfigOptions = true
+		}
+	}
+
+	if !gotCommands {
+		t.Fatal("expected available_commands_update with extracted Commands")
+	}
+	if !gotConfigOptions {
+		t.Fatal("expected config_option_update with extracted ConfigOptions")
 	}
 }
