@@ -446,8 +446,39 @@ All REST endpoints under `/api/v3`. Legacy `/api/v1` (except health and A2A) and
 - `GET /api/v3/runs/{id}/stage-summary` — aggregated per-stage status/duration
 - `GET /api/v3/stats` — project-level statistics (via MCP `query_project_stats`)
 
-**MCP**
-- `GET/POST /mcp` — MCP SSE endpoint (same server exposes query tools + system info for ACP agents)
+**MCP** (`GET/POST /api/v1/mcp` — Streamable HTTP)
+
+Production tools (18):
+
+| Tool | Category | Description |
+|------|----------|-------------|
+| `query_projects` | Query | List all projects |
+| `query_project_detail` | Query | Get project by ID |
+| `query_project_stats` | Query | Success rate, run counts |
+| `query_issues` | Query | List issues (filter by project, session, state) |
+| `query_issue_detail` | Query | Get issue by ID |
+| `query_runs` | Query | List runs (filter by project, conclusion) |
+| `query_run_detail` | Query | Get run by ID |
+| `query_run_events` | Query | List run events (filter by type) |
+| `create_project` | Mutation | Create project |
+| `update_project` | Mutation | Update project |
+| `delete_project` | Mutation | Delete project |
+| `create_issue` | Mutation | Create issue |
+| `update_issue` | Mutation | Update issue fields |
+| `apply_issue_action` | Mutation | Approve/reject/abandon issue |
+| `add_issue_attachment` | Mutation | Attach file/context to issue |
+| `apply_run_action` | Mutation | Run action (approve/abort/skip/etc.) |
+| `get_system_info` | System | Server version, uptime, config |
+
+Dev-only tools (5, gated by `//go:build dev`):
+
+| Tool | Description |
+|------|-------------|
+| `self_build_frontend` | Run `npm --prefix web run build` |
+| `self_build` | Build Go binary (optional `-tags webdist`) |
+| `self_preflight` | Run full preflight (backend test + lint + frontend lint/typecheck/build) |
+| `self_preflight_status` | Check running preflight status |
+| `self_restart` | Graceful server restart with binary swap |
 
 **WebSocket**
 - `GET /api/v3/ws` — real-time event stream
@@ -471,7 +502,7 @@ All REST endpoints under `/api/v3`. Legacy `/api/v1` (except health and A2A) and
 
 ### 7.1 Agent Profiles
 
-Defined in `configs/defaults.yaml`:
+Defined in `internal/config/defaults.toml` (embedded via `go:embed`):
 
 | Agent | Launch Command | Capabilities |
 |-------|---------------|--------------|
@@ -480,8 +511,8 @@ Defined in `configs/defaults.yaml`:
 
 ### 7.2 Role Profiles
 
-| Role | Agent | fs_read | fs_write | terminal | MCP | Purpose |
-|------|-------|---------|----------|----------|-----|---------|
+| Role | Agent | fs_read | fs_write | terminal | MCPEnabled | Purpose |
+|------|-------|---------|----------|----------|------------|---------|
 | team_leader | claude | Y | Y | Y | Y | Orchestration, planning |
 | worker | codex | Y | Y | Y | N | Code implementation |
 | reviewer | claude | Y | N | N | N | Code review |
@@ -489,11 +520,15 @@ Defined in `configs/defaults.yaml`:
 | decomposer | claude | Y | N | N | Y | Issue decomposition |
 | plan_parser | claude | Y | N | N | N | Plan parsing |
 
+MCP access is gated by `RoleProfile.MCPEnabled` (boolean). The previous per-role tool whitelist (`MCPTools []string`) has been removed — tool visibility is controlled at runtime by the MCP server registration.
+
 ### 7.3 Role Resolution
 
 `stage.Role -> RoleResolver.Resolve(role) -> (AgentProfile, RoleProfile)`
 
 Capabilities are intersected: `min(agent.capabilities_max, role.capabilities)`.
+
+When `RoleProfile.MCPEnabled = true` and `MCPEnvConfig.ServerAddr` is set, the system generates an SSE-mode `McpServer` config pointing to `/api/v1/mcp`. Otherwise it falls back to a stdio subprocess (`mcp-serve` subcommand).
 
 ---
 
@@ -537,7 +572,9 @@ SQLite-backed (`modernc.org/sqlite`), migrations in code.
 
 ## 10. Frontend
 
-React + Vite + Tailwind + Zustand. Embedded into Go binary via `web/embed.go`.
+React + Vite + Tailwind + Zustand. Embedded into Go binary via `web/embed.go` (requires `-tags webdist` build tag; fallback `embed_fallback.go` serves 501 in dev builds).
+
+**Static analysis:** ESLint 9 with `typescript-eslint` and `eslint-plugin-react-hooks`. Config in `web/eslint.config.js`. Run via `npm --prefix web run lint`.
 
 ### 10.1 Views
 
@@ -562,12 +599,23 @@ Key type additions:
 ## 11. Configuration Hierarchy
 
 ```
-Built-in defaults < configs/defaults.yaml < .ai-workflow/config.yaml (project) < Environment variables
+Built-in defaults (internal/config/defaults.toml, go:embed)
+  < .ai-workflow/config.toml (project-local)
+  < Environment variables (AI_WORKFLOW_* prefix)
 ```
 
+The configuration format is **TOML**. The loader (`internal/config/loader.go`) supports YAML for backward compatibility but all new configs use TOML.
+
 Key environment variables:
-- `AI_WORKFLOW_DB_PATH` — SQLite database path
+- `AI_WORKFLOW_DATA_DIR` — Data directory root (default: `$CWD/.ai-workflow`). Used by Docker (`/data`).
+- `AI_WORKFLOW_DB_PATH` — SQLite database path (overrides `store.path`)
+- `AI_WORKFLOW_SERVER_PORT` — HTTP server port (overrides `server.port`)
 - `AI_WORKFLOW_CHAT_PROVIDER` — Chat backend selection
+- `AI_WORKFLOW_A2A_TOKEN` — A2A authentication token (overrides `a2a.token`)
+- `AI_WORKFLOW_A2A_ENABLED` — Enable/disable A2A endpoint
+- `AI_WORKFLOW_AGENTS_CLAUDE_BINARY` — Custom Claude agent binary path
+- `AI_WORKFLOW_SCHEDULER_MAX_GLOBAL_AGENTS` — Global agent concurrency limit
+- `AI_WORKFLOW_GITHUB_TOKEN` — GitHub API token
 
 ---
 
@@ -607,13 +655,15 @@ Worker/Reviewer do not query OpenViking (they work in worktrees with project fil
 
 ### 12.4 Configuration
 
-```yaml
-context:
-  provider: openviking        # openviking | context-sqlite | mock
-  openviking:
-    url: "http://localhost:1933"
-    api_key: ""
-  fallback: context-sqlite
+```toml
+[context]
+provider = "openviking"        # openviking | context-sqlite | mock
+
+[context.openviking]
+url     = "http://localhost:1933"
+api_key = ""
+
+fallback = "context-sqlite"
 ```
 
 Fallback to SQLite: CRUD works, L0/L1/Search unavailable (returns empty).
@@ -641,7 +691,29 @@ Plugin slot: `SlotContext`. Implementations: `context-openviking` (primary), `co
 
 ---
 
-## 13. Non-Goals & Future Reservations
+## 13. Deployment
+
+### 13.1 Production Docker
+
+Multi-stage build (`Dockerfile`): builder stage (`golang:1.25-bookworm` + Node 22) compiles frontend and Go binary with `-tags webdist`; runtime stage (`alpine:3.21`) is ~50MB.
+
+```
+ENV AI_WORKFLOW_DATA_DIR=/data
+VOLUME ["/data"]
+EXPOSE 8080
+ENTRYPOINT ["ai-flow"]
+CMD ["server", "--port", "8080"]
+```
+
+Build & push: `scripts/docker-build.ps1 -Target prod -Push`.
+
+### 13.2 Local Development
+
+`scripts/dev.sh` — one-click backend + frontend startup for Linux/macOS. Supports `--backend`, `--frontend`, `--build` modes with trap cleanup on Ctrl+C.
+
+---
+
+## 14. Non-Goals & Future Reservations
 
 **Detailed design (separate spec docs):**
 - Orchestration modes (Pipeline + Collaboration) — see `spec-orchestration-modes.md`
@@ -656,6 +728,10 @@ Plugin slot: `SlotContext`. Implementations: `context-openviking` (primary), `co
 
 **Explicitly removed:**
 - CLI agent plugins (`core.AgentPlugin`, `core.RuntimePlugin`)
-- `/api/v1` and `/api/v2` route groups (except `/api/v1/health` and A2A)
+- `/api/v1` and `/api/v2` route groups (except `/api/v1/health`, A2A, and MCP)
 - `task/plan` business entities and DAG runtime scheduling
 - `Secretary` naming (replaced by Team Leader)
+- Per-role MCP tool whitelist (`MCPTools []string`) — replaced by `MCPEnabled` boolean
+- `configs/defaults.yaml` — replaced by embedded `internal/config/defaults.toml`
+- `Dockerfile.dev` — local dev uses `scripts/dev.sh`
+- `configs/schemas/task_plan_v1.schema.json` — v1 artifact
