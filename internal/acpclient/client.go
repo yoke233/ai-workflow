@@ -96,7 +96,10 @@ func New(cfg LaunchConfig, h acpproto.Client, opts ...Option) (*Client, error) {
 	c.transport.SetNotificationHandler(c.handleNotification)
 
 	go func() {
-		_, _ = io.Copy(io.Discard, stderr)
+		stderrData, _ := io.ReadAll(stderr)
+		if len(stderrData) > 0 {
+			fmt.Fprintf(os.Stderr, "[acp-stderr][%s] %s\n", cfg.Command, string(stderrData))
+		}
 	}()
 	go func() {
 		c.waitCh <- cmd.Wait()

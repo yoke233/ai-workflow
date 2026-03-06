@@ -282,6 +282,89 @@ func (h *v2RunHandlers) listRunEvents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type stageSummary struct {
+	Stage          string    `json:"stage"`
+	EventCount     int       `json:"event_count"`
+	ToolCallCount  int       `json:"tool_call_count"`
+	FirstActivity  time.Time `json:"first_activity"`
+	LastActivity   time.Time `json:"last_activity"`
+	DurationMs     int64     `json:"duration_ms"`
+	LastUsageSize  int64     `json:"last_usage_size,omitempty"`
+	LastUsageUsed  int64     `json:"last_usage_used,omitempty"`
+	HasError       bool      `json:"has_error"`
+}
+
+func (h *v2RunHandlers) runStageSummary(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
+		return
+	}
+
+	runID := strings.TrimSpace(chi.URLParam(r, "id"))
+	if runID == "" {
+		writeAPIError(w, http.StatusBadRequest, "run id is required", "RUN_ID_REQUIRED")
+		return
+	}
+
+	events, err := h.store.ListRunEvents(runID)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "failed to list run events", "LIST_RUN_EVENTS_FAILED")
+		return
+	}
+
+	stageMap := map[string]*stageSummary{}
+	var stageOrder []string
+	for _, evt := range events {
+		stage := evt.Stage
+		if stage == "" {
+			stage = "_run"
+		}
+		s, ok := stageMap[stage]
+		if !ok {
+			s = &stageSummary{Stage: stage}
+			stageMap[stage] = s
+			stageOrder = append(stageOrder, stage)
+		}
+		s.EventCount++
+		if s.FirstActivity.IsZero() || evt.CreatedAt.Before(s.FirstActivity) {
+			s.FirstActivity = evt.CreatedAt
+		}
+		if evt.CreatedAt.After(s.LastActivity) {
+			s.LastActivity = evt.CreatedAt
+		}
+		if evt.Error != "" {
+			s.HasError = true
+		}
+
+		dataType, _ := evt.Data["type"]
+		switch dataType {
+		case "tool_call":
+			s.ToolCallCount++
+		case "usage_update":
+			if v, ok := evt.Data["usage_size"]; ok {
+				fmt.Sscanf(v, "%d", &s.LastUsageSize)
+			}
+			if v, ok := evt.Data["usage_used"]; ok {
+				fmt.Sscanf(v, "%d", &s.LastUsageUsed)
+			}
+		}
+	}
+
+	result := make([]stageSummary, 0, len(stageOrder))
+	for _, name := range stageOrder {
+		s := stageMap[name]
+		if !s.FirstActivity.IsZero() && !s.LastActivity.IsZero() {
+			s.DurationMs = s.LastActivity.Sub(s.FirstActivity).Milliseconds()
+		}
+		result = append(result, *s)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"run_id": runID,
+		"stages": result,
+	})
+}
+
 func toWorkflowRunResponse(p core.Run) workflowRunResponse {
 	profile := core.WorkflowProfileNormal
 	if raw, ok := p.Config["workflow_profile"]; ok {

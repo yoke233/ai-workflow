@@ -2,9 +2,11 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -198,6 +200,9 @@ func (e *Executor) promptACPSession(
 		return fmt.Errorf("acp prompt for stage %s: %w", stage.Name, err)
 	}
 
+	// Flush any remaining accumulated chunks before the done event.
+	bridge.flushPending(ctx)
+
 	replyText := ""
 	if result != nil {
 		replyText = strings.TrimSpace(result.Text)
@@ -208,8 +213,8 @@ func (e *Executor) promptACPSession(
 		Stage: stage.Name,
 		Agent: agentName,
 		Data: map[string]string{
-			"content": replyText,
 			"type":    "done",
+			"content": replyText,
 		},
 		Timestamp: time.Now(),
 	})
@@ -217,18 +222,70 @@ func (e *Executor) promptACPSession(
 }
 
 // stageEventBridge converts ACP session updates to EventAgentOutput events.
+// Chunk types are accumulated and flushed as complete content; tool_call events
+// are stored individually; usage is tracked and included in the final done event.
 type stageEventBridge struct {
-	executor     *Executor
-	runID        string
-	stage        core.StageID
-	agentName    string
+	executor      *Executor
+	runID         string
+	stage         core.StageID
+	agentName     string
 	lastActivity atomic.Int64 // unix nano, updated on every HandleSessionUpdate
+
+	mu             sync.Mutex
+	pendingThought strings.Builder
+	pendingMessage strings.Builder
 }
 
 func (b *stageEventBridge) HandleSessionUpdate(ctx context.Context, update acpclient.SessionUpdate) error {
 	b.lastActivity.Store(time.Now().UnixNano())
+
+	// Flush accumulated chunks whenever the incoming type differs.
+	// This ensures thought/message boundaries are preserved regardless
+	// of what event type follows — no need to enumerate every case.
+	switch update.Type {
+	case "agent_thought_chunk":
+		b.flushMessage(ctx)
+	case "agent_message_chunk":
+		b.flushThought(ctx)
+	default:
+		b.flushPending(ctx)
+	}
+
+	switch update.Type {
+	case "agent_thought_chunk":
+		b.mu.Lock()
+		b.pendingThought.WriteString(update.Text)
+		b.mu.Unlock()
+		b.publishChunk(ctx, update)
+
+	case "agent_message_chunk":
+		b.mu.Lock()
+		b.pendingMessage.WriteString(update.Text)
+		b.mu.Unlock()
+		b.publishChunk(ctx, update)
+
+	case "tool_call":
+		b.publishToolCall(ctx, update)
+
+	case "tool_call_update":
+		if update.Status == "completed" {
+			b.publishToolCallCompleted(ctx, update)
+		}
+
+	case "usage_update":
+		b.publishUsageUpdate(ctx, update)
+
+	default:
+		b.publishChunk(ctx, update)
+	}
+
+	return nil
+}
+
+// publishChunk sends a streaming event for WS broadcast (persister will skip it).
+func (b *stageEventBridge) publishChunk(ctx context.Context, update acpclient.SessionUpdate) {
 	if update.Text == "" {
-		return nil
+		return
 	}
 	b.executor.bus.Publish(ctx, core.Event{
 		Type:  core.EventAgentOutput,
@@ -241,7 +298,132 @@ func (b *stageEventBridge) HandleSessionUpdate(ctx context.Context, update acpcl
 		},
 		Timestamp: time.Now(),
 	})
-	return nil
+}
+
+func (b *stageEventBridge) flushPending(ctx context.Context) {
+	b.flushThought(ctx)
+	b.flushMessage(ctx)
+}
+
+func (b *stageEventBridge) flushThought(ctx context.Context) {
+	b.mu.Lock()
+	thought := b.pendingThought.String()
+	b.pendingThought.Reset()
+	b.mu.Unlock()
+	if thought != "" {
+		b.executor.bus.Publish(ctx, core.Event{
+			Type:  core.EventAgentOutput,
+			RunID: b.runID,
+			Stage: b.stage,
+			Agent: b.agentName,
+			Data: map[string]string{
+				"type":    "agent_thought",
+				"content": thought,
+			},
+			Timestamp: time.Now(),
+		})
+	}
+}
+
+func (b *stageEventBridge) flushMessage(ctx context.Context) {
+	b.mu.Lock()
+	message := b.pendingMessage.String()
+	b.pendingMessage.Reset()
+	b.mu.Unlock()
+	if message != "" {
+		b.executor.bus.Publish(ctx, core.Event{
+			Type:  core.EventAgentOutput,
+			RunID: b.runID,
+			Stage: b.stage,
+			Agent: b.agentName,
+			Data: map[string]string{
+				"type":    "agent_message",
+				"content": message,
+			},
+			Timestamp: time.Now(),
+		})
+	}
+}
+
+func (b *stageEventBridge) publishToolCall(ctx context.Context, update acpclient.SessionUpdate) {
+	data := map[string]string{"type": "tool_call"}
+	var parsed struct {
+		Title      string `json:"title"`
+		ToolCallID string `json:"toolCallId"`
+	}
+	if json.Unmarshal([]byte(update.RawUpdateJSON), &parsed) == nil {
+		if parsed.Title != "" {
+			data["content"] = parsed.Title
+		}
+		if parsed.ToolCallID != "" {
+			data["tool_call_id"] = parsed.ToolCallID
+		}
+	}
+	b.executor.bus.Publish(ctx, core.Event{
+		Type:  core.EventAgentOutput,
+		RunID: b.runID,
+		Stage: b.stage,
+		Agent: b.agentName,
+		Data:  data,
+		Timestamp: time.Now(),
+	})
+}
+
+func (b *stageEventBridge) publishToolCallCompleted(ctx context.Context, update acpclient.SessionUpdate) {
+	data := map[string]string{"type": "tool_call_completed"}
+	var parsed struct {
+		ToolCallID string `json:"toolCallId"`
+		RawOutput  struct {
+			ExitCode int    `json:"exit_code"`
+			Stdout   string `json:"stdout"`
+			Stderr   string `json:"stderr"`
+		} `json:"rawOutput"`
+	}
+	if json.Unmarshal([]byte(update.RawUpdateJSON), &parsed) == nil {
+		data["tool_call_id"] = parsed.ToolCallID
+		data["exit_code"] = fmt.Sprintf("%d", parsed.RawOutput.ExitCode)
+		stdout := parsed.RawOutput.Stdout
+		if len(stdout) > 2000 {
+			stdout = stdout[:2000] + "...(truncated)"
+		}
+		data["content"] = stdout
+		if parsed.RawOutput.Stderr != "" {
+			stderr := parsed.RawOutput.Stderr
+			if len(stderr) > 2000 {
+				stderr = stderr[:2000] + "...(truncated)"
+			}
+			data["stderr"] = stderr
+		}
+	}
+	b.executor.bus.Publish(ctx, core.Event{
+		Type:  core.EventAgentOutput,
+		RunID: b.runID,
+		Stage: b.stage,
+		Agent: b.agentName,
+		Data:  data,
+		Timestamp: time.Now(),
+	})
+}
+
+
+func (b *stageEventBridge) publishUsageUpdate(ctx context.Context, update acpclient.SessionUpdate) {
+	data := map[string]string{"type": "usage_update"}
+	var usage struct {
+		Size int64 `json:"size"`
+		Used int64 `json:"used"`
+	}
+	if json.Unmarshal([]byte(update.RawUpdateJSON), &usage) == nil {
+		data["usage_size"] = fmt.Sprintf("%d", usage.Size)
+		data["usage_used"] = fmt.Sprintf("%d", usage.Used)
+	}
+	b.executor.bus.Publish(ctx, core.Event{
+		Type:  core.EventAgentOutput,
+		RunID: b.runID,
+		Stage: b.stage,
+		Agent: b.agentName,
+		Data:  data,
+		Timestamp: time.Now(),
+	})
 }
 
 // startIdleChecker starts a background goroutine that cancels the returned context

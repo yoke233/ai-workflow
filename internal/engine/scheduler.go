@@ -205,11 +205,38 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 			defer s.runWG.Done()
 			if runErr := s.run(ctx, RunID); runErr != nil {
 				s.logger.Error("Run execution failed", "run_id", RunID, "error", runErr)
+				// Ensure the run is not stuck in in_progress — try to mark it failed.
+				s.tryRecoverStuckRun(RunID, runErr)
 			}
 		}(p.ID)
 	}
 
 	return nil
+}
+
+// tryRecoverStuckRun attempts to transition a run out of in_progress after an
+// unexpected executor error, preventing permanent slot leak in the scheduler.
+func (s *Scheduler) tryRecoverStuckRun(runID string, cause error) {
+	p, err := s.store.GetRun(runID)
+	if err != nil {
+		s.logger.Error("recover stuck run: failed to load", "run_id", runID, "error", err)
+		return
+	}
+	if p.Status != core.StatusInProgress {
+		return // already transitioned by failRun or other path
+	}
+	if transErr := p.TransitionStatus(core.StatusCompleted); transErr != nil {
+		s.logger.Error("recover stuck run: transition failed", "run_id", runID, "error", transErr)
+		return
+	}
+	p.Conclusion = core.ConclusionFailure
+	p.ErrorMessage = fmt.Sprintf("scheduler recovery: %v", cause)
+	p.FinishedAt = time.Now()
+	if saveErr := s.store.SaveRun(p); saveErr != nil {
+		s.logger.Error("recover stuck run: save failed", "run_id", runID, "error", saveErr)
+	} else {
+		s.logger.Warn("recovered stuck run from in_progress to failed", "run_id", runID)
+	}
 }
 
 // FindRunByIssueNumber returns an existing Run bound to issue_number in Run config/artifacts.

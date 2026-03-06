@@ -66,6 +66,20 @@ func (e *Executor) executeStage(ctx context.Context, project *core.Project, p *c
 		return fmt.Errorf("render prompt: %w", err)
 	}
 
+	// Persist rendered prompt for debugging/audit.
+	e.bus.Publish(ctx, core.Event{
+		Type:      core.EventAgentOutput,
+		RunID:     p.ID,
+		ProjectID: p.ProjectID,
+		Stage:     stage.Name,
+		Agent:     agentName,
+		Data: map[string]string{
+			"type":    "prompt",
+			"content": prompt,
+		},
+		Timestamp: time.Now(),
+	})
+
 	if e.testStageFunc != nil {
 		testCtx := ctx
 		if stage.IdleTimeout > 0 {
@@ -170,6 +184,23 @@ func (e *Executor) runMerge(project *core.Project, p *core.Run) error {
 	if p.BranchName == "" {
 		return errors.New("branch name is empty")
 	}
+
+	// Auto-commit any uncommitted changes in the worktree before merging.
+	if p.WorktreePath != "" {
+		wtRunner := gitops.NewRunner(p.WorktreePath)
+		hasChanges, _ := wtRunner.HasUncommittedChanges()
+		if hasChanges {
+			if err := wtRunner.AddAll(); err != nil {
+				return fmt.Errorf("auto-commit: git add: %w", err)
+			}
+			msg := fmt.Sprintf("feat(%s): auto-commit from run %s", project.Name, p.ID)
+			if err := wtRunner.Commit(msg); err != nil {
+				return fmt.Errorf("auto-commit: git commit: %w", err)
+			}
+			e.logger.Info("auto-committed worktree changes", "run_id", p.ID, "branch", p.BranchName)
+		}
+	}
+
 	runner := gitops.NewRunner(project.RepoPath)
 
 	baseBranch := ""
@@ -223,9 +254,13 @@ func defaultStageConfig(id core.StageID) core.StageConfig {
 	case core.StageTest:
 		cfg.Agent = ""
 		cfg.IdleTimeout = 3 * time.Minute
-	case core.StageSetup, core.StageMerge, core.StageCleanup:
+	case core.StageSetup, core.StageMerge:
 		cfg.Agent = ""
 		cfg.IdleTimeout = 1 * time.Minute
+	case core.StageCleanup:
+		cfg.Agent = ""
+		cfg.IdleTimeout = 1 * time.Minute
+		cfg.OnFailure = core.OnFailureSkip
 	}
 	cfg.PromptTemplate = string(id)
 	return cfg

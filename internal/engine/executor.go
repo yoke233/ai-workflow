@@ -195,6 +195,13 @@ func (e *Executor) run(ctx context.Context, RunID string, allowAlreadyRunning bo
 	startIndex := e.resolveStartIndex(p, allowAlreadyRunning)
 	for i := startIndex; i < len(p.Stages); i++ {
 		stage := p.Stages[i]
+
+		// Release ACP sessions before cleanup so file handles are freed
+		// (prevents Windows "Permission Denied" on worktree removal).
+		if stage.Name == core.StageCleanup {
+			e.acpPoolCleanup(p.ID)
+		}
+
 		p.CurrentStage = stage.Name
 		if err := e.store.SaveRun(p); err != nil {
 			return err

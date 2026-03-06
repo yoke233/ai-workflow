@@ -9,19 +9,20 @@ import (
 	"github.com/yoke233/ai-workflow/internal/web"
 )
 
-// isTransientChunkEvent returns true for high-frequency streaming chunk events
+// isTransientChunkEvent returns true for streaming/intermediate agent_output events
 // that should NOT be persisted to run_events (they are broadcast via WS only).
+// Persisted types: done (final result + usage), agent_thought/agent_message (complete
+// accumulated content), tool_call, tool_call_completed.
 func isTransientChunkEvent(evt core.Event) bool {
 	if evt.Type != core.EventAgentOutput {
 		return false
 	}
 	switch evt.Data["type"] {
-	case "agent_message_chunk", "agent_thought_chunk", "user_message_chunk",
-		"available_commands_update", "current_mode_update",
-		"config_option_update", "session_info_update":
+	case "done", "prompt", "agent_thought", "agent_message", "tool_call", "tool_call_completed", "usage_update":
+		return false
+	default:
 		return true
 	}
-	return false
 }
 
 // --- Independent event subscribers (replace bridge goroutine) ---

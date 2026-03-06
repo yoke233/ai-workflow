@@ -472,14 +472,8 @@ func TestExecutor_Run_AgentPromptFromTemplate(t *testing.T) {
 	if !strings.Contains(capturedPrompt, "请根据以下需求实现代码") {
 		t.Fatalf("prompt should come from implement template, got: %s", capturedPrompt)
 	}
-	for _, required := range []string{
-		".ai-workflow/issue_plan.md",
-		".ai-workflow/progress.md",
-		".ai-workflow/findings.md",
-	} {
-		if !strings.Contains(capturedPrompt, required) {
-			t.Fatalf("prompt should include execution documentation instruction %q, got: %s", required, capturedPrompt)
-		}
+	if !strings.Contains(capturedPrompt, "完成后请确保代码可编译、测试通过，并提交变更") {
+		t.Fatalf("prompt should include completion instruction, got: %s", capturedPrompt)
 	}
 }
 

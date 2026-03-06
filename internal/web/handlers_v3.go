@@ -84,4 +84,5 @@ func registerV3Routes(
 	r.Get("/runs", runHandlers.listRuns)
 	r.Get("/runs/{id}", runHandlers.getRun)
 	r.Get("/runs/{id}/events", runHandlers.listRunEvents)
+	r.Get("/runs/{id}/stage-summary", runHandlers.runStageSummary)
 }
