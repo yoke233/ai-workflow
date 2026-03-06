@@ -325,46 +325,73 @@ type stubACPClient struct {
 
 	handler acpproto.Client
 
-	loadReqs   []acpproto.LoadSessionRequest
-	newReqs    []acpproto.NewSessionRequest
-	promptReqs []acpproto.PromptRequest
+	loadReqs      []acpproto.LoadSessionRequest
+	newReqs       []acpproto.NewSessionRequest
+	promptReqs    []acpproto.PromptRequest
+	setConfigReqs []acpproto.SetSessionConfigOptionRequest
 
-	loadResp   acpproto.SessionId
-	newResp    acpproto.SessionId
-	promptResp *acpclient.PromptResult
+	loadResp      acpproto.SessionId
+	newResp       acpproto.SessionId
+	loadResult    acpclient.SessionResult
+	newResult     acpclient.SessionResult
+	promptResp    *acpclient.PromptResult
+	setConfigResp []acpproto.SessionConfigOptionSelect
 
-	loadErr   error
-	newErr    error
-	promptErr error
-	closeErr  error
+	loadErr      error
+	newErr       error
+	promptErr    error
+	closeErr     error
+	setConfigErr error
 
 	writeReqOnPrompt *acpproto.WriteTextFileRequest
 }
 
-func (c *stubACPClient) LoadSession(_ context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error) {
+func (c *stubACPClient) LoadSession(ctx context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error) {
+	result, err := c.LoadSessionResult(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return result.SessionID, nil
+}
+
+func (c *stubACPClient) LoadSessionResult(_ context.Context, req acpproto.LoadSessionRequest) (acpclient.SessionResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.loadReqs = append(c.loadReqs, req)
 	if c.loadErr != nil {
-		return "", c.loadErr
+		return acpclient.SessionResult{}, c.loadErr
+	}
+	if strings.TrimSpace(string(c.loadResult.SessionID)) != "" {
+		return c.loadResult, nil
 	}
 	if strings.TrimSpace(string(c.loadResp)) == "" {
-		return acpproto.SessionId("sid-load-default"), nil
+		return acpclient.SessionResult{SessionID: acpproto.SessionId("sid-load-default")}, nil
 	}
-	return c.loadResp, nil
+	return acpclient.SessionResult{SessionID: c.loadResp}, nil
 }
 
-func (c *stubACPClient) NewSession(_ context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error) {
+func (c *stubACPClient) NewSession(ctx context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error) {
+	result, err := c.NewSessionResult(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return result.SessionID, nil
+}
+
+func (c *stubACPClient) NewSessionResult(_ context.Context, req acpproto.NewSessionRequest) (acpclient.SessionResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.newReqs = append(c.newReqs, req)
 	if c.newErr != nil {
-		return "", c.newErr
+		return acpclient.SessionResult{}, c.newErr
+	}
+	if strings.TrimSpace(string(c.newResult.SessionID)) != "" {
+		return c.newResult, nil
 	}
 	if strings.TrimSpace(string(c.newResp)) == "" {
-		return acpproto.SessionId("sid-new-default"), nil
+		return acpclient.SessionResult{SessionID: acpproto.SessionId("sid-new-default")}, nil
 	}
-	return c.newResp, nil
+	return acpclient.SessionResult{SessionID: c.newResp}, nil
 }
 
 func (c *stubACPClient) Prompt(ctx context.Context, req acpproto.PromptRequest) (*acpclient.PromptResult, error) {
@@ -398,6 +425,16 @@ func (c *stubACPClient) Close(_ context.Context) error {
 
 func (c *stubACPClient) Cancel(_ context.Context, _ acpproto.CancelNotification) error {
 	return nil
+}
+
+func (c *stubACPClient) SetConfigOption(_ context.Context, req acpproto.SetSessionConfigOptionRequest) ([]acpproto.SessionConfigOptionSelect, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.setConfigReqs = append(c.setConfigReqs, req)
+	if c.setConfigErr != nil {
+		return nil, c.setConfigErr
+	}
+	return append([]acpproto.SessionConfigOptionSelect(nil), c.setConfigResp...), nil
 }
 
 func (c *stubACPClient) SupportsSSEMCP() bool {

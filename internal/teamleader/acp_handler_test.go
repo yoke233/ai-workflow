@@ -633,3 +633,63 @@ func TestHandleSessionUpdateFlushesPendingChunksBeforeNonChunkEvent(t *testing.T
 		t.Fatalf("second update_type = %q, want %q", events[1].UpdateType, "tool_call")
 	}
 }
+
+func TestHandleSessionUpdateStateCallbackRunsWhenSuppressed(t *testing.T) {
+	pub := &recordingACPEventPublisher{}
+	recorder := &recordingChatRunEventRecorder{}
+	handler := NewACPHandler(t.TempDir(), "agent-session-1", pub)
+	handler.SetProjectID("proj-1")
+	handler.SetChatSessionID("chat-session-1")
+	handler.SetRunEventRecorder(recorder)
+
+	var gotCommands []acpproto.AvailableCommand
+	var gotOptions []acpproto.SessionConfigOptionSelect
+	handler.SetSessionStateCallback(func(commands []acpproto.AvailableCommand, configOptions []acpproto.SessionConfigOptionSelect) {
+		if commands != nil {
+			gotCommands = append([]acpproto.AvailableCommand(nil), commands...)
+		}
+		if configOptions != nil {
+			gotOptions = append([]acpproto.SessionConfigOptionSelect(nil), configOptions...)
+		}
+	})
+	handler.SetSuppressEvents(true)
+
+	err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
+		SessionID: "acp-session-1",
+		Type:      "available_commands_update",
+		Commands: []acpproto.AvailableCommand{
+			{Name: "review", Description: "Review current changes"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionUpdate(commands) error = %v", err)
+	}
+	err = handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
+		SessionID: "acp-session-1",
+		Type:      "config_option_update",
+		ConfigOptions: []acpproto.SessionConfigOptionSelect{
+			{
+				Type:         "select",
+				Id:           acpproto.SessionConfigId("model"),
+				Name:         "Model",
+				CurrentValue: acpproto.SessionConfigValueId("model-1"),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionUpdate(config) error = %v", err)
+	}
+
+	if len(gotCommands) != 1 || gotCommands[0].Name != "review" {
+		t.Fatalf("state callback commands = %#v, want review command", gotCommands)
+	}
+	if len(gotOptions) != 1 || gotOptions[0].Id != acpproto.SessionConfigId("model") {
+		t.Fatalf("state callback config options = %#v, want model option", gotOptions)
+	}
+	if len(pub.Events()) != 0 {
+		t.Fatalf("suppressed events should not publish, got %#v", pub.Events())
+	}
+	if len(recorder.Events()) != 0 {
+		t.Fatalf("suppressed events should not persist, got %#v", recorder.Events())
+	}
+}

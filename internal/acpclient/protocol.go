@@ -25,6 +25,11 @@ type PromptResult struct {
 	StopReason acpproto.StopReason `json:"stopReason,omitempty"`
 }
 
+type SessionResult struct {
+	SessionID     acpproto.SessionId
+	ConfigOptions []acpproto.SessionConfigOptionSelect
+}
+
 type SessionUpdate struct {
 	SessionID string          `json:"sessionId"`
 	Type      string          `json:"type"`

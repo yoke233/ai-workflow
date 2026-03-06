@@ -29,6 +29,8 @@ type ChatRunEventRecorder interface {
 	AppendChatRunEvent(event core.ChatRunEvent) error
 }
 
+type SessionStateCallback func(commands []acpproto.AvailableCommand, configOptions []acpproto.SessionConfigOptionSelect)
+
 type ACPHandlerSessionContext struct {
 	SessionID    string
 	ChangedFiles []string
@@ -45,9 +47,11 @@ type ACPHandler struct {
 	publisher        acpEventPublisher
 	recorder         ChatRunEventRecorder
 
-	mu          sync.Mutex
-	changedSet  map[string]struct{}
-	changedList []string
+	mu             sync.Mutex
+	changedSet     map[string]struct{}
+	changedList    []string
+	suppressEvents bool
+	stateCallback  SessionStateCallback
 
 	runEventMu        sync.Mutex
 	pendingChunkEvent *pendingChatRunChunkEvent
@@ -119,6 +123,26 @@ func (h *ACPHandler) SetRunEventRecorder(recorder ChatRunEventRecorder) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.recorder = recorder
+}
+
+func (h *ACPHandler) SetSuppressEvents(suppress bool) {
+	if h == nil {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.suppressEvents = suppress
+}
+
+func (h *ACPHandler) SetSessionStateCallback(cb SessionStateCallback) {
+	if h == nil {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.stateCallback = cb
 }
 
 func (h *ACPHandler) SetSessionID(sessionID string) {
@@ -386,12 +410,36 @@ func (h *ACPHandler) HandleSessionUpdate(ctx context.Context, update acpclient.S
 	chatSessionID := strings.TrimSpace(h.chatSessionID)
 	agentSessionID := strings.TrimSpace(h.sessionID)
 	recorder := h.recorder
+	suppress := h.suppressEvents
+	stateCallback := h.stateCallback
 	h.mu.Unlock()
 	if chatSessionID == "" {
 		chatSessionID = agentSessionID
 	}
 	if agentSessionID == "" {
 		agentSessionID = strings.TrimSpace(update.SessionID)
+	}
+
+	switch update.Type {
+	case "available_commands_update":
+		if stateCallback != nil {
+			commands := append([]acpproto.AvailableCommand(nil), update.Commands...)
+			if commands == nil {
+				commands = []acpproto.AvailableCommand{}
+			}
+			stateCallback(commands, nil)
+		}
+	case "config_option_update":
+		if stateCallback != nil {
+			configOptions := append([]acpproto.SessionConfigOptionSelect(nil), update.ConfigOptions...)
+			if configOptions == nil {
+				configOptions = []acpproto.SessionConfigOptionSelect{}
+			}
+			stateCallback(nil, configOptions)
+		}
+	}
+	if suppress {
+		return nil
 	}
 
 	data := map[string]string{
