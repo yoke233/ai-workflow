@@ -344,6 +344,9 @@ type stubACPClient struct {
 	setConfigErr error
 
 	writeReqOnPrompt *acpproto.WriteTextFileRequest
+	promptUpdates    []acpclient.SessionUpdate
+	promptStarted    chan struct{}
+	promptRelease    chan struct{}
 }
 
 func (c *stubACPClient) LoadSession(ctx context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error) {
@@ -401,11 +404,34 @@ func (c *stubACPClient) Prompt(ctx context.Context, req acpproto.PromptRequest) 
 	handler := c.handler
 	promptErr := c.promptErr
 	promptResp := c.promptResp
+	promptUpdates := append([]acpclient.SessionUpdate(nil), c.promptUpdates...)
+	promptStarted := c.promptStarted
+	if c.promptStarted != nil {
+		c.promptStarted = nil
+	}
+	promptRelease := c.promptRelease
 	c.mu.Unlock()
 
 	if writeReq != nil && handler != nil {
 		if _, err := handler.WriteTextFile(ctx, *writeReq); err != nil {
 			return nil, err
+		}
+	}
+	if eventHandler, ok := handler.(acpclient.EventHandler); ok {
+		for _, update := range promptUpdates {
+			if err := eventHandler.HandleSessionUpdate(ctx, update); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if promptStarted != nil {
+		close(promptStarted)
+	}
+	if promptRelease != nil {
+		select {
+		case <-promptRelease:
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
 	if promptErr != nil {

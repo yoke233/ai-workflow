@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"testing"
+	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
@@ -236,5 +237,104 @@ func TestACPChatAssistantTracksSessionCommandsAndConfigOptions(t *testing.T) {
 	}
 	if len(client.setConfigReqs) != 1 {
 		t.Fatalf("SetConfigOption calls = %d, want 1", len(client.setConfigReqs))
+	}
+}
+
+func TestACPChatAssistantExposesSessionStateWhilePromptRunning(t *testing.T) {
+	configOptions := []acpproto.SessionConfigOptionSelect{
+		{
+			Type:         "select",
+			Id:           acpproto.SessionConfigId("model"),
+			Name:         "Model",
+			CurrentValue: acpproto.SessionConfigValueId("model-1"),
+			Options: acpproto.SessionConfigSelectOptions{
+				Ungrouped: &acpproto.SessionConfigSelectOptionsUngrouped{
+					{Name: "Model 1", Value: acpproto.SessionConfigValueId("model-1")},
+					{Name: "Model 2", Value: acpproto.SessionConfigValueId("model-2")},
+				},
+			},
+		},
+	}
+	client := &stubACPClient{
+		newResult: acpclient.SessionResult{
+			SessionID:     acpproto.SessionId("sid-running"),
+			ConfigOptions: configOptions,
+		},
+		promptResp:    &acpclient.PromptResult{Text: "hello from acp"},
+		promptStarted: make(chan struct{}),
+		promptRelease: make(chan struct{}),
+		promptUpdates: []acpclient.SessionUpdate{
+			{
+				SessionID: "sid-running",
+				Type:      "available_commands_update",
+				Commands: []acpproto.AvailableCommand{
+					{Name: "review", Description: "Review current changes"},
+				},
+			},
+		},
+	}
+	resolver := &stubChatRoleResolver{
+		agent: acpclient.AgentProfile{ID: "codex", LaunchCommand: "codex"},
+		roles: map[string]acpclient.RoleProfile{
+			"team_leader": {
+				ID:      "team_leader",
+				AgentID: "codex",
+				Capabilities: acpclient.ClientCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+				SessionPolicy: acpclient.SessionPolicy{Reuse: true, PreferLoadSession: true},
+			},
+		},
+	}
+	factory := &recordingACPClientFactory{client: client}
+	assistant := newACPChatAssistant(ACPChatAssistantDeps{
+		DefaultRoleID: "team_leader",
+		RoleResolver:  resolver,
+		ClientFactory: factory,
+	})
+
+	replyDone := make(chan error, 1)
+	go func() {
+		_, err := assistant.Reply(context.Background(), ChatAssistantRequest{
+			Message:       "hello",
+			ProjectID:     "proj-1",
+			ChatSessionID: "chat-1",
+			WorkDir:       t.TempDir(),
+		})
+		replyDone <- err
+	}()
+
+	select {
+	case <-client.promptStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("prompt did not start in time")
+	}
+
+	commands, err := assistant.GetSessionCommands("chat-1")
+	if err != nil {
+		t.Fatalf("GetSessionCommands while running returned error: %v", err)
+	}
+	if len(commands) != 1 || commands[0].Name != "review" {
+		t.Fatalf("commands while running = %#v, want review", commands)
+	}
+
+	opts, err := assistant.GetSessionConfigOptions("chat-1")
+	if err != nil {
+		t.Fatalf("GetSessionConfigOptions while running returned error: %v", err)
+	}
+	if len(opts) != 1 || opts[0].CurrentValue != acpproto.SessionConfigValueId("model-1") {
+		t.Fatalf("config options while running = %#v, want model-1", opts)
+	}
+
+	close(client.promptRelease)
+	select {
+	case err := <-replyDone:
+		if err != nil {
+			t.Fatalf("Reply returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Reply did not finish in time")
 	}
 }

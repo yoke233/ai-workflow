@@ -74,6 +74,7 @@ type ACPChatAssistant struct {
 type activeChatRun struct {
 	client         ChatACPClient
 	agentSessionID string
+	session        *pooledChatSession
 	cancel         context.CancelFunc
 }
 
@@ -287,6 +288,7 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 		a.setActiveRun(chatSessionID, &activeChatRun{
 			client:         pooled.client,
 			agentSessionID: agentSessionID,
+			session:        pooled,
 			cancel:         promptCancel,
 		})
 		defer a.clearActiveRun(chatSessionID)
@@ -575,8 +577,7 @@ func (a *ACPChatAssistant) poolSession(chatSessionID string, ps *pooledChatSessi
 
 // IsChatSessionAlive reports whether a pooled ACP session exists for the given chat session.
 func (a *ACPChatAssistant) IsChatSessionAlive(chatSessionID string) bool {
-	ps := a.getPooledSession(chatSessionID)
-	return ps != nil
+	return a.getSessionForAccess(chatSessionID) != nil
 }
 
 // IsChatSessionRunning reports whether the chat session is currently processing a prompt.
@@ -585,7 +586,7 @@ func (a *ACPChatAssistant) IsChatSessionRunning(chatSessionID string) bool {
 }
 
 func (a *ACPChatAssistant) GetSessionCommands(chatSessionID string) ([]acpproto.AvailableCommand, error) {
-	ps := a.getPooledSession(chatSessionID)
+	ps := a.getSessionForAccess(chatSessionID)
 	if ps == nil {
 		return nil, errChatSessionNotFound
 	}
@@ -593,7 +594,7 @@ func (a *ACPChatAssistant) GetSessionCommands(chatSessionID string) ([]acpproto.
 }
 
 func (a *ACPChatAssistant) GetSessionConfigOptions(chatSessionID string) ([]acpproto.SessionConfigOptionSelect, error) {
-	ps := a.getPooledSession(chatSessionID)
+	ps := a.getSessionForAccess(chatSessionID)
 	if ps == nil {
 		return nil, errChatSessionNotFound
 	}
@@ -601,7 +602,7 @@ func (a *ACPChatAssistant) GetSessionConfigOptions(chatSessionID string) ([]acpp
 }
 
 func (a *ACPChatAssistant) SetSessionConfigOption(ctx context.Context, chatSessionID string, configID string, value string) ([]acpproto.SessionConfigOptionSelect, error) {
-	ps := a.getPooledSession(chatSessionID)
+	ps := a.getSessionForAccess(chatSessionID)
 	if ps == nil {
 		return nil, errChatSessionNotFound
 	}
@@ -615,6 +616,20 @@ func (a *ACPChatAssistant) SetSessionConfigOption(ctx context.Context, chatSessi
 	}
 	ps.setConfigOptions(options)
 	return ps.getConfigOptions(), nil
+}
+
+func (a *ACPChatAssistant) getSessionForAccess(chatSessionID string) *pooledChatSession {
+	if a == nil {
+		return nil
+	}
+	if ps := a.getPooledSession(chatSessionID); ps != nil {
+		return ps
+	}
+	run := a.getActiveRun(chatSessionID)
+	if run == nil || run.session == nil || run.session.isClosed() {
+		return nil
+	}
+	return run.session
 }
 
 // ShutdownSessions closes all pooled ACP sessions.
