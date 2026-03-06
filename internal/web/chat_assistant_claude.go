@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	acpproto "github.com/coder/acp-go-sdk"
 )
 
 // ChatAssistantRequest contains one user turn for model completion.
@@ -25,7 +27,12 @@ type ChatAssistantResponse struct {
 // ChatAssistant provides multi-turn chat completion for /chat APIs.
 type ChatAssistant interface {
 	Reply(ctx context.Context, req ChatAssistantRequest) (ChatAssistantResponse, error)
+	GetSessionCommands(chatSessionID string) ([]acpproto.AvailableCommand, error)
+	GetSessionConfigOptions(chatSessionID string) ([]acpproto.SessionConfigOptionSelect, error)
+	SetSessionConfigOption(ctx context.Context, chatSessionID string, configID string, value string) ([]acpproto.SessionConfigOptionSelect, error)
 }
+
+var errChatSessionNotFound = errors.New("chat session not found")
 
 type ChatAssistantCanceler interface {
 	CancelChat(chatSessionID string) error
@@ -69,4 +76,25 @@ func (a *ClaudeChatAssistant) Reply(ctx context.Context, req ChatAssistantReques
 		return ChatAssistantResponse{}, errors.New("chat assistant is nil")
 	}
 	return a.assistant.Reply(ctx, req)
+}
+
+func (a *ClaudeChatAssistant) GetSessionCommands(chatSessionID string) ([]acpproto.AvailableCommand, error) {
+	if a == nil || a.assistant == nil {
+		return nil, errors.New("chat assistant is nil")
+	}
+	return a.assistant.GetSessionCommands(chatSessionID)
+}
+
+func (a *ClaudeChatAssistant) GetSessionConfigOptions(chatSessionID string) ([]acpproto.SessionConfigOptionSelect, error) {
+	if a == nil || a.assistant == nil {
+		return nil, errors.New("chat assistant is nil")
+	}
+	return a.assistant.GetSessionConfigOptions(chatSessionID)
+}
+
+func (a *ClaudeChatAssistant) SetSessionConfigOption(ctx context.Context, chatSessionID string, configID string, value string) ([]acpproto.SessionConfigOptionSelect, error) {
+	if a == nil || a.assistant == nil {
+		return nil, errors.New("chat assistant is nil")
+	}
+	return a.assistant.SetSessionConfigOption(ctx, chatSessionID, configID, value)
 }

@@ -389,10 +389,10 @@ func (e *Executor) promptACPSession(
 // Chunk types are accumulated and flushed as complete content; tool_call events
 // are stored individually; usage is tracked and included in the final done event.
 type stageEventBridge struct {
-	executor      *Executor
-	runID         string
-	stage         core.StageID
-	agentName     string
+	executor     *Executor
+	runID        string
+	stage        core.StageID
+	agentName    string
 	lastActivity atomic.Int64 // unix nano, updated on every HandleSessionUpdate
 
 	mu             sync.Mutex
@@ -515,7 +515,7 @@ func (b *stageEventBridge) publishToolCall(ctx context.Context, update acpclient
 		Title      string `json:"title"`
 		ToolCallID string `json:"toolCallId"`
 	}
-	if json.Unmarshal([]byte(update.RawUpdateJSON), &parsed) == nil {
+	if json.Unmarshal(update.RawJSON, &parsed) == nil {
 		if parsed.Title != "" {
 			data["content"] = parsed.Title
 		}
@@ -524,11 +524,11 @@ func (b *stageEventBridge) publishToolCall(ctx context.Context, update acpclient
 		}
 	}
 	b.executor.bus.Publish(ctx, core.Event{
-		Type:  core.EventAgentOutput,
-		RunID: b.runID,
-		Stage: b.stage,
-		Agent: b.agentName,
-		Data:  data,
+		Type:      core.EventAgentOutput,
+		RunID:     b.runID,
+		Stage:     b.stage,
+		Agent:     b.agentName,
+		Data:      data,
 		Timestamp: time.Now(),
 	})
 }
@@ -543,7 +543,7 @@ func (b *stageEventBridge) publishToolCallCompleted(ctx context.Context, update 
 			Stderr   string `json:"stderr"`
 		} `json:"rawOutput"`
 	}
-	if json.Unmarshal([]byte(update.RawUpdateJSON), &parsed) == nil {
+	if json.Unmarshal(update.RawJSON, &parsed) == nil {
 		data["tool_call_id"] = parsed.ToolCallID
 		data["exit_code"] = fmt.Sprintf("%d", parsed.RawOutput.ExitCode)
 		stdout := parsed.RawOutput.Stdout
@@ -560,15 +560,14 @@ func (b *stageEventBridge) publishToolCallCompleted(ctx context.Context, update 
 		}
 	}
 	b.executor.bus.Publish(ctx, core.Event{
-		Type:  core.EventAgentOutput,
-		RunID: b.runID,
-		Stage: b.stage,
-		Agent: b.agentName,
-		Data:  data,
+		Type:      core.EventAgentOutput,
+		RunID:     b.runID,
+		Stage:     b.stage,
+		Agent:     b.agentName,
+		Data:      data,
 		Timestamp: time.Now(),
 	})
 }
-
 
 func (b *stageEventBridge) publishUsageUpdate(ctx context.Context, update acpclient.SessionUpdate) {
 	data := map[string]string{"type": "usage_update"}
@@ -576,16 +575,16 @@ func (b *stageEventBridge) publishUsageUpdate(ctx context.Context, update acpcli
 		Size int64 `json:"size"`
 		Used int64 `json:"used"`
 	}
-	if json.Unmarshal([]byte(update.RawUpdateJSON), &usage) == nil {
+	if json.Unmarshal(update.RawJSON, &usage) == nil {
 		data["usage_size"] = fmt.Sprintf("%d", usage.Size)
 		data["usage_used"] = fmt.Sprintf("%d", usage.Used)
 	}
 	b.executor.bus.Publish(ctx, core.Event{
-		Type:  core.EventAgentOutput,
-		RunID: b.runID,
-		Stage: b.stage,
-		Agent: b.agentName,
-		Data:  data,
+		Type:      core.EventAgentOutput,
+		RunID:     b.runID,
+		Stage:     b.stage,
+		Agent:     b.agentName,
+		Data:      data,
 		Timestamp: time.Now(),
 	})
 }

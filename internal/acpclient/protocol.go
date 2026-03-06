@@ -1,6 +1,10 @@
 package acpclient
 
-import acpproto "github.com/coder/acp-go-sdk"
+import (
+	"encoding/json"
+
+	acpproto "github.com/coder/acp-go-sdk"
+)
 
 type LaunchConfig struct {
 	Command string
@@ -21,11 +25,18 @@ type PromptResult struct {
 	StopReason acpproto.StopReason `json:"stopReason,omitempty"`
 }
 
+type SessionResult struct {
+	SessionID     acpproto.SessionId
+	ConfigOptions []acpproto.SessionConfigOptionSelect
+}
+
 type SessionUpdate struct {
-	SessionID      string `json:"sessionId"`
-	Type           string `json:"type"`
-	Text           string `json:"text,omitempty"`
-	Status         string `json:"status,omitempty"`
-	RawUpdateJSON  string `json:"rawUpdateJson,omitempty"`
-	RawContentJSON string `json:"rawContentJson,omitempty"`
+	SessionID string          `json:"sessionId"`
+	Type      string          `json:"type"`
+	Text      string          `json:"text,omitempty"`
+	Status    string          `json:"status,omitempty"`
+	RawJSON   json.RawMessage `json:"raw,omitempty"`
+
+	Commands      []acpproto.AvailableCommand          `json:"-"`
+	ConfigOptions []acpproto.SessionConfigOptionSelect `json:"-"`
 }

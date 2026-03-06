@@ -162,6 +162,14 @@ func (c *Client) SupportsSSEMCP() bool {
 }
 
 func (c *Client) NewSession(ctx context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error) {
+	result, err := c.NewSessionResult(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return result.SessionID, nil
+}
+
+func (c *Client) NewSessionResult(ctx context.Context, req acpproto.NewSessionRequest) (SessionResult, error) {
 	if req.McpServers == nil {
 		req.McpServers = []acpproto.McpServer{}
 	}
@@ -173,13 +181,16 @@ func (c *Client) NewSession(ctx context.Context, req acpproto.NewSessionRequest)
 		raw, err = c.transport.Call(ctx, "session/new", reqWithoutMeta)
 	}
 	if err != nil {
-		return "", err
+		return SessionResult{}, err
 	}
 
 	var modern acpproto.NewSessionResponse
 	if err := json.Unmarshal(raw, &modern); err == nil {
 		if trimmed := strings.TrimSpace(string(modern.SessionId)); trimmed != "" {
-			return modern.SessionId, nil
+			return SessionResult{
+				SessionID:     modern.SessionId,
+				ConfigOptions: selectConfigOptions(modern.ConfigOptions),
+			}, nil
 		}
 	}
 
@@ -187,15 +198,23 @@ func (c *Client) NewSession(ctx context.Context, req acpproto.NewSessionRequest)
 		SessionID string `json:"sessionId"`
 	}
 	if err := json.Unmarshal(raw, &legacy); err != nil {
-		return "", fmt.Errorf("decode session/new result: %w", err)
+		return SessionResult{}, fmt.Errorf("decode session/new result: %w", err)
 	}
 	if strings.TrimSpace(legacy.SessionID) == "" {
-		return "", errors.New("session/new returned empty sessionId")
+		return SessionResult{}, errors.New("session/new returned empty sessionId")
 	}
-	return acpproto.SessionId(strings.TrimSpace(legacy.SessionID)), nil
+	return SessionResult{SessionID: acpproto.SessionId(strings.TrimSpace(legacy.SessionID))}, nil
 }
 
 func (c *Client) LoadSession(ctx context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error) {
+	result, err := c.LoadSessionResult(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return result.SessionID, nil
+}
+
+func (c *Client) LoadSessionResult(ctx context.Context, req acpproto.LoadSessionRequest) (SessionResult, error) {
 	if req.McpServers == nil {
 		req.McpServers = []acpproto.McpServer{}
 	}
@@ -207,24 +226,40 @@ func (c *Client) LoadSession(ctx context.Context, req acpproto.LoadSessionReques
 		raw, err = c.transport.Call(ctx, "session/load", reqWithoutMeta)
 	}
 	if err != nil {
-		return "", err
+		return SessionResult{}, err
 	}
 
 	var legacy struct {
 		SessionID string `json:"sessionId"`
 	}
 	if err := json.Unmarshal(raw, &legacy); err == nil && strings.TrimSpace(legacy.SessionID) != "" {
-		return acpproto.SessionId(strings.TrimSpace(legacy.SessionID)), nil
+		return SessionResult{SessionID: acpproto.SessionId(strings.TrimSpace(legacy.SessionID))}, nil
 	}
 
 	var modern acpproto.LoadSessionResponse
 	if err := json.Unmarshal(raw, &modern); err != nil {
-		return "", fmt.Errorf("decode session/load result: %w", err)
+		return SessionResult{}, fmt.Errorf("decode session/load result: %w", err)
 	}
 	if strings.TrimSpace(string(req.SessionId)) == "" {
-		return "", errors.New("session/load returned empty sessionId")
+		return SessionResult{}, errors.New("session/load returned empty sessionId")
 	}
-	return req.SessionId, nil
+	return SessionResult{
+		SessionID:     req.SessionId,
+		ConfigOptions: selectConfigOptions(modern.ConfigOptions),
+	}, nil
+}
+
+func (c *Client) SetConfigOption(ctx context.Context, req acpproto.SetSessionConfigOptionRequest) ([]acpproto.SessionConfigOptionSelect, error) {
+	raw, err := c.transport.Call(ctx, "session/set_config_option", req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp acpproto.SetSessionConfigOptionResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("decode session/set_config_option result: %w", err)
+	}
+	return selectConfigOptions(resp.ConfigOptions), nil
 }
 
 func (c *Client) Prompt(ctx context.Context, req acpproto.PromptRequest) (*PromptResult, error) {
@@ -437,12 +472,11 @@ func (c *Client) handleNotification(ctx context.Context, method string, params j
 	}
 
 	update := SessionUpdate{
-		SessionID:      in.SessionID,
-		Type:           updatePayloadData.SessionUpdate,
-		Text:           text,
-		Status:         updatePayloadData.Status,
-		RawUpdateJSON:  strings.TrimSpace(string(in.Update)),
-		RawContentJSON: strings.TrimSpace(string(updatePayloadData.Content)),
+		SessionID: in.SessionID,
+		Type:      updatePayloadData.SessionUpdate,
+		Text:      text,
+		Status:    updatePayloadData.Status,
+		RawJSON:   json.RawMessage(in.Update),
 	}
 	if c.eventHandler != nil {
 		_ = c.eventHandler.HandleSessionUpdate(ctx, update)
@@ -533,31 +567,23 @@ func decodeACPNotificationFromStruct(notification acpproto.SessionNotification) 
 	updateType := ""
 	text := ""
 	status := ""
-	rawContent := ""
+	commands := []acpproto.AvailableCommand(nil)
+	configOptions := []acpproto.SessionConfigOptionSelect(nil)
 	switch {
 	case notification.Update.AgentMessageChunk != nil:
 		updateType = "agent_message_chunk"
 		if tb := notification.Update.AgentMessageChunk.Content.Text; tb != nil {
 			text = tb.Text
-			if raw, err := json.Marshal(notification.Update.AgentMessageChunk.Content); err == nil {
-				rawContent = strings.TrimSpace(string(raw))
-			}
 		}
 	case notification.Update.AgentThoughtChunk != nil:
 		updateType = "agent_thought_chunk"
 		if tb := notification.Update.AgentThoughtChunk.Content.Text; tb != nil {
 			text = tb.Text
-			if raw, err := json.Marshal(notification.Update.AgentThoughtChunk.Content); err == nil {
-				rawContent = strings.TrimSpace(string(raw))
-			}
 		}
 	case notification.Update.UserMessageChunk != nil:
 		updateType = "user_message_chunk"
 		if tb := notification.Update.UserMessageChunk.Content.Text; tb != nil {
 			text = tb.Text
-			if raw, err := json.Marshal(notification.Update.UserMessageChunk.Content); err == nil {
-				rawContent = strings.TrimSpace(string(raw))
-			}
 		}
 	case notification.Update.ToolCall != nil:
 		updateType = "tool_call"
@@ -571,10 +597,13 @@ func decodeACPNotificationFromStruct(notification acpproto.SessionNotification) 
 		updateType = "plan"
 	case notification.Update.AvailableCommandsUpdate != nil:
 		updateType = "available_commands_update"
+		commands = make([]acpproto.AvailableCommand, len(notification.Update.AvailableCommandsUpdate.AvailableCommands))
+		copy(commands, notification.Update.AvailableCommandsUpdate.AvailableCommands)
 	case notification.Update.CurrentModeUpdate != nil:
 		updateType = "current_mode_update"
 	case notification.Update.ConfigOptionUpdate != nil:
 		updateType = "config_option_update"
+		configOptions = selectConfigOptions(notification.Update.ConfigOptionUpdate.ConfigOptions)
 	case notification.Update.SessionInfoUpdate != nil:
 		updateType = "session_info_update"
 	case notification.Update.UsageUpdate != nil:
@@ -588,13 +617,27 @@ func decodeACPNotificationFromStruct(notification acpproto.SessionNotification) 
 		return SessionUpdate{}, false
 	}
 	return SessionUpdate{
-		SessionID:      sessionID,
-		Type:           updateType,
-		Text:           text,
-		Status:         status,
-		RawUpdateJSON:  strings.TrimSpace(string(rawUpdate)),
-		RawContentJSON: rawContent,
+		SessionID:     sessionID,
+		Type:          updateType,
+		Text:          text,
+		Status:        status,
+		RawJSON:       rawUpdate,
+		Commands:      commands,
+		ConfigOptions: configOptions,
 	}, true
+}
+
+func selectConfigOptions(options []acpproto.SessionConfigOption) []acpproto.SessionConfigOptionSelect {
+	if options == nil {
+		return nil
+	}
+	result := make([]acpproto.SessionConfigOptionSelect, 0, len(options))
+	for _, option := range options {
+		if option.Select != nil {
+			result = append(result, *option.Select)
+		}
+	}
+	return result
 }
 
 func decodeTerminalCreateRequest(params json.RawMessage) (acpproto.CreateTerminalRequest, error) {

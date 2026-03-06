@@ -29,8 +29,11 @@ type ChatRoleResolver interface {
 // ChatACPClient is the minimal ACP session API used by chat assistant.
 type ChatACPClient interface {
 	LoadSession(ctx context.Context, req acpproto.LoadSessionRequest) (acpproto.SessionId, error)
+	LoadSessionResult(ctx context.Context, req acpproto.LoadSessionRequest) (acpclient.SessionResult, error)
 	NewSession(ctx context.Context, req acpproto.NewSessionRequest) (acpproto.SessionId, error)
+	NewSessionResult(ctx context.Context, req acpproto.NewSessionRequest) (acpclient.SessionResult, error)
 	Prompt(ctx context.Context, req acpproto.PromptRequest) (*acpclient.PromptResult, error)
+	SetConfigOption(ctx context.Context, req acpproto.SetSessionConfigOptionRequest) ([]acpproto.SessionConfigOptionSelect, error)
 	Cancel(ctx context.Context, req acpproto.CancelNotification) error
 	Close(ctx context.Context) error
 	SupportsSSEMCP() bool
@@ -71,6 +74,7 @@ type ACPChatAssistant struct {
 type activeChatRun struct {
 	client         ChatACPClient
 	agentSessionID string
+	session        *pooledChatSession
 	cancel         context.CancelFunc
 }
 
@@ -81,6 +85,10 @@ type pooledChatSession struct {
 	roleID    string
 	workDir   string
 	handler   *teamleader.ACPHandler
+
+	stateMu       sync.RWMutex
+	commands      []acpproto.AvailableCommand
+	configOptions []acpproto.SessionConfigOptionSelect
 
 	mu        sync.Mutex
 	idleTimer *time.Timer
@@ -112,6 +120,30 @@ func (p *pooledChatSession) isClosed() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.closed
+}
+
+func (p *pooledChatSession) setCommands(commands []acpproto.AvailableCommand) {
+	p.stateMu.Lock()
+	defer p.stateMu.Unlock()
+	p.commands = append([]acpproto.AvailableCommand(nil), commands...)
+}
+
+func (p *pooledChatSession) getCommands() []acpproto.AvailableCommand {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return append([]acpproto.AvailableCommand(nil), p.commands...)
+}
+
+func (p *pooledChatSession) setConfigOptions(options []acpproto.SessionConfigOptionSelect) {
+	p.stateMu.Lock()
+	defer p.stateMu.Unlock()
+	p.configOptions = append([]acpproto.SessionConfigOptionSelect(nil), options...)
+}
+
+func (p *pooledChatSession) getConfigOptions() []acpproto.SessionConfigOptionSelect {
+	p.stateMu.RLock()
+	defer p.stateMu.RUnlock()
+	return append([]acpproto.SessionConfigOptionSelect(nil), p.configOptions...)
 }
 
 func (p *pooledChatSession) close() {
@@ -215,7 +247,22 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 			return ChatAssistantResponse{}, fmt.Errorf("create acp client: %w", err)
 		}
 
-		session, err := startWebChatSession(
+		pooled = &pooledChatSession{
+			client:  client,
+			roleID:  roleID,
+			workDir: launchCfg.WorkDir,
+			handler: handler,
+		}
+		handler.SetSessionStateCallback(func(commands []acpproto.AvailableCommand, configOptions []acpproto.SessionConfigOptionSelect) {
+			if commands != nil {
+				pooled.setCommands(commands)
+			}
+			if configOptions != nil {
+				pooled.setConfigOptions(configOptions)
+			}
+		})
+
+		sessionResult, err := startWebChatSession(
 			createCtx, client, roleID, role,
 			strings.TrimSpace(req.AgentSessionID),
 			launchCfg.WorkDir, a.deps.MCPEnv, handler,
@@ -224,15 +271,9 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 			closeACPClient(client)
 			return ChatAssistantResponse{}, err
 		}
-		handler.SetSessionID(string(session))
-
-		pooled = &pooledChatSession{
-			client:    client,
-			sessionID: session,
-			roleID:    roleID,
-			workDir:   launchCfg.WorkDir,
-			handler:   handler,
-		}
+		handler.SetSessionID(string(sessionResult.SessionID))
+		pooled.sessionID = sessionResult.SessionID
+		pooled.setConfigOptions(sessionResult.ConfigOptions)
 	}
 
 	// Register active run for cancel support.
@@ -247,6 +288,7 @@ func (a *ACPChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest) 
 		a.setActiveRun(chatSessionID, &activeChatRun{
 			client:         pooled.client,
 			agentSessionID: agentSessionID,
+			session:        pooled,
 			cancel:         promptCancel,
 		})
 		defer a.clearActiveRun(chatSessionID)
@@ -354,9 +396,9 @@ func startWebChatSession(
 	cwd string,
 	mcpEnv teamleader.MCPEnvConfig,
 	handler *teamleader.ACPHandler,
-) (acpproto.SessionId, error) {
+) (acpclient.SessionResult, error) {
 	if client == nil {
-		return "", errors.New("chat acp client is required")
+		return acpclient.SessionResult{}, errors.New("chat acp client is required")
 	}
 
 	metadata := map[string]any{
@@ -365,12 +407,10 @@ func startWebChatSession(
 	trimmedCWD := strings.TrimSpace(cwd)
 	effectiveMCPServers := teamleader.MCPToolsFromRoleConfig(role, mcpEnv, client.SupportsSSEMCP())
 	if sessionID := strings.TrimSpace(persistedSessionID); shouldLoadPersistedChatSession(role.SessionPolicy, sessionID) {
-		// Suppress event publishing during LoadSession to avoid replaying
-		// historical events (thoughts, messages, tool calls) to the frontend.
 		if handler != nil {
 			handler.SetSuppressEvents(true)
 		}
-		loaded, err := client.LoadSession(ctx, acpproto.LoadSessionRequest{
+		loaded, err := client.LoadSessionResult(ctx, acpproto.LoadSessionRequest{
 			SessionId:  acpproto.SessionId(sessionID),
 			Cwd:        trimmedCWD,
 			McpServers: effectiveMCPServers,
@@ -379,18 +419,18 @@ func startWebChatSession(
 		if handler != nil {
 			handler.SetSuppressEvents(false)
 		}
-		if err == nil && strings.TrimSpace(string(loaded)) != "" {
+		if err == nil && strings.TrimSpace(string(loaded.SessionID)) != "" {
 			return loaded, nil
 		}
 	}
 
-	session, err := client.NewSession(ctx, acpproto.NewSessionRequest{
+	session, err := client.NewSessionResult(ctx, acpproto.NewSessionRequest{
 		Cwd:        trimmedCWD,
 		McpServers: effectiveMCPServers,
 		Meta:       metadata,
 	})
 	if err != nil {
-		return "", fmt.Errorf("create chat session: %w", err)
+		return acpclient.SessionResult{}, fmt.Errorf("create chat session: %w", err)
 	}
 	return session, nil
 }
@@ -537,13 +577,59 @@ func (a *ACPChatAssistant) poolSession(chatSessionID string, ps *pooledChatSessi
 
 // IsChatSessionAlive reports whether a pooled ACP session exists for the given chat session.
 func (a *ACPChatAssistant) IsChatSessionAlive(chatSessionID string) bool {
-	ps := a.getPooledSession(chatSessionID)
-	return ps != nil
+	return a.getSessionForAccess(chatSessionID) != nil
 }
 
 // IsChatSessionRunning reports whether the chat session is currently processing a prompt.
 func (a *ACPChatAssistant) IsChatSessionRunning(chatSessionID string) bool {
 	return a.getActiveRun(chatSessionID) != nil
+}
+
+func (a *ACPChatAssistant) GetSessionCommands(chatSessionID string) ([]acpproto.AvailableCommand, error) {
+	ps := a.getSessionForAccess(chatSessionID)
+	if ps == nil {
+		return nil, errChatSessionNotFound
+	}
+	return ps.getCommands(), nil
+}
+
+func (a *ACPChatAssistant) GetSessionConfigOptions(chatSessionID string) ([]acpproto.SessionConfigOptionSelect, error) {
+	ps := a.getSessionForAccess(chatSessionID)
+	if ps == nil {
+		return nil, errChatSessionNotFound
+	}
+	return ps.getConfigOptions(), nil
+}
+
+func (a *ACPChatAssistant) SetSessionConfigOption(ctx context.Context, chatSessionID string, configID string, value string) ([]acpproto.SessionConfigOptionSelect, error) {
+	ps := a.getSessionForAccess(chatSessionID)
+	if ps == nil {
+		return nil, errChatSessionNotFound
+	}
+	options, err := ps.client.SetConfigOption(ctx, acpproto.SetSessionConfigOptionRequest{
+		SessionId: ps.sessionID,
+		ConfigId:  acpproto.SessionConfigId(strings.TrimSpace(configID)),
+		Value:     acpproto.SessionConfigValueId(strings.TrimSpace(value)),
+	})
+	if err != nil {
+		return nil, err
+	}
+	ps.setConfigOptions(options)
+	return ps.getConfigOptions(), nil
+}
+
+func (a *ACPChatAssistant) getSessionForAccess(chatSessionID string) *pooledChatSession {
+	if a == nil {
+		return nil
+	}
+	if ps := a.getPooledSession(chatSessionID); ps != nil {
+		return ps
+	}
+	run := a.getActiveRun(chatSessionID)
+	if run == nil || run.session == nil || run.session.isClosed() {
+		return nil
+	}
+	return run.session
 }
 
 // ShutdownSessions closes all pooled ACP sessions.

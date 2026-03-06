@@ -2,6 +2,7 @@ package teamleader
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -401,12 +402,11 @@ func TestHandleSessionUpdatePublishesMinimalData(t *testing.T) {
 
 	rawUpdate := `{"type":"agent_message","content":[{"type":"text","text":"hello"}]}`
 	err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
-		SessionID:      "acp-session-fallback",
-		Type:           "agent_message",
-		Text:           "hello",
-		Status:         "running",
-		RawUpdateJSON:  rawUpdate,
-		RawContentJSON: `{"text":"ignore-me"}`,
+		SessionID: "acp-session-fallback",
+		Type:      "agent_message",
+		Text:      "hello",
+		Status:    "running",
+		RawJSON:   json.RawMessage(rawUpdate),
 	})
 	if err != nil {
 		t.Fatalf("HandleSessionUpdate() error = %v", err)
@@ -451,10 +451,10 @@ func TestHandleSessionUpdatePersistsNonChunkEvent(t *testing.T) {
 	handler.SetRunEventRecorder(recorder)
 
 	if err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
-		SessionID:     "acp-session-fallback",
-		Type:          "tool_call",
-		Status:        "pending",
-		RawUpdateJSON: `{"sessionUpdate":"tool_call","title":"Terminal","status":"pending"}`,
+		SessionID: "acp-session-fallback",
+		Type:      "tool_call",
+		Status:    "pending",
+		RawJSON:   json.RawMessage(`{"sessionUpdate":"tool_call","title":"Terminal","status":"pending"}`),
 	}); err != nil {
 		t.Fatalf("HandleSessionUpdate() error = %v", err)
 	}
@@ -486,10 +486,10 @@ func TestHandleSessionUpdateSkipsChunkPersistence(t *testing.T) {
 	handler.SetRunEventRecorder(recorder)
 
 	if err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
-		SessionID:     "acp-session-fallback",
-		Type:          "agent_message_chunk",
-		Text:          "hello",
-		RawUpdateJSON: `{"sessionUpdate":"agent_message_chunk","content":{"text":"hello"}}`,
+		SessionID: "acp-session-fallback",
+		Type:      "agent_message_chunk",
+		Text:      "hello",
+		RawJSON:   json.RawMessage(`{"sessionUpdate":"agent_message_chunk","content":{"text":"hello"}}`),
 	}); err != nil {
 		t.Fatalf("HandleSessionUpdate() error = %v", err)
 	}
@@ -552,18 +552,18 @@ func TestHandleSessionUpdateAggregatesChunkPersistence(t *testing.T) {
 			handler.SetRunEventRecorder(recorder)
 
 			if err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
-				SessionID:     "acp-session-fallback",
-				Type:          tc.updateType,
-				Text:          tc.text1,
-				RawUpdateJSON: tc.rawJSON1,
+				SessionID: "acp-session-fallback",
+				Type:      tc.updateType,
+				Text:      tc.text1,
+				RawJSON:   json.RawMessage(tc.rawJSON1),
 			}); err != nil {
 				t.Fatalf("HandleSessionUpdate(first chunk) error = %v", err)
 			}
 			if err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
-				SessionID:     "acp-session-fallback",
-				Type:          tc.updateType,
-				Text:          tc.text2,
-				RawUpdateJSON: tc.rawJSON2,
+				SessionID: "acp-session-fallback",
+				Type:      tc.updateType,
+				Text:      tc.text2,
+				RawJSON:   json.RawMessage(tc.rawJSON2),
 			}); err != nil {
 				t.Fatalf("HandleSessionUpdate(second chunk) error = %v", err)
 			}
@@ -605,19 +605,19 @@ func TestHandleSessionUpdateFlushesPendingChunksBeforeNonChunkEvent(t *testing.T
 	handler.SetRunEventRecorder(recorder)
 
 	if err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
-		SessionID:     "acp-session-fallback",
-		Type:          "agent_thought_chunk",
-		Text:          "thinking",
-		RawUpdateJSON: `{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"thinking"}}`,
+		SessionID: "acp-session-fallback",
+		Type:      "agent_thought_chunk",
+		Text:      "thinking",
+		RawJSON:   json.RawMessage(`{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"thinking"}}`),
 	}); err != nil {
 		t.Fatalf("HandleSessionUpdate(agent_thought_chunk) error = %v", err)
 	}
 
 	if err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
-		SessionID:     "acp-session-fallback",
-		Type:          "tool_call",
-		Status:        "pending",
-		RawUpdateJSON: `{"sessionUpdate":"tool_call","title":"Terminal","status":"pending"}`,
+		SessionID: "acp-session-fallback",
+		Type:      "tool_call",
+		Status:    "pending",
+		RawJSON:   json.RawMessage(`{"sessionUpdate":"tool_call","title":"Terminal","status":"pending"}`),
 	}); err != nil {
 		t.Fatalf("HandleSessionUpdate(tool_call) error = %v", err)
 	}
@@ -631,5 +631,65 @@ func TestHandleSessionUpdateFlushesPendingChunksBeforeNonChunkEvent(t *testing.T
 	}
 	if events[1].UpdateType != "tool_call" {
 		t.Fatalf("second update_type = %q, want %q", events[1].UpdateType, "tool_call")
+	}
+}
+
+func TestHandleSessionUpdateStateCallbackRunsWhenSuppressed(t *testing.T) {
+	pub := &recordingACPEventPublisher{}
+	recorder := &recordingChatRunEventRecorder{}
+	handler := NewACPHandler(t.TempDir(), "agent-session-1", pub)
+	handler.SetProjectID("proj-1")
+	handler.SetChatSessionID("chat-session-1")
+	handler.SetRunEventRecorder(recorder)
+
+	var gotCommands []acpproto.AvailableCommand
+	var gotOptions []acpproto.SessionConfigOptionSelect
+	handler.SetSessionStateCallback(func(commands []acpproto.AvailableCommand, configOptions []acpproto.SessionConfigOptionSelect) {
+		if commands != nil {
+			gotCommands = append([]acpproto.AvailableCommand(nil), commands...)
+		}
+		if configOptions != nil {
+			gotOptions = append([]acpproto.SessionConfigOptionSelect(nil), configOptions...)
+		}
+	})
+	handler.SetSuppressEvents(true)
+
+	err := handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
+		SessionID: "acp-session-1",
+		Type:      "available_commands_update",
+		Commands: []acpproto.AvailableCommand{
+			{Name: "review", Description: "Review current changes"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionUpdate(commands) error = %v", err)
+	}
+	err = handler.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
+		SessionID: "acp-session-1",
+		Type:      "config_option_update",
+		ConfigOptions: []acpproto.SessionConfigOptionSelect{
+			{
+				Type:         "select",
+				Id:           acpproto.SessionConfigId("model"),
+				Name:         "Model",
+				CurrentValue: acpproto.SessionConfigValueId("model-1"),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionUpdate(config) error = %v", err)
+	}
+
+	if len(gotCommands) != 1 || gotCommands[0].Name != "review" {
+		t.Fatalf("state callback commands = %#v, want review command", gotCommands)
+	}
+	if len(gotOptions) != 1 || gotOptions[0].Id != acpproto.SessionConfigId("model") {
+		t.Fatalf("state callback config options = %#v, want model option", gotOptions)
+	}
+	if len(pub.Events()) != 0 {
+		t.Fatalf("suppressed events should not publish, got %#v", pub.Events())
+	}
+	if len(recorder.Events()) != 0 {
+		t.Fatalf("suppressed events should not persist, got %#v", recorder.Events())
 	}
 }

@@ -26,10 +26,10 @@ type fixtureEvent struct {
 }
 
 type fixtureScenario struct {
-	Description string            `json:"description"`
-	SessionID   string            `json:"session_id"`
-	Events      []fixtureEvent    `json:"events"`
-	Result      *fixtureResult    `json:"result,omitempty"`
+	Description string         `json:"description"`
+	SessionID   string         `json:"session_id"`
+	Events      []fixtureEvent `json:"events"`
+	Result      *fixtureResult `json:"result,omitempty"`
 }
 
 type fixtureResult struct {

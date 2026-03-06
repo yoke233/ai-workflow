@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
@@ -203,6 +204,353 @@ func TestListChatSessions(t *testing.T) {
 		if !hit {
 			t.Fatalf("expected session %s in list response", id)
 		}
+	}
+}
+
+func TestGetChatSessionCommands(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-commands",
+		Name:     "chat-commands",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-commands"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	session := &core.ChatSession{
+		ID:        "chat-1",
+		ProjectID: project.ID,
+	}
+	if err := store.CreateChatSession(session); err != nil {
+		t.Fatalf("seed chat session: %v", err)
+	}
+
+	assistant := &stubChatAssistant{
+		commands: []acpproto.AvailableCommand{
+			{Name: "review", Description: "Review current changes"},
+		},
+	}
+	srv := NewServer(Config{Store: store, ChatAssistant: assistant})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-commands/chat/chat-1/commands")
+	if err != nil {
+		t.Fatalf("GET /commands: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var commands []acpproto.AvailableCommand
+	if err := json.NewDecoder(resp.Body).Decode(&commands); err != nil {
+		t.Fatalf("decode commands: %v", err)
+	}
+	if len(commands) != 1 || commands[0].Name != "review" {
+		t.Fatalf("commands = %#v, want review", commands)
+	}
+	if len(assistant.commandRequests) != 1 || assistant.commandRequests[0] != "chat-1" {
+		t.Fatalf("commandRequests = %#v, want [chat-1]", assistant.commandRequests)
+	}
+}
+
+func TestGetChatSessionCommandsRejectsCrossProjectSession(t *testing.T) {
+	store := newTestStore(t)
+	projectA := core.Project{
+		ID:       "proj-chat-a",
+		Name:     "chat-a",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-a"),
+	}
+	projectB := core.Project{
+		ID:       "proj-chat-b",
+		Name:     "chat-b",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-b"),
+	}
+	if err := store.CreateProject(&projectA); err != nil {
+		t.Fatalf("seed project A: %v", err)
+	}
+	if err := store.CreateProject(&projectB); err != nil {
+		t.Fatalf("seed project B: %v", err)
+	}
+	if err := store.CreateChatSession(&core.ChatSession{
+		ID:        "chat-cross",
+		ProjectID: projectB.ID,
+	}); err != nil {
+		t.Fatalf("seed cross-project session: %v", err)
+	}
+
+	assistant := &stubChatAssistant{
+		commands: []acpproto.AvailableCommand{
+			{Name: "review", Description: "Review current changes"},
+		},
+	}
+	srv := NewServer(Config{Store: store, ChatAssistant: assistant})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-a/chat/chat-cross/commands")
+	if err != nil {
+		t.Fatalf("GET /commands: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+	if len(assistant.commandRequests) != 0 {
+		t.Fatalf("assistant should not be called, got %#v", assistant.commandRequests)
+	}
+}
+
+func TestGetChatSessionConfigOptions(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-config-get",
+		Name:     "chat-config-get",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-config-get"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	session := &core.ChatSession{
+		ID:        "chat-config-get-1",
+		ProjectID: project.ID,
+	}
+	if err := store.CreateChatSession(session); err != nil {
+		t.Fatalf("seed chat session: %v", err)
+	}
+
+	assistant := &stubChatAssistant{
+		configOptions: []acpproto.SessionConfigOptionSelect{
+			{
+				Type:         "select",
+				Id:           acpproto.SessionConfigId("model"),
+				Name:         "Model",
+				CurrentValue: acpproto.SessionConfigValueId("model-1"),
+				Options: acpproto.SessionConfigSelectOptions{
+					Ungrouped: &acpproto.SessionConfigSelectOptionsUngrouped{
+						{Name: "Model 1", Value: acpproto.SessionConfigValueId("model-1")},
+						{Name: "Model 2", Value: acpproto.SessionConfigValueId("model-2")},
+					},
+				},
+			},
+		},
+	}
+	srv := NewServer(Config{Store: store, ChatAssistant: assistant})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-config-get/chat/chat-config-get-1/config-options")
+	if err != nil {
+		t.Fatalf("GET /config-options: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var options []acpproto.SessionConfigOptionSelect
+	if err := json.NewDecoder(resp.Body).Decode(&options); err != nil {
+		t.Fatalf("decode config options: %v", err)
+	}
+	if len(options) != 1 || options[0].CurrentValue != acpproto.SessionConfigValueId("model-1") {
+		t.Fatalf("config options = %#v, want model-1", options)
+	}
+	if len(assistant.configRequests) != 1 || assistant.configRequests[0] != "chat-config-get-1" {
+		t.Fatalf("configRequests = %#v, want [chat-config-get-1]", assistant.configRequests)
+	}
+}
+
+func TestGetChatSessionConfigOptionsRejectsCrossProjectSession(t *testing.T) {
+	store := newTestStore(t)
+	projectA := core.Project{
+		ID:       "proj-chat-config-get-a",
+		Name:     "chat-config-get-a",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-config-get-a"),
+	}
+	projectB := core.Project{
+		ID:       "proj-chat-config-get-b",
+		Name:     "chat-config-get-b",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-config-get-b"),
+	}
+	if err := store.CreateProject(&projectA); err != nil {
+		t.Fatalf("seed project A: %v", err)
+	}
+	if err := store.CreateProject(&projectB); err != nil {
+		t.Fatalf("seed project B: %v", err)
+	}
+	if err := store.CreateChatSession(&core.ChatSession{
+		ID:        "chat-cross-config-get",
+		ProjectID: projectB.ID,
+	}); err != nil {
+		t.Fatalf("seed cross-project session: %v", err)
+	}
+
+	assistant := &stubChatAssistant{
+		configOptions: []acpproto.SessionConfigOptionSelect{
+			{
+				Type:         "select",
+				Id:           acpproto.SessionConfigId("model"),
+				Name:         "Model",
+				CurrentValue: acpproto.SessionConfigValueId("model-1"),
+			},
+		},
+	}
+	srv := NewServer(Config{Store: store, ChatAssistant: assistant})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/v1/projects/proj-chat-config-get-a/chat/chat-cross-config-get/config-options")
+	if err != nil {
+		t.Fatalf("GET /config-options: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+	if len(assistant.configRequests) != 0 {
+		t.Fatalf("assistant should not be called, got %#v", assistant.configRequests)
+	}
+}
+
+func TestSetChatSessionConfigOption(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{
+		ID:       "proj-chat-config",
+		Name:     "chat-config",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-config"),
+	}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	session := &core.ChatSession{
+		ID:        "chat-1",
+		ProjectID: project.ID,
+	}
+	if err := store.CreateChatSession(session); err != nil {
+		t.Fatalf("seed chat session: %v", err)
+	}
+
+	assistant := &stubChatAssistant{
+		configOptions: []acpproto.SessionConfigOptionSelect{
+			{
+				Type:         "select",
+				Id:           acpproto.SessionConfigId("model"),
+				Name:         "Model",
+				CurrentValue: acpproto.SessionConfigValueId("model-1"),
+				Options: acpproto.SessionConfigSelectOptions{
+					Ungrouped: &acpproto.SessionConfigSelectOptionsUngrouped{
+						{Name: "Model 1", Value: acpproto.SessionConfigValueId("model-1")},
+						{Name: "Model 2", Value: acpproto.SessionConfigValueId("model-2")},
+					},
+				},
+			},
+		},
+		setConfigResp: []acpproto.SessionConfigOptionSelect{
+			{
+				Type:         "select",
+				Id:           acpproto.SessionConfigId("model"),
+				Name:         "Model",
+				CurrentValue: acpproto.SessionConfigValueId("model-2"),
+				Options: acpproto.SessionConfigSelectOptions{
+					Ungrouped: &acpproto.SessionConfigSelectOptionsUngrouped{
+						{Name: "Model 1", Value: acpproto.SessionConfigValueId("model-1")},
+						{Name: "Model 2", Value: acpproto.SessionConfigValueId("model-2")},
+					},
+				},
+			},
+		},
+	}
+	srv := NewServer(Config{Store: store, ChatAssistant: assistant})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body, err := json.Marshal(map[string]string{
+		"configId": "model",
+		"value":    "model-2",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-chat-config/chat/chat-1/config-options",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		t.Fatalf("POST /config-options: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var options []acpproto.SessionConfigOptionSelect
+	if err := json.NewDecoder(resp.Body).Decode(&options); err != nil {
+		t.Fatalf("decode config options: %v", err)
+	}
+	if len(options) != 1 || options[0].CurrentValue != acpproto.SessionConfigValueId("model-2") {
+		t.Fatalf("config options = %#v, want model-2", options)
+	}
+	if len(assistant.setConfigCalls) != 1 {
+		t.Fatalf("setConfigCalls = %d, want 1", len(assistant.setConfigCalls))
+	}
+	if assistant.setConfigCalls[0].configID != "model" || assistant.setConfigCalls[0].value != "model-2" {
+		t.Fatalf("setConfigCall = %#v, want model/model-2", assistant.setConfigCalls[0])
+	}
+}
+
+func TestSetChatSessionConfigOptionRejectsCrossProjectSession(t *testing.T) {
+	store := newTestStore(t)
+	projectA := core.Project{
+		ID:       "proj-chat-config-a",
+		Name:     "chat-config-a",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-config-a"),
+	}
+	projectB := core.Project{
+		ID:       "proj-chat-config-b",
+		Name:     "chat-config-b",
+		RepoPath: filepath.Join(t.TempDir(), "repo-chat-config-b"),
+	}
+	if err := store.CreateProject(&projectA); err != nil {
+		t.Fatalf("seed project A: %v", err)
+	}
+	if err := store.CreateProject(&projectB); err != nil {
+		t.Fatalf("seed project B: %v", err)
+	}
+	if err := store.CreateChatSession(&core.ChatSession{
+		ID:        "chat-cross-config",
+		ProjectID: projectB.ID,
+	}); err != nil {
+		t.Fatalf("seed cross-project session: %v", err)
+	}
+
+	assistant := &stubChatAssistant{}
+	srv := NewServer(Config{Store: store, ChatAssistant: assistant})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body, err := json.Marshal(map[string]string{
+		"configId": "model",
+		"value":    "model-2",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	resp, err := http.Post(
+		ts.URL+"/api/v1/projects/proj-chat-config-a/chat/chat-cross-config/config-options",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		t.Fatalf("POST /config-options: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+	if len(assistant.setConfigCalls) != 0 {
+		t.Fatalf("assistant should not be called, got %#v", assistant.setConfigCalls)
 	}
 }
 
@@ -1196,10 +1544,23 @@ func TestCreateChatSessionAssistantUnavailableReturnsServiceUnavailable(t *testi
 }
 
 type stubChatAssistant struct {
-	mu       sync.Mutex
-	response ChatAssistantResponse
-	err      error
-	calls    []ChatAssistantRequest
+	mu              sync.Mutex
+	response        ChatAssistantResponse
+	err             error
+	calls           []ChatAssistantRequest
+	commandRequests []string
+	configRequests  []string
+	commands        []acpproto.AvailableCommand
+	configOptions   []acpproto.SessionConfigOptionSelect
+	setConfigResp   []acpproto.SessionConfigOptionSelect
+	setConfigErr    error
+	setConfigCalls  []stubSetConfigCall
+}
+
+type stubSetConfigCall struct {
+	sessionID string
+	configID  string
+	value     string
 }
 
 func (s *stubChatAssistant) Reply(_ context.Context, req ChatAssistantRequest) (ChatAssistantResponse, error) {
@@ -1218,4 +1579,32 @@ func (s *stubChatAssistant) Calls() []ChatAssistantRequest {
 	out := make([]ChatAssistantRequest, len(s.calls))
 	copy(out, s.calls)
 	return out
+}
+
+func (s *stubChatAssistant) GetSessionCommands(sessionID string) ([]acpproto.AvailableCommand, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.commandRequests = append(s.commandRequests, sessionID)
+	return append([]acpproto.AvailableCommand(nil), s.commands...), nil
+}
+
+func (s *stubChatAssistant) GetSessionConfigOptions(sessionID string) ([]acpproto.SessionConfigOptionSelect, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.configRequests = append(s.configRequests, sessionID)
+	return append([]acpproto.SessionConfigOptionSelect(nil), s.configOptions...), nil
+}
+
+func (s *stubChatAssistant) SetSessionConfigOption(_ context.Context, sessionID string, configID string, value string) ([]acpproto.SessionConfigOptionSelect, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.setConfigCalls = append(s.setConfigCalls, stubSetConfigCall{
+		sessionID: sessionID,
+		configID:  configID,
+		value:     value,
+	})
+	if s.setConfigErr != nil {
+		return nil, s.setConfigErr
+	}
+	return append([]acpproto.SessionConfigOptionSelect(nil), s.setConfigResp...), nil
 }

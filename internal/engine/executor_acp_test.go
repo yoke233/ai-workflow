@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -82,8 +83,8 @@ func sendToolCall(t *testing.T, bridge *stageEventBridge, title string) {
 	t.Helper()
 	raw := `{"title":"` + title + `","toolCallId":"call-1","sessionUpdate":"tool_call","status":"in_progress"}`
 	err := bridge.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
-		Type:          "tool_call",
-		RawUpdateJSON: raw,
+		Type:    "tool_call",
+		RawJSON: json.RawMessage(raw),
 	})
 	if err != nil {
 		t.Fatalf("HandleSessionUpdate(tool_call) error: %v", err)
@@ -95,9 +96,9 @@ func sendToolCallCompleted(t *testing.T, bridge *stageEventBridge, stdout string
 	raw := `{"toolCallId":"call-1","sessionUpdate":"tool_call_update","status":"completed","rawOutput":{"exit_code":` +
 		intStr(exitCode) + `,"stdout":"` + stdout + `","stderr":""}}`
 	err := bridge.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
-		Type:          "tool_call_update",
-		Status:        "completed",
-		RawUpdateJSON: raw,
+		Type:    "tool_call_update",
+		Status:  "completed",
+		RawJSON: json.RawMessage(raw),
 	})
 	if err != nil {
 		t.Fatalf("HandleSessionUpdate(tool_call_update) error: %v", err)
@@ -108,15 +109,15 @@ func sendUsage(t *testing.T, bridge *stageEventBridge, size, used int64) {
 	t.Helper()
 	raw := `{"sessionUpdate":"usage_update","size":` + intStr64(size) + `,"used":` + intStr64(used) + `}`
 	err := bridge.HandleSessionUpdate(context.Background(), acpclient.SessionUpdate{
-		Type:          "usage_update",
-		RawUpdateJSON: raw,
+		Type:    "usage_update",
+		RawJSON: json.RawMessage(raw),
 	})
 	if err != nil {
 		t.Fatalf("HandleSessionUpdate(usage_update) error: %v", err)
 	}
 }
 
-func intStr(n int) string   { return fmt.Sprintf("%d", n) }
+func intStr(n int) string     { return fmt.Sprintf("%d", n) }
 func intStr64(n int64) string { return fmt.Sprintf("%d", n) }
 
 // TestBridge_ThoughtFlushOnMessageChunk verifies thought is flushed
@@ -202,13 +203,13 @@ func TestBridge_FullSequence(t *testing.T) {
 
 	persisted := bus.persistable()
 	expected := []string{
-		"agent_thought",      // "I need to create the file"
-		"tool_call",          // "Run touch hello.txt"
+		"agent_thought",       // "I need to create the file"
+		"tool_call",           // "Run touch hello.txt"
 		"tool_call_completed", // exit_code=0
-		"agent_thought",      // "file created, let me confirm"
-		"agent_message",      // "Done! File created."
-		"usage_update",       // size=258400, used=10000
-		"usage_update",       // size=258400, used=11000
+		"agent_thought",       // "file created, let me confirm"
+		"agent_message",       // "Done! File created."
+		"usage_update",        // size=258400, used=10000
+		"usage_update",        // size=258400, used=11000
 	}
 
 	if len(persisted) != len(expected) {

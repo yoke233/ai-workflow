@@ -53,6 +53,11 @@ type cancelChatSessionResponse struct {
 	Status    string `json:"status"`
 }
 
+type setChatSessionConfigOptionRequest struct {
+	ConfigID string `json:"configId"`
+	Value    string `json:"value"`
+}
+
 type listChatSessionEventsResponse struct {
 	SessionID  string              `json:"session_id"`
 	ProjectID  string              `json:"project_id"`
@@ -96,6 +101,9 @@ func registerChatRoutes(r chi.Router, store core.Store, assistant ChatAssistant,
 	r.With(RequireScope(ScopeChatRead)).Get("/projects/{projectID}/chat/{sessionID}/event-groups/{groupID}", h.getSessionEventGroup)
 	r.With(RequireScope(ScopeChatRead)).Get("/projects/{projectID}/chat/{sessionID}/status", h.getSessionStatus)
 	r.With(RequireScope(ScopeChatRead)).Get("/projects/{projectID}/chat/{sessionID}", h.getSession)
+	r.With(RequireScope(ScopeChatRead)).Get("/projects/{projectID}/chat/{sessionID}/commands", h.getSessionCommands)
+	r.With(RequireScope(ScopeChatRead)).Get("/projects/{projectID}/chat/{sessionID}/config-options", h.getSessionConfigOptions)
+	r.With(RequireScope(ScopeChatWrite)).Post("/projects/{projectID}/chat/{sessionID}/config-options", h.setSessionConfigOption)
 	r.With(RequireScope(ScopeChatWrite)).Delete("/projects/{projectID}/chat/{sessionID}", h.deleteSession)
 }
 
@@ -407,6 +415,192 @@ func (h *chatHandlers) getSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, session)
+}
+
+func (h *chatHandlers) getSessionCommands(w http.ResponseWriter, r *http.Request) {
+	if h.assistant == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "chat assistant is not configured", "CHAT_ASSISTANT_UNAVAILABLE")
+		return
+	}
+	if h.store == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
+		return
+	}
+
+	projectID := strings.TrimSpace(chi.URLParam(r, "projectID"))
+	sessionID := strings.TrimSpace(chi.URLParam(r, "sessionID"))
+	if projectID == "" {
+		writeAPIError(w, http.StatusBadRequest, "project id is required", "PROJECT_ID_REQUIRED")
+		return
+	}
+	if sessionID == "" {
+		writeAPIError(w, http.StatusBadRequest, "session id is required", "SESSION_ID_REQUIRED")
+		return
+	}
+	if h.store != nil {
+		if _, err := h.store.GetProject(projectID); err != nil {
+			if isNotFoundError(err) {
+				writeAPIError(w, http.StatusNotFound, fmt.Sprintf("project %s not found", projectID), "PROJECT_NOT_FOUND")
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "failed to load project", "GET_PROJECT_FAILED")
+			return
+		}
+	}
+	session, err := h.store.GetChatSession(sessionID)
+	if err != nil {
+		if isNotFoundError(err) {
+			writeAPIError(w, http.StatusNotFound, fmt.Sprintf("chat session %s not found", sessionID), "CHAT_SESSION_NOT_FOUND")
+			return
+		}
+		writeAPIError(w, http.StatusInternalServerError, "failed to load chat session", "GET_CHAT_SESSION_FAILED")
+		return
+	}
+	if session.ProjectID != projectID {
+		writeAPIError(w, http.StatusNotFound, fmt.Sprintf("chat session %s not found in project %s", sessionID, projectID), "CHAT_SESSION_NOT_FOUND")
+		return
+	}
+
+	commands, err := h.assistant.GetSessionCommands(sessionID)
+	if err != nil {
+		if errors.Is(err, errChatSessionNotFound) {
+			writeAPIError(w, http.StatusNotFound, fmt.Sprintf("chat session %s not found", sessionID), "CHAT_SESSION_NOT_FOUND")
+			return
+		}
+		writeAPIError(w, http.StatusInternalServerError, "failed to load session commands", "GET_SESSION_COMMANDS_FAILED")
+		return
+	}
+	writeJSON(w, http.StatusOK, commands)
+}
+
+func (h *chatHandlers) getSessionConfigOptions(w http.ResponseWriter, r *http.Request) {
+	if h.assistant == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "chat assistant is not configured", "CHAT_ASSISTANT_UNAVAILABLE")
+		return
+	}
+	if h.store == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
+		return
+	}
+
+	projectID := strings.TrimSpace(chi.URLParam(r, "projectID"))
+	sessionID := strings.TrimSpace(chi.URLParam(r, "sessionID"))
+	if projectID == "" {
+		writeAPIError(w, http.StatusBadRequest, "project id is required", "PROJECT_ID_REQUIRED")
+		return
+	}
+	if sessionID == "" {
+		writeAPIError(w, http.StatusBadRequest, "session id is required", "SESSION_ID_REQUIRED")
+		return
+	}
+	if h.store != nil {
+		if _, err := h.store.GetProject(projectID); err != nil {
+			if isNotFoundError(err) {
+				writeAPIError(w, http.StatusNotFound, fmt.Sprintf("project %s not found", projectID), "PROJECT_NOT_FOUND")
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "failed to load project", "GET_PROJECT_FAILED")
+			return
+		}
+	}
+	session, err := h.store.GetChatSession(sessionID)
+	if err != nil {
+		if isNotFoundError(err) {
+			writeAPIError(w, http.StatusNotFound, fmt.Sprintf("chat session %s not found", sessionID), "CHAT_SESSION_NOT_FOUND")
+			return
+		}
+		writeAPIError(w, http.StatusInternalServerError, "failed to load chat session", "GET_CHAT_SESSION_FAILED")
+		return
+	}
+	if session.ProjectID != projectID {
+		writeAPIError(w, http.StatusNotFound, fmt.Sprintf("chat session %s not found in project %s", sessionID, projectID), "CHAT_SESSION_NOT_FOUND")
+		return
+	}
+
+	options, err := h.assistant.GetSessionConfigOptions(sessionID)
+	if err != nil {
+		if errors.Is(err, errChatSessionNotFound) {
+			writeAPIError(w, http.StatusNotFound, fmt.Sprintf("chat session %s not found", sessionID), "CHAT_SESSION_NOT_FOUND")
+			return
+		}
+		writeAPIError(w, http.StatusInternalServerError, "failed to load session config options", "GET_SESSION_CONFIG_OPTIONS_FAILED")
+		return
+	}
+	writeJSON(w, http.StatusOK, options)
+}
+
+func (h *chatHandlers) setSessionConfigOption(w http.ResponseWriter, r *http.Request) {
+	if h.assistant == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "chat assistant is not configured", "CHAT_ASSISTANT_UNAVAILABLE")
+		return
+	}
+	if h.store == nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "store is not configured", "STORE_UNAVAILABLE")
+		return
+	}
+
+	projectID := strings.TrimSpace(chi.URLParam(r, "projectID"))
+	sessionID := strings.TrimSpace(chi.URLParam(r, "sessionID"))
+	if projectID == "" {
+		writeAPIError(w, http.StatusBadRequest, "project id is required", "PROJECT_ID_REQUIRED")
+		return
+	}
+	if sessionID == "" {
+		writeAPIError(w, http.StatusBadRequest, "session id is required", "SESSION_ID_REQUIRED")
+		return
+	}
+	if h.store != nil {
+		if _, err := h.store.GetProject(projectID); err != nil {
+			if isNotFoundError(err) {
+				writeAPIError(w, http.StatusNotFound, fmt.Sprintf("project %s not found", projectID), "PROJECT_NOT_FOUND")
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, "failed to load project", "GET_PROJECT_FAILED")
+			return
+		}
+	}
+	session, err := h.store.GetChatSession(sessionID)
+	if err != nil {
+		if isNotFoundError(err) {
+			writeAPIError(w, http.StatusNotFound, fmt.Sprintf("chat session %s not found", sessionID), "CHAT_SESSION_NOT_FOUND")
+			return
+		}
+		writeAPIError(w, http.StatusInternalServerError, "failed to load chat session", "GET_CHAT_SESSION_FAILED")
+		return
+	}
+	if session.ProjectID != projectID {
+		writeAPIError(w, http.StatusNotFound, fmt.Sprintf("chat session %s not found in project %s", sessionID, projectID), "CHAT_SESSION_NOT_FOUND")
+		return
+	}
+
+	var req setChatSessionConfigOptionRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid json body", "INVALID_JSON")
+		return
+	}
+	req.ConfigID = strings.TrimSpace(req.ConfigID)
+	req.Value = strings.TrimSpace(req.Value)
+	if req.ConfigID == "" {
+		writeAPIError(w, http.StatusBadRequest, "configId is required", "CONFIG_ID_REQUIRED")
+		return
+	}
+	if req.Value == "" {
+		writeAPIError(w, http.StatusBadRequest, "value is required", "CONFIG_VALUE_REQUIRED")
+		return
+	}
+
+	options, err := h.assistant.SetSessionConfigOption(r.Context(), sessionID, req.ConfigID, req.Value)
+	if err != nil {
+		if errors.Is(err, errChatSessionNotFound) {
+			writeAPIError(w, http.StatusNotFound, fmt.Sprintf("chat session %s not found", sessionID), "CHAT_SESSION_NOT_FOUND")
+			return
+		}
+		writeAPIError(w, http.StatusInternalServerError, "failed to set session config option", "SET_SESSION_CONFIG_OPTION_FAILED")
+		return
+	}
+	writeJSON(w, http.StatusOK, options)
 }
 
 func (h *chatHandlers) getSessionStatus(w http.ResponseWriter, r *http.Request) {

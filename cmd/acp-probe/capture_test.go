@@ -24,7 +24,7 @@ import (
 // --- fixture data model ---
 
 type FixtureEvent struct {
-	OffsetMs int64                  `json:"offset_ms"`
+	OffsetMs int64                   `json:"offset_ms"`
 	Update   acpclient.SessionUpdate `json:"update"`
 }
 

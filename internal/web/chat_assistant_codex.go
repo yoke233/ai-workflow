@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	acpproto "github.com/coder/acp-go-sdk"
 )
 
 // CodexChatAssistant starts ACP sessions through role-driven resolver and returns one reply turn.
@@ -48,4 +50,25 @@ func (a *CodexChatAssistant) Reply(ctx context.Context, req ChatAssistantRequest
 		return ChatAssistantResponse{}, errors.New("chat assistant is nil")
 	}
 	return a.assistant.Reply(ctx, req)
+}
+
+func (a *CodexChatAssistant) GetSessionCommands(chatSessionID string) ([]acpproto.AvailableCommand, error) {
+	if a == nil || a.assistant == nil {
+		return nil, errors.New("chat assistant is nil")
+	}
+	return a.assistant.GetSessionCommands(chatSessionID)
+}
+
+func (a *CodexChatAssistant) GetSessionConfigOptions(chatSessionID string) ([]acpproto.SessionConfigOptionSelect, error) {
+	if a == nil || a.assistant == nil {
+		return nil, errors.New("chat assistant is nil")
+	}
+	return a.assistant.GetSessionConfigOptions(chatSessionID)
+}
+
+func (a *CodexChatAssistant) SetSessionConfigOption(ctx context.Context, chatSessionID string, configID string, value string) ([]acpproto.SessionConfigOptionSelect, error) {
+	if a == nil || a.assistant == nil {
+		return nil, errors.New("chat assistant is nil")
+	}
+	return a.assistant.SetSessionConfigOption(ctx, chatSessionID, configID, value)
 }

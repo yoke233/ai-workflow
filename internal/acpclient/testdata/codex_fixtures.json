@@ -1433,6 +1433,32 @@
           }
         }
       ]
+    },
+    "commands_and_config": {
+      "description": "Prompt emits available commands and config option update",
+      "session_id": "fixture-session-commands-config",
+      "events": [
+        {
+          "offset_ms": 5,
+          "update": {
+            "sessionId": "fixture-session-commands-config",
+            "type": "available_commands_update",
+            "rawUpdateJson": "{\"availableCommands\":[{\"description\":\"Review current changes\",\"input\":{\"hint\":\"optional custom review instructions\"},\"name\":\"review\"}],\"sessionUpdate\":\"available_commands_update\"}"
+          }
+        },
+        {
+          "offset_ms": 8,
+          "update": {
+            "sessionId": "fixture-session-commands-config",
+            "type": "config_option_update",
+            "rawUpdateJson": "{\"configOptions\":[{\"type\":\"select\",\"id\":\"model\",\"name\":\"Model\",\"currentValue\":\"model-1\",\"options\":[{\"value\":\"model-1\",\"name\":\"Model 1\"},{\"value\":\"model-2\",\"name\":\"Model 2\"}]}],\"sessionUpdate\":\"config_option_update\"}"
+          }
+        }
+      ],
+      "result": {
+        "text": "commands and config ready",
+        "stop_reason": "end_turn"
+      }
     }
   }
 }
