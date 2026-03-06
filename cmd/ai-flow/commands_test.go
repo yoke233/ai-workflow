@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -18,6 +20,18 @@ import (
 	"github.com/yoke233/ai-workflow/internal/teamleader"
 	"github.com/yoke233/ai-workflow/internal/web"
 )
+
+func TestCLI_HiCommand(t *testing.T) {
+	output := captureStdout(t, func() {
+		if err := runWithArgs([]string{"hi"}); err != nil {
+			t.Fatalf("runWithArgs(hi) error = %v", err)
+		}
+	})
+
+	if output != "hi\n" {
+		t.Fatalf("hi command output = %q, want %q", output, "hi\n")
+	}
+}
 
 func TestCLI_RunActionCommand(t *testing.T) {
 	err := runWithArgs([]string{"Run", "action"})
@@ -484,6 +498,37 @@ func reserveFreePort(t *testing.T) int {
 		t.Fatalf("unexpected listener addr type: %T", ln.Addr())
 	}
 	return addr.Port
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	originalStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
+	os.Stdout = writer
+
+	outputCh := make(chan string, 1)
+	go func() {
+		var buffer bytes.Buffer
+		_, _ = io.Copy(&buffer, reader)
+		outputCh <- buffer.String()
+	}()
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+	os.Stdout = originalStdout
+
+	output := <-outputCh
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close stdout reader: %v", err)
+	}
+	return output
 }
 
 type testAPIServer struct {
