@@ -108,6 +108,17 @@ type Config struct {
 	ProjectRepoProvisioner ProjectRepoProvisioner
 	ProjectReposRoot       string
 	Logger                 *log.Logger
+	RestartFunc            func() // triggers graceful server restart; nil = not supported
+	MCPServerOpts          MCPServerOptions
+}
+
+// MCPServerOptions carries configuration for the embedded MCP server (SSE mode).
+type MCPServerOptions struct {
+	DevMode    bool
+	SourceRoot string
+	ServerAddr string
+	ConfigDir  string
+	DBPath     string
 }
 
 // Server wraps the HTTP server and router for API serving.
@@ -165,7 +176,7 @@ func NewServer(cfg Config) *Server {
 			r.Use(BearerAuthMiddleware(cfg.BearerToken))
 		}
 		registerV3Routes(r, cfg.Store, issueManager, issueParserRoleID, cfg.RunExec, cfg.RunstageRoles,
-			hub, projectRepoProvisioner, cfg.ChatAssistant, cfg.EventPublisher, cfg.BearerToken, webhookReplayer)
+			hub, projectRepoProvisioner, cfg.ChatAssistant, cfg.EventPublisher, cfg.BearerToken, webhookReplayer, cfg.RestartFunc)
 	})
 	if frontendFS != nil {
 		spa := newSPAFallbackHandler(frontendFS)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -23,10 +24,13 @@ func cmdMCPServe() error {
 	}
 	defer store.Close()
 
+	cwd, _ := os.Getwd()
 	server := mcpserver.NewServer(store, mcpserver.Options{
 		DevMode:    os.Getenv("AI_WORKFLOW_DEV_MODE") == "true",
 		SourceRoot: os.Getenv("AI_WORKFLOW_SOURCE_ROOT"),
 		ServerAddr: os.Getenv("AI_WORKFLOW_SERVER_ADDR"),
+		ConfigDir:  filepath.Join(cwd, ".ai-workflow"),
+		DBPath:     dbPath,
 	})
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

@@ -10,6 +10,8 @@ type Options struct {
 	DevMode    bool
 	SourceRoot string // go build working directory
 	ServerAddr string // server HTTP address for self_restart
+	ConfigDir  string // path to .ai-workflow/ directory
+	DBPath     string // SQLite database path
 }
 
 // NewServer creates an MCP server exposing query tools over the given store.
@@ -23,6 +25,7 @@ func NewServer(store core.Store, opts Options) *mcp.Server {
 		nil,
 	)
 	registerQueryTools(server, store)
+	registerSystemInfoTool(server, opts)
 	if opts.DevMode {
 		registerDevTools(server, opts)
 	}

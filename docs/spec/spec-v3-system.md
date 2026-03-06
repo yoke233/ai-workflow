@@ -1,6 +1,6 @@
 # ai-workflow v3 System Specification
 
-> **Status:** Living document. Reflects codebase state as of 2026-03-05 (branch `feat/v22-a2a-refactor`).
+> **Status:** Living document. Reflects codebase state as of 2026-03-06 (branch `main`).
 >
 > **Supersedes:** `spec-overview.md`, `spec-run-engine.md`, `spec-team-leader-layer.md`, `spec-api-config.md`, `spec-agent-drivers.md`, `PLAN.md`.
 
@@ -224,6 +224,8 @@ All domain state changes emit events on the in-process EventBus.
 **Stage execution:**
 `stage_start`, `stage_complete`, `stage_failed`, `human_required`, `run_done`, `run_action_required`, `run_resumed`, `action_applied`, `agent_output`, `run_stuck`
 
+> `agent_output` carries a `subtype` field mapped from ACP session updates: `prompt`, `agent_thought`, `agent_message`, `tool_call`, `tool_call_completed`, `usage_update`, `done`.
+
 **Team Leader:**
 `team_leader_thinking`, `team_leader_files_changed`, `run_started`, `run_update`, `run_completed`, `run_failed`, `run_cancelled`
 
@@ -255,7 +257,9 @@ Executor
   -> stageEventBridge converts session updates -> EventAgentOutput
 ```
 
-**Session pool:** Executor maintains `acpPool[runID:stageID]`. Stages can declare `ReuseSessionFrom` to share sessions (e.g., fixup reuses implement). Pool is cleaned up when the run ends.
+**Session pool:** Executor maintains `acpPool[runID:stageID]`. Stages can declare `ReuseSessionFrom` to share sessions (e.g., fixup reuses implement). Pool is cleaned up when the run ends. **Important:** The pool is also force-cleaned before the `cleanup` stage to release file handles held by ACP processes — required on Windows where open handles prevent worktree removal.
+
+**Event persistence:** `EventPersister` subscribes to all EventBus events and persists non-transient run events to `run_events` table for post-hoc analysis.
 
 ### 3.2 Stage Execution Flow
 
@@ -270,6 +274,7 @@ For each stage in `run.Stages`:
    - `human` -> transition run to `action_required`, return
    - `abort` -> fail the run
 5. After all stages succeed: transition run to `completed` with `ConclusionSuccess`, publish `EventRunDone`.
+6. **Stage summary:** Each completed run exposes an aggregated stage summary via `GET /runs/{id}/stage-summary`, providing per-stage status, duration, and agent info.
 
 ### 3.3 Idle Timeout
 
@@ -315,6 +320,7 @@ Polls for `queued` runs and dispatches them:
 - `maxGlobal` / `maxPerProject` concurrency limits.
 - Busy worktree deduplication (no two runs share a worktree path).
 - CAS mark via `TryMarkRunInProgress` to prevent double-dispatch.
+- **Stuck run recovery:** If `executor.run()` returns an error without calling `failRun()` internally, the scheduler's `tryRecoverStuckRun` transitions the run from `in_progress` to `completed/failure` as a safety net, preventing slot leaks.
 
 ### 4.3 Auto-Merge Flow
 
@@ -434,6 +440,14 @@ All REST endpoints under `/api/v3`. Legacy `/api/v1` (except health and A2A) and
 **Admin**
 - `POST /api/v3/admin/webhooks/replay` — replay webhook
 - `POST /api/v3/admin/force-ready` — force issue to ready (bypass state machine)
+- `POST /api/v3/admin/ops/restart` — trigger graceful server restart (dev/admin)
+
+**Stats**
+- `GET /api/v3/runs/{id}/stage-summary` — aggregated per-stage status/duration
+- `GET /api/v3/stats` — project-level statistics (via MCP `query_project_stats`)
+
+**MCP**
+- `GET/POST /mcp` — MCP SSE endpoint (same server exposes query tools + system info for ACP agents)
 
 **WebSocket**
 - `GET /api/v3/ws` — real-time event stream

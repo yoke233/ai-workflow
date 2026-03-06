@@ -15,7 +15,13 @@ func registerMCPRoutes(r chi.Router, cfg Config) {
 	if cfg.Store == nil {
 		return
 	}
-	server := mcpserver.NewServer(cfg.Store, mcpserver.Options{})
+	server := mcpserver.NewServer(cfg.Store, mcpserver.Options{
+		DevMode:    cfg.MCPServerOpts.DevMode,
+		SourceRoot: cfg.MCPServerOpts.SourceRoot,
+		ServerAddr: cfg.MCPServerOpts.ServerAddr,
+		ConfigDir:  cfg.MCPServerOpts.ConfigDir,
+		DBPath:     cfg.MCPServerOpts.DBPath,
+	})
 	handler := mcp.NewSSEHandler(func(_ *http.Request) *mcp.Server {
 		return server
 	}, nil)

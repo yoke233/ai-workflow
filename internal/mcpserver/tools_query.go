@@ -338,6 +338,54 @@ func queryProjectStatsHandler(store core.Store) func(context.Context, *mcp.CallT
 	}
 }
 
+// --- System info ---
+
+type SystemInfoInput struct{}
+
+type SystemInfoOutput struct {
+	ConfigDir    string            `json:"config_dir"`
+	ConfigFile   string            `json:"config_file"`
+	DefaultsFile string            `json:"defaults_file"`
+	DBPath       string            `json:"db_path"`
+	ServerAddr   string            `json:"server_addr,omitempty"`
+	DevMode      bool              `json:"dev_mode"`
+	SourceRoot   string            `json:"source_root,omitempty"`
+	EditableFiles map[string]string `json:"editable_files"`
+}
+
+func registerSystemInfoTool(server *mcp.Server, opts Options) {
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "get_system_info",
+		Description: "Get ai-workflow system configuration paths and runtime info. Use this to find config files you can read/modify.",
+	}, systemInfoHandler(opts))
+}
+
+func systemInfoHandler(opts Options) func(context.Context, *mcp.CallToolRequest, SystemInfoInput) (*mcp.CallToolResult, any, error) {
+	return func(_ context.Context, _ *mcp.CallToolRequest, _ SystemInfoInput) (*mcp.CallToolResult, any, error) {
+		configFile := ""
+		defaultsFile := "configs/defaults.yaml"
+		if opts.ConfigDir != "" {
+			configFile = opts.ConfigDir + "/config.yaml"
+		}
+		if opts.SourceRoot != "" {
+			defaultsFile = opts.SourceRoot + "/configs/defaults.yaml"
+		}
+		return jsonResult(SystemInfoOutput{
+			ConfigDir:    opts.ConfigDir,
+			ConfigFile:   configFile,
+			DefaultsFile: defaultsFile,
+			DBPath:       opts.DBPath,
+			ServerAddr:   opts.ServerAddr,
+			DevMode:      opts.DevMode,
+			SourceRoot:   opts.SourceRoot,
+			EditableFiles: map[string]string{
+				"project_config": configFile,
+				"defaults":       defaultsFile,
+			},
+		})
+	}
+}
+
 // --- Helpers ---
 
 func jsonResult(v any) (*mcp.CallToolResult, any, error) {

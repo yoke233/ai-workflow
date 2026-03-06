@@ -218,7 +218,7 @@ github:
 
 # Web Server（同时承载 API + WebSocket + GitHub Webhook）
 a2a:
-  enabled: false
+  enabled: true
   token: ""
   version: "0.3"
   # auth:                            # Token 三元模型（Wave 3）

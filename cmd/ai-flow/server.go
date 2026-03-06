@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -141,6 +142,9 @@ func runServer(ctx context.Context, args []string) error {
 		return err
 	}
 
+	cwd, _ := os.Getwd()
+	configDir := filepath.Join(cwd, ".ai-workflow")
+
 	port = resolveServerPort(port, cfg.Server.Port)
 	listenAddr := buildServerAddress(cfg.Server.Host, port)
 
@@ -247,6 +251,14 @@ func runServer(ctx context.Context, args []string) error {
 		return fmt.Errorf("start child completion handler: %w", err)
 	}
 
+	restartCh := make(chan struct{}, 1)
+	restartFunc := func() {
+		select {
+		case restartCh <- struct{}{}:
+		default:
+		}
+	}
+
 	apiSrv := newAPIServer(web.Config{
 		Addr:              listenAddr,
 		AuthEnabled:       cfg.Server.AuthEnabled,
@@ -265,6 +277,12 @@ func runServer(ctx context.Context, args []string) error {
 		IssueParserRoleID: strings.TrimSpace(cfg.RoleBinds.PlanParser.Role),
 		SCM:               bootstrapSet.SCM,
 		Hub:               hub,
+		RestartFunc:       restartFunc,
+		MCPServerOpts: web.MCPServerOptions{
+			DBPath:     expandStorePath(cfg.Store.Path),
+			ServerAddr: "http://" + listenAddr,
+			ConfigDir:  configDir,
+		},
 	})
 
 	serverErrCh := make(chan error, 1)
@@ -282,6 +300,8 @@ func runServer(ctx context.Context, args []string) error {
 		stopErr := scheduler.Stop(stopCtx)
 		stopHandlers(stopCtx, childCompletionHandler, decomposeHandler, tlTriageHandler, autoMerger, eventPersister, wsBroadcaster)
 		return errors.Join(serverErr, managerStopErr, stopErr)
+	case <-restartCh:
+		fmt.Println("Restart signal received, shutting down for restart...")
 	case <-ctx.Done():
 	}
 

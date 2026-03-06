@@ -63,12 +63,13 @@ func registerV3Routes(
 	eventPublisher chatEventPublisher,
 	adminToken string,
 	webhookReplayer WebhookDeliveryReplayer,
+	restartFunc func(),
 ) {
 	r.Get("/stats", handleStats)
 	registerProjectRoutes(r, store, hub, provisioner)
 	registerRepoRoutes(r, store)
 	registerChatRoutes(r, store, chatAssistant, eventPublisher)
-	registerAdminOpsRoutes(r, store, adminToken, webhookReplayer)
+	registerAdminOpsRoutes(r, store, adminToken, webhookReplayer, restartFunc)
 	r.Get("/ws", hub.HandleWS)
 
 	// Issue and run endpoints (v2 handlers)

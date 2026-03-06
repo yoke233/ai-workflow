@@ -19,9 +19,10 @@ import (
 )
 
 type adminOpsHandlers struct {
-	store      core.Store
-	adminToken string
-	replayer   WebhookDeliveryReplayer
+	store       core.Store
+	adminToken  string
+	replayer    WebhookDeliveryReplayer
+	restartFunc func() // called to trigger graceful server restart; nil = not supported
 }
 
 type adminIssueOperationRequest struct {
@@ -61,15 +62,17 @@ type auditRunMeta struct {
 	IssueID   string
 }
 
-func registerAdminOpsRoutes(r chi.Router, store core.Store, adminToken string, replayer WebhookDeliveryReplayer) {
+func registerAdminOpsRoutes(r chi.Router, store core.Store, adminToken string, replayer WebhookDeliveryReplayer, restartFunc func()) {
 	h := &adminOpsHandlers{
-		store:      store,
-		adminToken: strings.TrimSpace(adminToken),
-		replayer:   replayer,
+		store:       store,
+		adminToken:  strings.TrimSpace(adminToken),
+		replayer:    replayer,
+		restartFunc: restartFunc,
 	}
 	r.Post("/admin/ops/force-ready", h.handleForceReady)
 	r.Post("/admin/ops/force-unblock", h.handleForceUnblock)
 	r.Post("/admin/ops/replay-delivery", h.handleReplayDelivery)
+	r.Post("/admin/ops/restart", h.handleRestart)
 	r.Get("/admin/audit-log", h.handleListAuditLog)
 }
 
@@ -149,6 +152,23 @@ func (h *adminOpsHandlers) handleTaskStateMutation(
 		"issue_id": issue.ID,
 		"trace_id": traceID,
 	})
+}
+
+func (h *adminOpsHandlers) handleRestart(w http.ResponseWriter, r *http.Request) {
+	if !h.isAuthorized(r) {
+		writeAPIError(w, http.StatusUnauthorized, "admin operation unauthorized", "ADMIN_UNAUTHORIZED")
+		return
+	}
+	if h.restartFunc == nil {
+		writeAPIError(w, http.StatusNotImplemented, "restart not supported", "RESTART_NOT_SUPPORTED")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status":  "restarting",
+		"message": "server restart initiated",
+	})
+	// Trigger restart after response is flushed.
+	go h.restartFunc()
 }
 
 func (h *adminOpsHandlers) handleReplayDelivery(w http.ResponseWriter, r *http.Request) {
