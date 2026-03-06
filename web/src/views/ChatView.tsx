@@ -1806,7 +1806,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     });
   };
 
-  const handleSwitchSession = async (nextSessionId: string) => {
+  const handleSwitchSession = useCallback(async (nextSessionId: string) => {
     const normalizedSessionID = nextSessionId.trim();
     if (
       !normalizedSessionID ||
@@ -1833,7 +1833,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     await refreshChatRunEvents(projectId, normalizedSessionID, {
       mode: "replace",
     });
-  };
+  }, [chatLoading, projectId, refreshChatRunEvents]);
 
   const handleConnectStageSession = useCallback(
     async (runId: string, stageName: string) => {

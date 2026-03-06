@@ -130,6 +130,7 @@ func (g *PreflightGate) Run(ctx context.Context, sourceRoot string, skipFrontend
 	}
 	if !skipFrontend {
 		steps = append(steps,
+			preflightStep{"frontend lint", "npm", []string{"--prefix", "web", "run", "lint"}},
 			preflightStep{"frontend typecheck", "npm", []string{"--prefix", "web", "run", "typecheck"}},
 			preflightStep{"frontend build", "npm", []string{"--prefix", "web", "run", "build"}},
 		)

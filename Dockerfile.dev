@@ -1,0 +1,48 @@
+# syntax=docker.io/docker/dockerfile:1
+# ── ai-workflow dev image ──
+# Go 1.25 + Node 22 LTS, 国内镜像加速
+
+FROM golang:1.25-bookworm
+
+# ── 系统级国内镜像 ──
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git curl ca-certificates build-essential sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Node.js 22 LTS (清华镜像) ──
+ARG NODE_MAJOR=22
+RUN curl -fsSL https://mirrors.tuna.tsinghua.edu.cn/nodesource/gpgkey/nodesource-repo.gpg.key \
+        | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://mirrors.tuna.tsinghua.edu.cn/nodesource/deb/node_${NODE_MAJOR}.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Go 模块代理 (七牛) ──
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GONOSUMDB=*
+ENV GOFLAGS="-buildvcs=true"
+
+# ── npm 国内镜像 ──
+RUN npm config set registry https://registry.npmmirror.com
+
+# ── 工作目录 ──
+WORKDIR /workspace
+
+# ── 预装 Go 依赖 (利用缓存层) ──
+COPY go.mod go.sum ./
+RUN go mod download
+
+# ── 预装前端依赖 (利用缓存层) ──
+COPY web/package.json web/package-lock.json ./web/
+RUN npm --prefix web ci
+
+# ── 拷贝源码 ──
+COPY . .
+
+# ── 默认启动 ──
+EXPOSE 8080 5173
+CMD ["go", "run", "-tags", "dev", "./cmd/ai-flow", "server", "--port", "8080"]

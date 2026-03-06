@@ -1,0 +1,8 @@
+.git
+.tmp
+.worktrees
+.ai-workflow/data.db
+.ai-workflow/logs
+web/node_modules
+web/dist
+*.exe

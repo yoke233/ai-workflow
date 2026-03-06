@@ -19,18 +19,23 @@ var gate = NewPreflightGate()
 
 func registerDevTools(server *mcp.Server, opts Options) {
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "self_build_frontend",
+		Description: "Build the frontend SPA (npm run build) into web/dist/. Run this before self_build with embed_frontend=true, or independently to update static assets.",
+	}, selfBuildFrontendHandler(opts))
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "self_build",
-		Description: "Build the ai-flow binary from source (dev mode only)",
+		Description: "Build the ai-flow Go binary. Set embed_frontend=true to bake web/dist/ into the binary (requires self_build_frontend first). Always includes -tags dev.",
 	}, selfBuildHandler(opts))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "self_preflight",
-		Description: "Run full quality gate (vet, test, frontend build) before restart. Must pass for the current HEAD commit before self_restart is allowed.",
+		Description: "Run full quality gate (go vet, go build, go test, frontend typecheck+build) before restart. Must pass before self_restart is allowed.",
 	}, selfPreflightHandler(opts))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "self_restart",
-		Description: "Restart the ai-flow server. REQUIRES a successful self_preflight for the current HEAD commit.",
+		Description: "Restart the ai-flow server. REQUIRES a successful self_preflight. Use force=true only for emergencies.",
 	}, selfRestartHandler(opts))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -39,13 +44,51 @@ func registerDevTools(server *mcp.Server, opts Options) {
 	}, selfPreflightStatusHandler(opts))
 }
 
+// --- self_build_frontend ---
+
+type SelfBuildFrontendInput struct{}
+
+type SelfBuildFrontendOutput struct {
+	Success bool   `json:"success"`
+	Output  string `json:"output"`
+}
+
+func selfBuildFrontendHandler(opts Options) func(context.Context, *mcp.CallToolRequest, SelfBuildFrontendInput) (*mcp.CallToolResult, any, error) {
+	return func(ctx context.Context, req *mcp.CallToolRequest, in SelfBuildFrontendInput) (*mcp.CallToolResult, any, error) {
+		if opts.SourceRoot == "" {
+			return errorResult("source_root not configured")
+		}
+
+		cmd := exec.CommandContext(ctx, "npm", "--prefix", "web", "run", "build")
+		cmd.Dir = opts.SourceRoot
+		var buf bytes.Buffer
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+
+		if err := cmd.Run(); err != nil {
+			return jsonResult(SelfBuildFrontendOutput{
+				Success: false,
+				Output:  buf.String(),
+			})
+		}
+
+		return jsonResult(SelfBuildFrontendOutput{
+			Success: true,
+			Output:  buf.String(),
+		})
+	}
+}
+
+// --- self_build ---
+
 type SelfBuildInput struct {
-	Flags []string `json:"flags,omitempty" jsonschema:"Extra go build flags"`
+	EmbedFrontend bool `json:"embed_frontend,omitempty" jsonschema:"Embed web/dist/ into binary (adds -tags webdist). Run self_build_frontend first."`
 }
 
 type SelfBuildOutput struct {
 	Success    bool   `json:"success"`
 	Output     string `json:"output"`
+	Tags       string `json:"tags"`
 	BinarySize int64  `json:"binary_size"`
 }
 
@@ -59,9 +102,12 @@ func selfBuildHandler(opts Options) func(context.Context, *mcp.CallToolRequest, 
 			return nil, nil, fmt.Errorf("resolve executable: %w", err)
 		}
 
-		args := []string{"build", "-o", binaryPath}
-		args = append(args, in.Flags...)
-		args = append(args, "./cmd/ai-flow")
+		tags := "dev"
+		if in.EmbedFrontend {
+			tags = "dev,webdist"
+		}
+
+		args := []string{"build", "-tags", tags, "-o", binaryPath, "./cmd/ai-flow"}
 
 		cmd := exec.CommandContext(ctx, "go", args...)
 		cmd.Dir = opts.SourceRoot
@@ -76,6 +122,7 @@ func selfBuildHandler(opts Options) func(context.Context, *mcp.CallToolRequest, 
 			return jsonResult(SelfBuildOutput{
 				Success: false,
 				Output:  output,
+				Tags:    tags,
 			})
 		}
 
@@ -87,6 +134,7 @@ func selfBuildHandler(opts Options) func(context.Context, *mcp.CallToolRequest, 
 		return jsonResult(SelfBuildOutput{
 			Success:    true,
 			Output:     output,
+			Tags:       tags,
 			BinarySize: size,
 		})
 	}

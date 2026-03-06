@@ -155,11 +155,11 @@ export class WsClient {
       return;
     }
 
-    let envelope: WsEnvelope | null = null;
+    let envelope: WsEnvelope | null;
     try {
       envelope = JSON.parse(event.data) as WsEnvelope;
     } catch {
-      envelope = null;
+      return;
     }
 
     if (envelope && typeof envelope.type === "string") {

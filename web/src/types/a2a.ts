@@ -54,7 +54,7 @@ export interface A2ATaskQueryParams {
   [key: string]: unknown;
 }
 
-export interface A2ATaskIDParams extends A2ATaskQueryParams {}
+export type A2ATaskIDParams = A2ATaskQueryParams;
 
 export interface A2AListTasksParams {
   contextId?: string;
