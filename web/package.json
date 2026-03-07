@@ -16,6 +16,7 @@
     "diff2html": "^3.4.56",
     "react": "18.2.0",
     "react-dom": "18.2.0",
+    "react-syntax-highlighter": "^16.1.1",
     "zustand": "5.0.8"
   },
   "devDependencies": {
@@ -25,6 +26,7 @@
     "@types/node": "20.14.15",
     "@types/react": "18.2.75",
     "@types/react-dom": "18.2.24",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "4.3.1",
     "autoprefixer": "10.4.20",
     "eslint": "^9.39.3",
