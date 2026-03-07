@@ -82,3 +82,9 @@ pwsh -NoProfile -File .\scripts\test\v2-smoke.ps1
 ```powershell
 pwsh -NoProfile -File .\scripts\test\p3-integration.ps1
 ```
+
+## 文档入口
+
+- 当前计划入口：`docs/plans/README.md`
+- 历史计划归档：`docs/archive/plans/README.md`
+- 规格与学习资料：`docs/spec/`、`docs/thinking/`、`docs/learning/`
