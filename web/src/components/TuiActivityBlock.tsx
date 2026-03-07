@@ -60,11 +60,9 @@ export function TuiActivityBlock({
   }, [expanded, activityType, groupId, onExpandGroup]);
 
   const isThought = activityType === "agent_thought";
-  const borderColor = isThought ? "border-violet-300" : "border-slate-300";
-  const bgColor = isThought ? "bg-violet-50" : "bg-slate-100";
 
   return (
-    <div className={`ml-6 my-1 rounded border-l-2 ${borderColor} ${bgColor} px-3 py-2 text-sm`}>
+    <div className="ml-6 my-1 border-l-2 border-slate-200 px-3 py-1 text-sm">
       <div className="flex items-center gap-2">
         {collapsible ? (
           <button
@@ -74,9 +72,13 @@ export function TuiActivityBlock({
             aria-label={expanded ? "收起" : "展开"}
           >
             <span className="select-none">{expanded ? "▼" : "▶"}</span>
-            <span className="font-mono">{getCollapsedPreview(detail)}</span>
-            {!expanded && extraLines > 0 && (
-              <span className="text-slate-400">… +{extraLines} lines</span>
+            {!expanded && (
+              <>
+                <span className="font-mono">{getCollapsedPreview(detail)}</span>
+                {extraLines > 0 && (
+                  <span className="text-slate-400">… +{extraLines} lines</span>
+                )}
+              </>
             )}
           </button>
         ) : (
@@ -96,7 +98,7 @@ export function TuiActivityBlock({
                 <p className="text-xs text-rose-600">加载失败：{groupError}</p>
               ) : groupChildren.length > 0 ? (
                 groupChildren.map((child, idx) => (
-                  <div key={`${child.id}-${idx}`} className="ml-2 rounded border-l border-slate-200 bg-white px-2 py-1">
+                  <div key={`${child.id}-${idx}`} className="ml-2 border-l border-slate-200 px-2 py-1">
                     <p className="text-[10px] text-slate-500">{child.type} · {formatTime(child.time)}</p>
                     <div className="mt-1"><TuiMarkdown content={child.detail} /></div>
                   </div>

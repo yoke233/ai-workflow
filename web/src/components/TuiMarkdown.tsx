@@ -110,7 +110,7 @@ export function TuiMarkdown({ content, keyPrefix = "md" }: TuiMarkdownProps) {
     }
     elements.push(
       <p key={`${keyPrefix}-p-${i}`} className="whitespace-pre-wrap">
-        {parseInlineMarkdown(paraLines.join(" "), `${keyPrefix}-p-${i}`)}
+        {parseInlineMarkdown(paraLines.join("\n"), `${keyPrefix}-p-${i}`)}
       </p>,
     );
   }
