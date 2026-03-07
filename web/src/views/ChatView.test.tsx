@@ -1491,8 +1491,8 @@ describe("ChatView", () => {
 
     await waitFor(() => {
       expect(
-        screen.getAllByRole("button", { name: "收起" }),
-      ).toHaveLength(1);
+        screen.getAllByRole("button", { name: "收起" }).length,
+      ).toBeGreaterThanOrEqual(1);
       expect(screen.getByText(/rawOutput:/)).toBeTruthy();
     });
 

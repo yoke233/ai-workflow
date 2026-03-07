@@ -94,14 +94,26 @@ export function TuiActivityBlock({
       </div>
 
       {(expanded || !collapsible) && (
-        <div className="mt-2">
+        <div className="relative mt-1 max-h-80 overflow-y-auto text-xs">
+          {collapsible && (
+            <div className="sticky top-0 flex justify-end">
+              <button
+                type="button"
+                onClick={handleToggle}
+                className="rounded bg-white/80 px-1.5 py-0.5 text-[10px] text-slate-400 hover:text-slate-700 backdrop-blur-sm"
+                aria-label="收起"
+              >
+                ▲ 收起
+              </button>
+            </div>
+          )}
           {activityType === "tool_call_group" && groupChildren ? (
             <div className="space-y-2">
-              <div className="text-xs text-slate-600">{detail}</div>
+              <div className="text-slate-600">{detail}</div>
               {groupLoading ? (
-                <p className="text-xs text-slate-500">加载中...</p>
+                <p className="text-slate-500">加载中...</p>
               ) : groupError ? (
-                <p className="text-xs text-rose-600">加载失败：{groupError}</p>
+                <p className="text-rose-600">加载失败：{groupError}</p>
               ) : groupChildren.length > 0 ? (
                 groupChildren.map((child, idx) => (
                   <div key={`${child.id}-${idx}`} className="ml-2 border-l border-slate-200 px-2 py-1">
@@ -110,7 +122,7 @@ export function TuiActivityBlock({
                   </div>
                 ))
               ) : (
-                <p className="text-xs text-slate-500">暂无详情</p>
+                <p className="text-slate-500">暂无详情</p>
               )}
             </div>
           ) : (

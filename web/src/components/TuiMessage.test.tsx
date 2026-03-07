@@ -6,20 +6,20 @@ import { TuiMessage } from "./TuiMessage";
 describe("TuiMessage", () => {
   afterEach(() => cleanup());
 
-  it("renders user message with icon prefix and background", () => {
-    const { container } = render(
+  it("renders user message with icon prefix", () => {
+    render(
       <TuiMessage role="user" content="hello" time="2026-01-01T00:00:00Z" />,
     );
     expect(screen.getByText("hello")).toBeTruthy();
-    expect(container.querySelector(".bg-slate-50")).toBeTruthy();
+    expect(screen.getByText("🧑")).toBeTruthy();
   });
 
-  it("renders assistant message with bullet prefix", () => {
+  it("renders assistant message with robot icon", () => {
     render(
       <TuiMessage role="assistant" content="world" time="2026-01-01T00:00:00Z" />,
     );
     expect(screen.getByText("world")).toBeTruthy();
-    expect(screen.getByText("•")).toBeTruthy();
+    expect(screen.getByText("🤖")).toBeTruthy();
   });
 
   it("renders markdown content in assistant message", () => {
