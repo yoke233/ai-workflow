@@ -232,7 +232,7 @@ CREATE INDEX IF NOT EXISTS idx_issue_edges_to ON issue_edges(to_id);
 
 // schemaVersion tracks which migrations have been applied.
 // Bump this when adding new migrations.
-const schemaVersion = 8
+const schemaVersion = 9
 
 func applyMigrations(db *sql.DB) error {
 	if _, err := db.Exec(schemaTables); err != nil {
@@ -290,6 +290,11 @@ func applyMigrations(db *sql.DB) error {
 	if currentVersion < 8 {
 		if err := migrateAddAttachmentURLFields(db); err != nil {
 			return fmt.Errorf("migrate attachment url fields: %w", err)
+		}
+	}
+	if currentVersion < 9 {
+		if err := migrateAddChatSessionAgentName(db); err != nil {
+			return fmt.Errorf("migration v9 (chat_sessions.agent_name): %w", err)
 		}
 	}
 	if err := migrateBackfillLegacyColumns(db); err != nil {
@@ -418,6 +423,7 @@ func migrateBackfillLegacyColumns(db *sql.DB) error {
 		{name: "issues.submitted_by", run: migrateAddSubmittedBy},
 		{name: "checkpoints.agent_session_id", run: migrateAddCheckpointAgentSessionID},
 		{name: "issue_attachments.source_url", run: migrateAddAttachmentURLFields},
+		{name: "chat_sessions.agent_name", run: migrateAddChatSessionAgentName},
 	}
 
 	for _, backfill := range backfills {
@@ -555,6 +561,18 @@ func migrateAddAttachmentURLFields(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+func migrateAddChatSessionAgentName(db *sql.DB) error {
+	has, err := hasColumn(db, "chat_sessions", "agent_name")
+	if err != nil {
+		return err
+	}
+	if has {
+		return nil
+	}
+	_, err = db.Exec(`ALTER TABLE chat_sessions ADD COLUMN agent_name TEXT NOT NULL DEFAULT ''`)
+	return err
 }
 
 func hasTable(db *sql.DB, table string) (bool, error) {

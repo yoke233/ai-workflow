@@ -480,8 +480,8 @@ func (s *SQLiteStore) CreateChatSession(session *core.ChatSession) error {
 		return err
 	}
 	_, err = s.db.Exec(
-		`INSERT INTO chat_sessions (id, project_id, agent_session_id, messages) VALUES (?,?,?,?)`,
-		session.ID, session.ProjectID, session.AgentSessionID, messagesJSON,
+		`INSERT INTO chat_sessions (id, project_id, agent_session_id, agent_name, messages) VALUES (?,?,?,?,?)`,
+		session.ID, session.ProjectID, session.AgentSessionID, session.AgentName, messagesJSON,
 	)
 	return err
 }
@@ -490,9 +490,9 @@ func (s *SQLiteStore) GetChatSession(id string) (*core.ChatSession, error) {
 	session := &core.ChatSession{}
 	var messagesJSON string
 	err := s.db.QueryRow(
-		`SELECT id, project_id, COALESCE(agent_session_id, ''), messages, created_at, updated_at FROM chat_sessions WHERE id=?`,
+		`SELECT id, project_id, COALESCE(agent_session_id, ''), COALESCE(agent_name, ''), messages, created_at, updated_at FROM chat_sessions WHERE id=?`,
 		id,
-	).Scan(&session.ID, &session.ProjectID, &session.AgentSessionID, &messagesJSON, &session.CreatedAt, &session.UpdatedAt)
+	).Scan(&session.ID, &session.ProjectID, &session.AgentSessionID, &session.AgentName, &messagesJSON, &session.CreatedAt, &session.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("chat session %s not found", id)
 	}
@@ -529,7 +529,7 @@ func (s *SQLiteStore) UpdateChatSession(session *core.ChatSession) error {
 
 func (s *SQLiteStore) ListChatSessions(projectID string) ([]core.ChatSession, error) {
 	rows, err := s.db.Query(
-		`SELECT id, project_id, COALESCE(agent_session_id, ''), messages, created_at, updated_at
+		`SELECT id, project_id, COALESCE(agent_session_id, ''), COALESCE(agent_name, ''), messages, created_at, updated_at
 		 FROM chat_sessions
 		 WHERE project_id=?
 		 ORDER BY created_at DESC`,
@@ -546,7 +546,7 @@ func (s *SQLiteStore) ListChatSessions(projectID string) ([]core.ChatSession, er
 			session      core.ChatSession
 			messagesJSON string
 		)
-		if err := rows.Scan(&session.ID, &session.ProjectID, &session.AgentSessionID, &messagesJSON, &session.CreatedAt, &session.UpdatedAt); err != nil {
+		if err := rows.Scan(&session.ID, &session.ProjectID, &session.AgentSessionID, &session.AgentName, &messagesJSON, &session.CreatedAt, &session.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if err := unmarshalJSON(messagesJSON, &session.Messages); err != nil {
