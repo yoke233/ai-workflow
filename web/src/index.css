@@ -15,3 +15,31 @@
 body {
   margin: 0;
 }
+
+/* ── Settings: accent color themes ── */
+:root {
+  --accent: #475569;      /* slate-600 */
+  --accent-dark: #0f172a; /* slate-900 */
+  --font-chat: 0.9375rem; /* 15px — MD default */
+}
+
+[data-theme="ocean"] {
+  --accent: #0284c7;
+  --accent-dark: #0369a1;
+}
+[data-theme="forest"] {
+  --accent: #059669;
+  --accent-dark: #047857;
+}
+[data-theme="amber"] {
+  --accent: #d97706;
+  --accent-dark: #b45309;
+}
+
+[data-font-size="sm"] { --font-chat: 0.8125rem; } /* 13px */
+[data-font-size="lg"] { --font-chat: 1.0625rem; } /* 17px */
+
+/* Utility classes using CSS variables */
+.accent-bg   { background-color: var(--accent-dark); color: #fff; }
+.accent-text { color: var(--accent); }
+.accent-border { border-color: var(--accent); }
