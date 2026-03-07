@@ -28,6 +28,11 @@ import FileTree from "../components/FileTree";
 import GitStatusPanel from "../components/GitStatusPanel";
 import CommandPalette from "../components/CommandPalette";
 import ConfigSelector from "../components/ConfigSelector";
+import { TuiMessage } from "../components/TuiMessage";
+import { TuiActivityBlock } from "../components/TuiActivityBlock";
+import { TuiMarkdown } from "../components/TuiMarkdown";
+import { ScrollNavBar } from "../components/ScrollNavBar";
+import type { ScrollMarker } from "../components/ScrollNavBar";
 import { useChatStore } from "../stores/chatStore";
 
 interface ChatViewProps {
@@ -110,16 +115,6 @@ const CHAT_UPDATE_PARSERS: Record<string, ChatUpdateParser> = {
   agent_message_chunk: (acp) => toChunkValue(acp.content?.text),
   assistant_message_chunk: (acp) => toChunkValue(acp.content?.text),
   message_chunk: (acp) => toChunkValue(acp.content?.text),
-};
-
-const roleLabel: Record<ChatMessage["role"], string> = {
-  user: "用户",
-  assistant: "助手",
-};
-
-const roleStyle: Record<ChatMessage["role"], string> = {
-  user: "bg-slate-900 text-white",
-  assistant: "border border-slate-200 bg-white text-slate-900",
 };
 
 const formatTime = (time: string): string => {
@@ -750,191 +745,6 @@ const getStreamingDelta = (payload: ChatEventPayload): string => {
   return parser(acp);
 };
 
-const parseInlineMarkdown = (text: string, keyPrefix: string) => {
-  const nodes: Array<string | JSX.Element> = [];
-  const pattern =
-    /`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*|(\*[^*]+\*)/g;
-  let lastIndex = 0;
-  let matchIndex = 0;
-  let match = pattern.exec(text);
-  while (match) {
-    const startIndex = match.index;
-    if (startIndex > lastIndex) {
-      nodes.push(text.slice(lastIndex, startIndex));
-    }
-
-    if (match[1]) {
-      nodes.push(
-        <code
-          key={`${keyPrefix}-inline-code-${matchIndex}`}
-          className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[0.9em] text-slate-900"
-        >
-          {match[1]}
-        </code>,
-      );
-    } else if (match[2] && match[3]) {
-      nodes.push(
-        <a
-          key={`${keyPrefix}-link-${matchIndex}`}
-          href={match[3]}
-          target="_blank"
-          rel="noreferrer"
-          className="text-sky-700 underline"
-        >
-          {match[2]}
-        </a>,
-      );
-    } else if (match[4]) {
-      nodes.push(
-        <strong
-          key={`${keyPrefix}-strong-${matchIndex}`}
-          className="font-semibold"
-        >
-          {match[4]}
-        </strong>,
-      );
-    } else if (match[5]) {
-      nodes.push(
-        <em key={`${keyPrefix}-em-${matchIndex}`} className="italic">
-          {match[5].slice(1, -1)}
-        </em>,
-      );
-    }
-
-    lastIndex = startIndex + match[0].length;
-    matchIndex += 1;
-    match = pattern.exec(text);
-  }
-
-  if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex));
-  }
-  if (nodes.length === 0) {
-    nodes.push(text);
-  }
-  return nodes;
-};
-
-const renderBasicMarkdown = (
-  content: string,
-  keyPrefix: string,
-): JSX.Element[] => {
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
-  const elements: JSX.Element[] = [];
-  let index = 0;
-  while (index < lines.length) {
-    const rawLine = lines[index] ?? "";
-    const line = rawLine.trim();
-
-    if (!line) {
-      index += 1;
-      continue;
-    }
-
-    if (line.startsWith("```")) {
-      const codeLines: string[] = [];
-      index += 1;
-      while (
-        index < lines.length &&
-        !(lines[index] ?? "").trim().startsWith("```")
-      ) {
-        codeLines.push(lines[index] ?? "");
-        index += 1;
-      }
-      index += 1;
-      elements.push(
-        <pre
-          key={`${keyPrefix}-code-block-${index}`}
-          className="overflow-x-auto rounded-md bg-slate-900 p-2 text-xs text-slate-100"
-        >
-          <code>{codeLines.join("\n")}</code>
-        </pre>,
-      );
-      continue;
-    }
-
-    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
-    if (headingMatch) {
-      const level = headingMatch[1].length;
-      const headingText = headingMatch[2];
-      const HeadingTag = `h${level}` as keyof JSX.IntrinsicElements;
-      elements.push(
-        <HeadingTag
-          key={`${keyPrefix}-heading-${index}`}
-          className="font-semibold leading-snug"
-        >
-          {parseInlineMarkdown(headingText, `${keyPrefix}-heading-${index}`)}
-        </HeadingTag>,
-      );
-      index += 1;
-      continue;
-    }
-
-    if (/^[-*]\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length) {
-        const candidate = (lines[index] ?? "").trim();
-        const itemMatch = candidate.match(/^[-*]\s+(.+)$/);
-        if (!itemMatch) {
-          break;
-        }
-        items.push(itemMatch[1]);
-        index += 1;
-      }
-      elements.push(
-        <ul
-          key={`${keyPrefix}-list-${index}`}
-          className="list-disc space-y-1 pl-5"
-        >
-          {items.map((item, itemIndex) => (
-            <li key={`${keyPrefix}-item-${index}-${itemIndex}`}>
-              {parseInlineMarkdown(
-                item,
-                `${keyPrefix}-item-${index}-${itemIndex}`,
-              )}
-            </li>
-          ))}
-        </ul>,
-      );
-      continue;
-    }
-
-    const paragraphLines = [line];
-    index += 1;
-    while (index < lines.length) {
-      const nextLine = (lines[index] ?? "").trim();
-      if (
-        !nextLine ||
-        /^#{1,6}\s+/.test(nextLine) ||
-        /^[-*]\s+/.test(nextLine) ||
-        nextLine.startsWith("```")
-      ) {
-        break;
-      }
-      paragraphLines.push(nextLine);
-      index += 1;
-    }
-    const paragraph = paragraphLines.join(" ");
-    elements.push(
-      <p
-        key={`${keyPrefix}-paragraph-${index}`}
-        className="whitespace-pre-wrap"
-      >
-        {parseInlineMarkdown(paragraph, `${keyPrefix}-paragraph-${index}`)}
-      </p>,
-    );
-  }
-
-  if (elements.length === 0) {
-    elements.push(
-      <p key={`${keyPrefix}-empty`} className="whitespace-pre-wrap">
-        {content}
-      </p>,
-    );
-  }
-  return elements;
-};
-
 const getCollapsedPreview = (content: string, maxLength = 160): string => {
   const firstLine =
     content
@@ -947,30 +757,6 @@ const getCollapsedPreview = (content: string, maxLength = 160): string => {
   }
   return `${compact.slice(0, maxLength)}...`;
 };
-
-const ExpandCollapseIcon = ({ expanded }: { expanded: boolean }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    className="h-4 w-4"
-    viewBox="0 0 20 20"
-    fill="currentColor"
-    aria-hidden="true"
-  >
-    {expanded ? (
-      <path
-        fillRule="evenodd"
-        d="M5.23 12.79a.75.75 0 001.06-.02L10 8.832l3.71 3.938a.75.75 0 001.092-1.028l-4.255-4.52a.75.75 0 00-1.094 0l-4.255 4.52a.75.75 0 00.032 1.06z"
-        clipRule="evenodd"
-      />
-    ) : (
-      <path
-        fillRule="evenodd"
-        d="M14.77 7.21a.75.75 0 00-1.06.02L10 11.168 6.29 7.23a.75.75 0 00-1.092 1.028l4.255 4.52a.75.75 0 001.094 0l4.255-4.52a.75.75 0 00-.032-1.06z"
-        clipRule="evenodd"
-      />
-    )}
-  </svg>
-);
 
 const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   const commandsBySessionId = useChatStore((state) => state.commandsBySessionId);
@@ -1013,9 +799,6 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [issueCheckpoints, setIssueCheckpoints] = useState<RunCheckpoint[]>([]);
   const [checkpointsLoading, setCheckpointsLoading] = useState(false);
-  const [expandedActivityCards, setExpandedActivityCards] = useState<
-    Record<string, boolean>
-  >({});
   const [wakingStage, setWakingStage] = useState<string | null>(null);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [updatingConfigId, setUpdatingConfigId] = useState<string | null>(null);
@@ -1057,7 +840,6 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     setIssueList([]);
     setSelectedIssueId(null);
     setIssueCheckpoints([]);
-    setExpandedActivityCards({});
     setSelectedCommandIndex(0);
     setUpdatingConfigId(null);
     setChatLoading(false);
@@ -1168,6 +950,30 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
     });
   }, [runEvents, sessionId, sortedMessages]);
   const hasMessages = timelineItems.length > 0 || isStreaming;
+
+  const userMessageMarkers = useMemo<ScrollMarker[]>(() => {
+    const total = timelineItems.length || 1;
+    return timelineItems
+      .map((item, idx) => ({ item, idx }))
+      .filter(({ item }) => item.kind === "message" && item.role === "user")
+      .map(({ item, idx }) => ({
+        id: item.id,
+        label:
+          item.kind === "message"
+            ? item.content.length > 30
+              ? `${item.content.slice(0, 30)}...`
+              : item.content
+            : "",
+        position: idx / total,
+      }));
+  }, [timelineItems]);
+
+  const handleNavMarkerClick = useCallback((markerId: string) => {
+    const el = document.getElementById(markerId);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
 
   const listChats = apiClient.listChats;
 
@@ -2249,203 +2055,88 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           }}
         />
 
-        <div className="mt-4 h-[30rem] rounded-lg border border-slate-200 bg-slate-50 p-3">
-          {hasMessages ? (
+        {hasMessages ? (
+          <div className="mt-4 flex h-[30rem] rounded-lg border border-slate-200 bg-white">
             <div
               ref={timelineScrollRef}
-              className="flex h-full flex-col gap-3 overflow-y-auto pr-1"
+              className="flex-1 overflow-y-auto font-mono text-sm"
               onScroll={handleTimelineScroll}
             >
               {historyLoadingMore ? (
-                <p className="self-center rounded-full bg-white px-3 py-1 text-xs text-slate-500 shadow-sm">
+                <p className="bg-slate-50 px-4 py-2 text-center text-xs text-slate-500">
                   加载更早记录中...
                 </p>
               ) : historyCursor ? (
-                <p className="self-center text-xs text-slate-400">
+                <p className="px-4 py-1 text-center text-xs text-slate-400">
                   向上滚动可加载更早记录
                 </p>
               ) : null}
-              {timelineItems.map((item, index) => {
+
+              {timelineItems.map((item) => {
                 if (item.kind === "message") {
                   return (
-                    <article
+                    <TuiMessage
                       key={item.id}
-                      className={`max-w-[92%] rounded-lg px-3 py-2 text-sm ${
-                        roleStyle[item.role]
-                      } ${item.role === "user" ? "self-end" : "self-start"}`}
-                    >
-                      <p className="mb-1 text-xs font-semibold opacity-80">
-                        {roleLabel[item.role]} · {formatTime(item.time)}
-                      </p>
-                      <div className="space-y-2">
-                        {renderBasicMarkdown(
-                          item.content,
-                          `${item.time}-${index}`,
-                        )}
-                      </div>
-                    </article>
+                      id={item.id}
+                      role={item.role}
+                      content={item.content}
+                      time={item.time}
+                    />
                   );
                 }
 
-                const activityStyle =
-                  item.activityType === "agent_thought"
-                    ? "self-start border border-violet-200 bg-violet-50 text-violet-950"
-                    : "self-start border border-slate-200 bg-white text-slate-900";
-                const isToolCallCard = item.activityType === "tool_call";
-                const isToolCallGroupCard =
-                  item.activityType === "tool_call_group";
-                const isToolCallLikeCard =
-                  isToolCallCard || isToolCallGroupCard;
-                const isExpanded =
-                  !isToolCallLikeCard ||
-                  expandedActivityCards[item.id] === true;
-                const longToolCall =
-                  isToolCallLikeCard && item.detail.length > 260;
-                const displayedDetail = isExpanded
-                  ? item.detail
-                  : getCollapsedPreview(item.detail);
-                const showHeaderToggle =
-                  isToolCallLikeCard && (!isExpanded || !longToolCall);
                 const groupState = item.groupId
                   ? toolCallGroupStates[item.groupId]
                   : undefined;
 
                 return (
-                  <article
+                  <TuiActivityBlock
                     key={item.id}
-                    data-testid={`chat-activity-card-${item.activityType}`}
-                    className={`max-w-[92%] rounded-lg px-3 py-2 text-sm ${activityStyle}`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="mb-1 text-xs font-semibold opacity-80">
-                        {item.activityType} · {formatTime(item.time)}
-                      </p>
-                      {showHeaderToggle ? (
-                        <button
-                          type="button"
-                          className="shrink-0 rounded border border-slate-300 p-1 text-slate-600 hover:bg-slate-50"
-                          aria-label={
-                            isExpanded ? "收起运行事件" : "展开运行事件"
-                          }
-                          title={isExpanded ? "收起" : "展开"}
-                          onClick={() => {
-                            if (
-                              !isExpanded &&
-                              isToolCallGroupCard &&
-                              item.groupId &&
-                              sessionId
-                            ) {
-                              const existing =
-                                toolCallGroupStates[item.groupId];
-                              if (
-                                !existing ||
-                                (!existing.loading &&
-                                  existing.items.length === 0 &&
-                                  !existing.error)
-                              ) {
-                                void loadToolCallGroup(
-                                  projectId,
-                                  sessionId,
-                                  item.groupId,
-                                );
-                              }
-                            }
-                            setExpandedActivityCards((prev) => ({
-                              ...prev,
-                              [item.id]: !isExpanded,
-                            }));
-                          }}
-                        >
-                          <ExpandCollapseIcon expanded={isExpanded} />
-                        </button>
-                      ) : null}
-                    </div>
-                    {isToolCallLikeCard && isExpanded && longToolCall ? (
-                      <div className="sticky top-2 z-10 mb-2 flex justify-end">
-                        <button
-                          type="button"
-                          className="rounded-full border border-slate-300 bg-white/95 p-1.5 text-slate-700 shadow-sm backdrop-blur hover:bg-white"
-                          aria-label="收起运行事件"
-                          title="收起"
-                          onClick={() => {
-                            setExpandedActivityCards((prev) => ({
-                              ...prev,
-                              [item.id]: false,
-                            }));
-                          }}
-                        >
-                          <ExpandCollapseIcon expanded />
-                        </button>
-                      </div>
-                    ) : null}
-                    {isToolCallGroupCard && isExpanded ? (
-                      <div className="space-y-2">
-                        <div className="rounded-md bg-slate-50 px-2 py-1 text-xs text-slate-600">
-                          {item.detail}
-                        </div>
-                        {groupState?.loading ? (
-                          <p className="text-xs text-slate-500">
-                            正在加载工具调用详情...
-                          </p>
-                        ) : groupState?.error ? (
-                          <p className="text-xs text-rose-600">
-                            加载失败：{groupState.error}
-                          </p>
-                        ) : groupState && groupState.items.length > 0 ? (
-                          groupState.items.map((child, childIndex) => (
-                            <div
-                              key={`${item.id}-group-child-${child.id}-${childIndex}`}
-                              className="rounded-md border border-slate-200 bg-white px-3 py-2"
-                            >
-                              <p className="mb-1 text-[11px] font-semibold text-slate-500">
-                                {child.type} · {formatTime(child.time)}
-                              </p>
-                              <div className="space-y-2">
-                                {renderBasicMarkdown(
-                                  child.detail,
-                                  `${item.id}-${child.id}-${childIndex}`,
-                                )}
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <p className="text-xs text-slate-500">
-                            暂无可展开的工具调用详情。
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {renderBasicMarkdown(
-                          displayedDetail,
-                          `${item.id}-${index}`,
-                        )}
-                      </div>
-                    )}
-                  </article>
+                    activityType={item.activityType}
+                    detail={item.detail}
+                    time={item.time}
+                    groupId={item.groupId}
+                    onExpandGroup={(gid) => {
+                      if (sessionId) {
+                        void loadToolCallGroup(projectId, sessionId, gid);
+                      }
+                    }}
+                    groupChildren={groupState?.items.map((child) => ({
+                      id: child.id,
+                      type: child.type,
+                      detail: child.detail,
+                      time: child.time,
+                    }))}
+                    groupLoading={groupState?.loading}
+                    groupError={groupState?.error}
+                  />
                 );
               })}
+
               {isStreaming ? (
-                <article
-                  className={`max-w-[92%] self-start rounded-lg px-3 py-2 text-sm ${roleStyle.assistant}`}
-                >
-                  <p className="mb-1 text-xs font-semibold opacity-80">
-                    助手 · 输入中...
-                  </p>
-                  <div className="space-y-2">
-                    {renderBasicMarkdown(
-                      streamingText.length > 0 ? streamingText : "...",
-                      "streaming-temp",
-                    )}
+                <div className="border-b border-slate-200 px-4 py-3">
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 select-none text-sm font-bold text-slate-400" aria-hidden>•</span>
+                    <div className="min-w-0 flex-1 text-sm">
+                      <span className="text-xs text-slate-400">输入中...</span>
+                      <div className="mt-1 space-y-2">
+                        <TuiMarkdown content={streamingText.length > 0 ? streamingText : "..."} />
+                      </div>
+                    </div>
                   </div>
-                </article>
+                </div>
               ) : null}
+
               <div ref={messagesEndRef} />
             </div>
-          ) : (
+
+            <ScrollNavBar markers={userMessageMarkers} onMarkerClick={handleNavMarkerClick} />
+          </div>
+        ) : (
+          <div className="mt-4 flex h-[30rem] items-center justify-center rounded-lg border border-slate-200 bg-white">
             <p className="text-sm text-slate-500">当前会话暂无消息。</p>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="mt-4">
           <label

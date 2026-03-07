@@ -313,7 +313,7 @@ describe("ChatView", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("助手 · 输入中...")).toBeTruthy();
+      expect(screen.getByText("输入中...")).toBeTruthy();
       expect(screen.getByText("第一段")).toBeTruthy();
     });
 
@@ -351,7 +351,7 @@ describe("ChatView", () => {
       );
       expect(screen.getAllByText("已完成拆分").length).toBeGreaterThan(0);
     });
-    expect(screen.queryByText("助手 · 输入中...")).toBeNull();
+    expect(screen.queryByText("输入中...")).toBeNull();
     expect(screen.getByRole("button", { name: "发送" })).toBeTruthy();
   });
 
@@ -1131,7 +1131,7 @@ describe("ChatView", () => {
 
     await waitFor(() => {
       expect(
-        screen.getAllByTestId("chat-activity-card-tool_call"),
+        screen.getAllByRole("button", { name: "展开" }),
       ).toHaveLength(1);
     });
 
@@ -1160,7 +1160,7 @@ describe("ChatView", () => {
         },
       );
       expect(
-        screen.getAllByTestId("chat-activity-card-tool_call"),
+        screen.getAllByRole("button", { name: "展开" }),
       ).toHaveLength(1);
       expect(screen.getAllByText(/读取 README/).length).toBeGreaterThanOrEqual(
         1,
@@ -1261,11 +1261,11 @@ describe("ChatView", () => {
 
     await waitFor(() => {
       expect(
-        screen.getAllByTestId("chat-activity-card-tool_call_group"),
+        screen.getAllByRole("button", { name: "展开" }),
       ).toHaveLength(1);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "展开运行事件" }));
+    fireEvent.click(screen.getByRole("button", { name: "展开" }));
 
     await waitFor(() => {
       expect(apiClient.getChatEventGroup).toHaveBeenCalledWith(
@@ -1335,9 +1335,9 @@ describe("ChatView", () => {
 
     await waitFor(() => {
       expect(screen.getByText("运行事件")).toBeTruthy();
-      expect(screen.getAllByText(/tool_call/).length).toBeGreaterThanOrEqual(2);
-      expect(screen.getAllByText(/读取文件/).length).toBeGreaterThanOrEqual(2);
-      expect(screen.getAllByText(/plan/).length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText(/tool_call/).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/读取文件/).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/plan/).length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText(/步骤 1/).length).toBeGreaterThanOrEqual(1);
     });
   });
@@ -1411,15 +1411,15 @@ describe("ChatView", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getAllByText(/tool_call/).length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText(/tool_call/).length).toBeGreaterThanOrEqual(1);
       expect(
         screen.getAllByText(/agent_thought/).length,
-      ).toBeGreaterThanOrEqual(2);
+      ).toBeGreaterThanOrEqual(1);
       expect(
         screen.getAllByText("thinking in detail").length,
-      ).toBeGreaterThanOrEqual(2);
+      ).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText(/读取 README/).length).toBeGreaterThanOrEqual(
-        2,
+        1,
       );
     });
   });
@@ -1483,27 +1483,27 @@ describe("ChatView", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "展开运行事件" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "展开" })).toBeTruthy();
     });
 
-    const toolCallCard = screen.getByTestId("chat-activity-card-tool_call");
-    expect(within(toolCallCard).queryByText(/rawOutput:/)).toBeNull();
+    // tool_call 默认收起，rawOutput 不可见
+    expect(screen.queryByText(/rawOutput:/)).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "展开运行事件" }));
+    fireEvent.click(screen.getByRole("button", { name: "展开" }));
 
     await waitFor(() => {
       expect(
-        screen.getAllByRole("button", { name: "收起运行事件" }),
+        screen.getAllByRole("button", { name: "收起" }),
       ).toHaveLength(1);
-      expect(within(toolCallCard).getByText(/rawOutput:/)).toBeTruthy();
+      expect(screen.getByText(/rawOutput:/)).toBeTruthy();
     });
 
     fireEvent.click(
-      screen.getAllByRole("button", { name: "收起运行事件" })[0]!,
+      screen.getAllByRole("button", { name: "收起" })[0]!,
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "展开运行事件" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "展开" })).toBeTruthy();
     });
   });
 
