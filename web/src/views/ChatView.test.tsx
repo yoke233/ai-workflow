@@ -171,6 +171,7 @@ const createMockApiClient = (): ApiClient => {
   const getSessionCommands = vi.fn().mockResolvedValue([]);
   const getSessionConfigOptions = vi.fn().mockResolvedValue([]);
   const setSessionConfigOption = vi.fn().mockResolvedValue([]);
+  const listAgents = vi.fn().mockResolvedValue({ agents: [{ name: "claude" }, { name: "codex" }] });
 
   return {
     request: vi.fn(),
@@ -203,6 +204,7 @@ const createMockApiClient = (): ApiClient => {
     getSessionCommands,
     getSessionConfigOptions,
     setSessionConfigOption,
+    listAgents,
     getStageSessionStatus: vi
       .fn()
       .mockResolvedValue({ alive: false, session_id: "" }),
@@ -287,9 +289,9 @@ describe("ChatView", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
 
     await waitFor(() => {
-      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
+      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", expect.objectContaining({
         message: "请拆分任务",
-      });
+      }));
     });
     expect(apiClient.listChatRunEvents).not.toHaveBeenCalled();
 
@@ -373,9 +375,9 @@ describe("ChatView", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
 
     await waitFor(() => {
-      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
+      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", expect.objectContaining({
         message: "请开始执行",
-      });
+      }));
     });
 
     wsHarness.emit({
@@ -772,9 +774,9 @@ describe("ChatView", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
 
     await waitFor(() => {
-      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
+      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", expect.objectContaining({
         message: "第一轮",
-      });
+      }));
       expect(screen.getByText("Session ID: chat-1")).toBeTruthy();
     });
 
@@ -824,9 +826,9 @@ describe("ChatView", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
 
     await waitFor(() => {
-      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
+      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", expect.objectContaining({
         message: "请拆分任务",
-      });
+      }));
       expect(screen.getByText("Session ID: chat-1")).toBeTruthy();
     });
 
@@ -1298,9 +1300,9 @@ describe("ChatView", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
 
     await waitFor(() => {
-      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
+      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", expect.objectContaining({
         message: "执行任务",
-      });
+      }));
     });
 
     wsHarness.emit({
@@ -1360,9 +1362,9 @@ describe("ChatView", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
 
     await waitFor(() => {
-      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
+      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", expect.objectContaining({
         message: "执行并展示过程",
-      });
+      }));
     });
 
     wsHarness.emit({
@@ -1442,9 +1444,9 @@ describe("ChatView", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
 
     await waitFor(() => {
-      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
+      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", expect.objectContaining({
         message: "执行超长 tool call",
-      });
+      }));
     });
 
     wsHarness.emit({
@@ -1623,9 +1625,9 @@ describe("ChatView", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
 
     await waitFor(() => {
-      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
+      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", expect.objectContaining({
         message: "执行侧栏截断",
-      });
+      }));
     });
 
     wsHarness.emit({
@@ -1699,9 +1701,9 @@ describe("ChatView", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送并创建会话" }));
 
     await waitFor(() => {
-      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", {
+      expect(apiClient.createChat).toHaveBeenCalledWith("proj-1", expect.objectContaining({
         message: "触发会话",
-      });
+      }));
       expect(screen.getByText("Session ID: chat-1")).toBeTruthy();
     });
 
