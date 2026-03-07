@@ -2148,8 +2148,8 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           <textarea
             id="chat-message"
             ref={messageInputRef}
-            rows={4}
-            className="min-h-[7rem] w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            rows={3}
+            className="min-h-[5rem] w-full resize-y rounded-md border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-sm focus:border-slate-500 focus:outline-none"
             placeholder="请输入要拆分为 issue 的需求..."
             value={draft}
             onKeyDown={handleDraftKeyDown}
@@ -2168,7 +2168,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
           <div className="mt-3 flex justify-end">
             <button
               type="button"
-              className="w-36 rounded-md bg-slate-900 px-4 py-2 text-center text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="w-36 rounded-md border border-slate-300 bg-white px-4 py-2 text-center text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={!canSubmit}
               onClick={() => {
                 if (chatLoading) {
