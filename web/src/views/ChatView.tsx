@@ -2146,6 +2146,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
         <div className="border-t border-slate-200 p-3">
           <textarea
             id="chat-message"
+            aria-label="新消息"
             ref={messageInputRef}
             rows={2}
             className="min-h-[3rem] max-h-[8rem] w-full resize-y rounded border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-sm focus:border-slate-500 focus:outline-none"
@@ -2208,7 +2209,7 @@ const ChatView = ({ apiClient, wsClient, projectId }: ChatViewProps) => {
         <div className="border-b border-slate-200 px-3 py-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">会话</h3>
           <p className="mt-1 break-all font-mono text-[10px] text-slate-500">
-            {sessionId ?? "未创建"}
+            {sessionId ? `Session ID: ${sessionId}` : "未创建"}
           </p>
         </div>
 
