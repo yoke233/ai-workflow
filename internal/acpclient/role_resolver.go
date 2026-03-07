@@ -102,6 +102,30 @@ func (r *RoleResolver) Resolve(roleID string) (AgentProfile, RoleProfile, error)
 	return cloneAgentProfile(agent), cloneRoleProfile(role), nil
 }
 
+// ListAgents returns all registered agent profiles.
+func (r *RoleResolver) ListAgents() []AgentProfile {
+	if r == nil {
+		return nil
+	}
+	result := make([]AgentProfile, 0, len(r.agents))
+	for _, a := range r.agents {
+		result = append(result, cloneAgentProfile(a))
+	}
+	return result
+}
+
+// GetAgent returns a single agent profile by ID.
+func (r *RoleResolver) GetAgent(agentID string) (AgentProfile, error) {
+	if r == nil {
+		return AgentProfile{}, ErrRoleResolverNil
+	}
+	agent, ok := r.agents[agentID]
+	if !ok {
+		return AgentProfile{}, fmt.Errorf("%w: agent %q", ErrAgentNotFound, agentID)
+	}
+	return cloneAgentProfile(agent), nil
+}
+
 func capabilityOverflows(roleCaps ClientCapabilities, maxCaps ClientCapabilities) []string {
 	overflows := make([]string, 0, 3)
 	if roleCaps.FSRead && !maxCaps.FSRead {

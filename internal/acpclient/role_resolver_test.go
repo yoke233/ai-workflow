@@ -99,6 +99,47 @@ func TestResolveRoleMissingRoleReturnsDiagnostic(t *testing.T) {
 	}
 }
 
+func TestRoleResolver_ListAgents(t *testing.T) {
+	agents := []AgentProfile{
+		{ID: "claude", LaunchCommand: "npx", LaunchArgs: []string{"-y", "@zed-industries/claude-agent-acp"}},
+		{ID: "codex", LaunchCommand: "npx", LaunchArgs: []string{"-y", "@zed-industries/codex-acp"}},
+	}
+	roles := []RoleProfile{{ID: "team_leader", AgentID: "claude"}}
+	resolver := NewRoleResolver(agents, roles)
+
+	result := resolver.ListAgents()
+	if len(result) != 2 {
+		t.Fatalf("expected 2 agents, got %d", len(result))
+	}
+	names := map[string]bool{}
+	for _, a := range result {
+		names[a.ID] = true
+	}
+	if !names["claude"] || !names["codex"] {
+		t.Fatalf("expected claude and codex, got %v", names)
+	}
+}
+
+func TestRoleResolver_GetAgent(t *testing.T) {
+	agents := []AgentProfile{
+		{ID: "claude", LaunchCommand: "npx"},
+	}
+	resolver := NewRoleResolver(agents, nil)
+
+	a, err := resolver.GetAgent("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.ID != "claude" {
+		t.Fatalf("expected claude, got %s", a.ID)
+	}
+
+	_, err = resolver.GetAgent("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent agent")
+	}
+}
+
 func TestResolveRoleMissingAgentReturnsDiagnostic(t *testing.T) {
 	resolver := NewRoleResolver(
 		nil,
