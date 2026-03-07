@@ -38,7 +38,14 @@ const ISSUE_RUN_EVENT_TYPES = new Set([
 ]);
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
-const API_TOKEN = import.meta.env.VITE_API_TOKEN || "";
+const TOKEN_STORAGE_KEY = "ai-workflow-api-token";
+
+type TokenSource = "query" | "storage" | "missing";
+
+interface ResolvedToken {
+  token: string | null;
+  source: TokenSource;
+}
 
 const resolveA2AEnabledFromEnv = (): boolean => {
   const raw = String(import.meta.env.VITE_A2A_ENABLED ?? "").trim().toLowerCase();
@@ -58,6 +65,56 @@ const parseViewFromLocation = (): AppView => {
     return "board";
   }
   return "chat";
+};
+
+const readTokenFromStorage = (): string | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const raw = window.localStorage.getItem(TOKEN_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+  const token = raw.trim();
+  return token.length > 0 ? token : null;
+};
+
+const persistTokenToStorage = (token: string): void => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+};
+
+const resolveTokenFromLocation = (): ResolvedToken => {
+  if (typeof window === "undefined") {
+    return { token: null, source: "missing" };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const queryToken = (params.get("token") ?? "").trim();
+  if (queryToken.length > 0) {
+    return { token: queryToken, source: "query" };
+  }
+
+  const storageToken = readTokenFromStorage();
+  if (storageToken) {
+    return { token: storageToken, source: "storage" };
+  }
+
+  return { token: null, source: "missing" };
+};
+
+const cleanupTokenFromUrlToHome = (): void => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete("token");
+  url.searchParams.delete("issue");
+  url.searchParams.set("view", "chat");
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 };
 
 const getErrorMessage = (error: unknown): string => {
@@ -103,11 +160,12 @@ interface AppProps {
 
 const App = ({ a2aEnabledOverride }: AppProps = {}) => {
   const a2aEnabled = a2aEnabledOverride ?? resolveA2AEnabledFromEnv();
+  const tokenRef = useRef<string | null>(null);
   const apiClient = useMemo(
     () =>
       createApiClient({
         baseUrl: API_BASE_URL,
-        getToken: () => API_TOKEN || null,
+        getToken: () => tokenRef.current,
       }),
     [],
   );
@@ -115,7 +173,7 @@ const App = ({ a2aEnabledOverride }: AppProps = {}) => {
     () =>
       createWsClient({
         baseUrl: API_BASE_URL,
-        getToken: () => API_TOKEN || null,
+        getToken: () => tokenRef.current,
       }),
     [],
   );
@@ -123,11 +181,13 @@ const App = ({ a2aEnabledOverride }: AppProps = {}) => {
     () =>
       createA2AClient({
         baseUrl: import.meta.env.VITE_A2A_BASE_URL || "/api/v1",
-        getToken: () => API_TOKEN || null,
+        getToken: () => tokenRef.current,
       }),
     [],
   );
 
+  const [authStatus, setAuthStatus] = useState<"checking" | "ready" | "error">("checking");
+  const [authError, setAuthError] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState<string | null>(null);
@@ -142,38 +202,101 @@ const App = ({ a2aEnabledOverride }: AppProps = {}) => {
     selectedProjectIdRef.current = selectedProjectId;
   }, [selectedProjectId]);
 
+  const applyProjects = useCallback((nextProjects: Project[], preferredProjectId?: string | null) => {
+    setProjects(nextProjects);
+    setSelectedProjectId((current) => {
+      if (
+        preferredProjectId &&
+        nextProjects.some((project) => project.id === preferredProjectId)
+      ) {
+        return preferredProjectId;
+      }
+      if (current && nextProjects.some((project) => project.id === current)) {
+        return current;
+      }
+      return nextProjects[0]?.id ?? null;
+    });
+  }, []);
+
+  const fetchProjects = useCallback(async (): Promise<Project[]> => {
+    const listedProjects = await apiClient.listProjects();
+    return Array.isArray(listedProjects) ? listedProjects : [];
+  }, [apiClient]);
+
   const loadProjects = useCallback(async (preferredProjectId?: string | null) => {
+    if (authStatus !== "ready") {
+      return;
+    }
+
     setProjectsLoading(true);
     setProjectsError(null);
 
     try {
-      const listedProjects = await apiClient.listProjects();
-      const nextProjects = Array.isArray(listedProjects) ? listedProjects : [];
-      setProjects(nextProjects);
-      setSelectedProjectId((current) => {
-        if (
-          preferredProjectId &&
-          nextProjects.some((project) => project.id === preferredProjectId)
-        ) {
-          return preferredProjectId;
-        }
-        if (current && nextProjects.some((project) => project.id === current)) {
-          return current;
-        }
-        return nextProjects[0]?.id ?? null;
-      });
+      const nextProjects = await fetchProjects();
+      applyProjects(nextProjects, preferredProjectId);
     } catch (error) {
       setProjectsError(getErrorMessage(error));
     } finally {
       setProjectsLoading(false);
     }
-  }, [apiClient]);
+  }, [applyProjects, authStatus, fetchProjects]);
 
   useEffect(() => {
-    void loadProjects();
-  }, [loadProjects]);
+    const resolvedToken = resolveTokenFromLocation();
+    if (!resolvedToken.token) {
+      setAuthStatus("error");
+      setAuthError("缺少访问 token，请使用 ?token=xxxx 访问。");
+      return;
+    }
+
+    tokenRef.current = resolvedToken.token;
+
+    let cancelled = false;
+    const bootstrap = async (): Promise<void> => {
+      setAuthStatus("checking");
+      setAuthError(null);
+      setProjectsLoading(true);
+      setProjectsError(null);
+
+      try {
+        const nextProjects = await fetchProjects();
+        if (cancelled) {
+          return;
+        }
+        applyProjects(nextProjects);
+        if (resolvedToken.source === "query" && resolvedToken.token) {
+          persistTokenToStorage(resolvedToken.token);
+          setActiveView("chat");
+          cleanupTokenFromUrlToHome();
+        }
+        setAuthStatus("ready");
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setProjects([]);
+        setSelectedProjectId(null);
+        setAuthStatus("error");
+        setAuthError(`Token 校验失败：${getErrorMessage(error)}`);
+      } finally {
+        if (!cancelled) {
+          setProjectsLoading(false);
+        }
+      }
+    };
+
+    void bootstrap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyProjects, fetchProjects]);
 
   useEffect(() => {
+    if (authStatus !== "ready") {
+      return;
+    }
+
     const unsubscribeStatus = wsClient.onStatusChange((status) => {
       setWsStatus(status);
     });
@@ -201,7 +324,7 @@ const App = ({ a2aEnabledOverride }: AppProps = {}) => {
       unsubscribeStatus();
       wsClient.disconnect(1000, "app_unmount");
     };
-  }, [wsClient]);
+  }, [authStatus, wsClient]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -235,6 +358,26 @@ const App = ({ a2aEnabledOverride }: AppProps = {}) => {
   const selectedProject = selectedProjectId
     ? projects.find((project) => project.id === selectedProjectId) ?? null
     : null;
+
+  if (authStatus !== "ready") {
+    return (
+      <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-900 md:px-6">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+          <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h1 className="text-2xl font-bold">AI Workflow Workbench</h1>
+            <p className="mt-2 text-sm text-slate-600">
+              {authStatus === "checking" ? "正在验证访问 token..." : authError ?? "Token 校验失败"}
+            </p>
+            {authStatus === "error" ? (
+              <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                请使用带 token 的访问链接重新进入，例如：<code>?token=xxxx</code>
+              </p>
+            ) : null}
+          </section>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-900 md:px-6">

@@ -150,6 +150,8 @@ vi.mock("./views/BoardView", () => ({
 
 import App from "./App";
 
+const TOKEN_STORAGE_KEY = "ai-workflow-api-token";
+
 const baseProject = {
   id: "proj-1",
   name: "Alpha",
@@ -161,6 +163,7 @@ const baseProject = {
 describe("App", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/?view=chat");
+    localStorage.setItem(TOKEN_STORAGE_KEY, "local-token");
     mocks.resetState();
     mocks.listProjects.mockReset();
     mocks.createProjectCreateRequest.mockReset();
@@ -204,6 +207,50 @@ describe("App", () => {
 
     fireEvent.change(projectSelect, { target: { value: "proj-2" } });
     expect(projectSelect.value).toBe("proj-2");
+  });
+
+  it("首访缺少 token 时会阻止进入并提示错误", async () => {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    window.history.replaceState(null, "", "/");
+
+    render(<App />);
+
+    expect(
+      screen.getByText("缺少访问 token，请使用 ?token=xxxx 访问。"),
+    ).toBeTruthy();
+    expect(mocks.listProjects).not.toHaveBeenCalled();
+    expect(screen.queryByText("Chat View Mock")).toBeNull();
+  });
+
+  it("URL token 无效时会报错且不会写入本地存储", async () => {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    window.history.replaceState(null, "", "/?token=bad-token&view=board");
+    mocks.listProjects.mockRejectedValueOnce(new Error("unauthorized"));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Token 校验失败：unauthorized")).toBeTruthy();
+    });
+    expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+    expect(window.location.search).toContain("token=bad-token");
+    expect(screen.queryByText("Board View Mock")).toBeNull();
+  });
+
+  it("URL token 有效时会进入首页并缓存到本地存储", async () => {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    window.history.replaceState(null, "", "/?token=good-token&view=board");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mocks.listProjects).toHaveBeenCalledTimes(1);
+    });
+
+    expect(screen.getByText("Chat View Mock")).toBeTruthy();
+    expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("good-token");
+    expect(window.location.search).toBe("?view=chat");
+    expect(window.location.search).not.toContain("token=");
   });
 
   it("创建成功后会刷新项目列表并自动选中新项目", async () => {
