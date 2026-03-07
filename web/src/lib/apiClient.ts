@@ -1,4 +1,5 @@
 import type {
+  AgentListResponse,
   ApiIssue,
   ApiRun,
   ApiWorkflowProfile,
@@ -448,6 +449,7 @@ export interface ApiClient {
     options?: Omit<RequestOptions<never>, "path" | "method">,
   ): Promise<TResponse>;
 
+  listAgents(): Promise<AgentListResponse>;
   getStats(): Promise<ApiStatsResponse>;
   listProjects(): Promise<ListProjectsResponse>;
   createProject(body: CreateProjectRequest): Promise<Project>;
@@ -646,6 +648,8 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         path,
         method: "DELETE",
       }),
+    listAgents: () =>
+      request<AgentListResponse>({ path: "/api/v1/agents" }),
     getStats: () => request<ApiStatsResponse>({ path: "/api/v1/stats" }),
     listProjects: () =>
       request<ListProjectsResponse>({ path: "/api/v1/projects" }),

@@ -45,14 +45,24 @@ export interface GetProjectCreateRequestResponse {
   error?: string;
 }
 
+export interface AgentInfo {
+  name: string;
+}
+
+export interface AgentListResponse {
+  agents: AgentInfo[];
+}
+
 export interface CreateChatRequest {
   message: string;
   session_id?: string;
+  agent_name?: string;
 }
 
 export interface CreateChatResponse {
   session_id: string;
   status: "accepted" | "running" | "queued" | string;
+  agent_name?: string;
 }
 
 export interface CancelChatResponse {
@@ -78,6 +88,7 @@ export interface ChatEventsPageQuery {
 export interface ChatEventsPage {
   session_id: string;
   project_id: string;
+  agent_name?: string;
   updated_at: string;
   messages: ChatMessage[];
   events: ChatRunEvent[];
