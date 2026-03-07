@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/config"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/mcpserver"
@@ -119,6 +120,7 @@ type Config struct {
 	RestartFunc            func() // triggers graceful server restart; nil = not supported
 	MCPServerOpts          MCPServerOptions
 	MCPDeps                MCPDeps
+	RoleResolver           *acpclient.RoleResolver
 }
 
 // MCPDeps carries business-layer dependencies for MCP write tools.
@@ -218,7 +220,7 @@ func NewServer(cfg Config) *Server {
 			issueManager := cfg.IssueManager
 			issueParserRoleID := strings.TrimSpace(cfg.IssueParserRoleID)
 			registerV1Routes(r, cfg.Store, issueManager, issueParserRoleID, cfg.RunExec, cfg.StageSessionMgr, cfg.RunstageRoles,
-				hub, projectRepoProvisioner, cfg.ChatAssistant, cfg.EventPublisher, webhookReplayer, cfg.RestartFunc)
+				hub, projectRepoProvisioner, cfg.ChatAssistant, cfg.EventPublisher, webhookReplayer, cfg.RestartFunc, cfg.RoleResolver)
 		})
 	})
 	if frontendFS != nil {

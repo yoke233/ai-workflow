@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"os"
@@ -24,6 +25,11 @@ import (
 )
 
 const defaultServerPort = 8080
+
+const (
+	defaultFrontendDir = "/opt/ai-workflow/web/dist"
+	frontendDirEnvVar  = "AI_WORKFLOW_FRONTEND_DIR"
+)
 
 type apiServer interface {
 	Start() error
@@ -152,6 +158,10 @@ func runServer(ctx context.Context, args []string) error {
 
 	port = resolveServerPort(port, cfg.Server.Port)
 	listenAddr := buildServerAddress(cfg.Server.Host, port)
+	frontendFS, err := resolveServerFrontendFS()
+	if err != nil {
+		return err
+	}
 
 	scheduler, err := newServerScheduler(exec, store)
 	if err != nil {
@@ -270,6 +280,7 @@ func runServer(ctx context.Context, args []string) error {
 		WebhookSecret:     cfg.GitHub.WebhookSecret,
 		A2AEnabled:        cfg.A2A.Enabled,
 		A2AVersion:        cfg.A2A.Version,
+		Frontend:          frontendFS,
 		Store:             store,
 		A2ABridge:         a2aBridge,
 		IssueManager:      issueManager,
@@ -287,7 +298,8 @@ func runServer(ctx context.Context, args []string) error {
 			ServerAddr: "http://" + listenAddr,
 			ConfigDir:  configDir,
 		},
-		MCPDeps: buildMCPDeps(issueManager, exec, store),
+		MCPDeps:      buildMCPDeps(issueManager, exec, store),
+		RoleResolver: bootstrapSet.RoleResolver,
 	})
 
 	serverErrCh := make(chan error, 1)
@@ -397,6 +409,27 @@ func resolveServerPort(cliPort int, cfgPort int) int {
 		return cfgPort
 	}
 	return defaultServerPort
+}
+
+func resolveServerFrontendFS() (fs.FS, error) {
+	rawDir, hasOverride := os.LookupEnv(frontendDirEnvVar)
+	frontendDir := strings.TrimSpace(rawDir)
+	if frontendDir == "" {
+		frontendDir = defaultFrontendDir
+		hasOverride = false
+	}
+
+	info, err := os.Stat(frontendDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) && !hasOverride {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("resolve frontend dir %q: %w", frontendDir, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("resolve frontend dir %q: not a directory", frontendDir)
+	}
+	return os.DirFS(frontendDir), nil
 }
 
 func buildServerAddress(host string, port int) string {

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
@@ -68,9 +69,15 @@ func registerV1Routes(
 	eventPublisher chatEventPublisher,
 	webhookReplayer WebhookDeliveryReplayer,
 	restartFunc func(),
+	roleResolver *acpclient.RoleResolver,
 ) {
 	r.Get("/stats", handleStats)
 	r.Get("/ws", hub.HandleWS)
+
+	if roleResolver != nil {
+		agentH := &agentHandlers{resolver: roleResolver}
+		r.With(RequireScope(ScopeChatRead)).Get("/agents", agentH.list)
+	}
 
 	registerProjectRoutes(r, store, hub, provisioner)
 	registerRepoRoutes(r, store)
