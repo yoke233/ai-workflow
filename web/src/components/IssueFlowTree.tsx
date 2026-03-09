@@ -13,6 +13,7 @@ export type FlowNode = {
   meta?: string;
   note?: string;
   timestamp?: string;
+  colorClass?: string;
   children: FlowNode[];
 };
 
@@ -39,6 +40,9 @@ const ACTION_LABELS: Record<string, string> = {
   stage_failed: "Stage failed",
   run_completed: "Run completed",
   run_failed: "Run failed",
+  gate_check: "Gate check",
+  gate_passed: "Gate passed",
+  gate_failed: "Gate failed",
 };
 
 const ACTION_ICONS: Record<string, string> = {
@@ -64,6 +68,9 @@ const ACTION_ICONS: Record<string, string> = {
   stage_failed: "SF",
   run_completed: "RD",
   run_failed: "RF",
+  gate_check: "GC",
+  gate_passed: "GP",
+  gate_failed: "GF",
 };
 
 const formatAction = (action: string) => ACTION_LABELS[action] ?? action.replace(/_/g, " ");
@@ -73,14 +80,48 @@ const formatTime = (value: string) => {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 };
 
-const stepLabel = (step: TaskStep) => `${ACTION_ICONS[step.action] ?? "?"} ${formatAction(step.action)}`;
+const GATE_ACTIONS = new Set(["gate_check", "gate_passed", "gate_failed"]);
+
+const extractGateName = (note: string): string => {
+  const match = note?.match(/\[gate:(.+?)\]/);
+  return match ? match[1] : "";
+};
+
+const gateActionColor = (action: string): string => {
+  switch (action) {
+    case "gate_passed":
+      return "text-green-600";
+    case "gate_failed":
+      return "text-red-600";
+    case "gate_check":
+      return "text-amber-600";
+    default:
+      return "";
+  }
+};
+
+const stepLabel = (step: TaskStep) => {
+  const icon = ACTION_ICONS[step.action] ?? "?";
+  const label = formatAction(step.action);
+  if (GATE_ACTIONS.has(step.action)) {
+    const gateName = extractGateName(step.note);
+    return gateName ? `${icon} ${label} [${gateName}]` : `${icon} ${label}`;
+  }
+  return `${icon} ${label}`;
+};
 
 const stepMeta = (step: TaskStep) =>
   [step.agent_id ? `agent: ${step.agent_id}` : "", step.stage_id ? `stage: ${step.stage_id}` : ""]
     .filter(Boolean)
     .join(" · ");
 
-const stepNote = (step: TaskStep) => step.note || (step.ref_id ? `ref: ${step.ref_type || "unknown"}/${step.ref_id}` : "");
+const stepNote = (step: TaskStep) => {
+  const raw = step.note || (step.ref_id ? `ref: ${step.ref_type || "unknown"}/${step.ref_id}` : "");
+  if (GATE_ACTIONS.has(step.action)) {
+    return raw.replace(/\[gate:.+?\]\s*/, "").trim();
+  }
+  return raw;
+};
 
 export const buildFlow = (steps: TaskStep[], issueId: string): FlowNode[] => {
   const ordered = [...steps].sort((left, right) => {
@@ -109,12 +150,14 @@ export const buildFlow = (steps: TaskStep[], issueId: string): FlowNode[] => {
   const issueChildren: FlowNode[] = [];
 
   ordered.forEach((step) => {
+    const color = GATE_ACTIONS.has(step.action) ? gateActionColor(step.action) : undefined;
     const node: FlowNode = {
       id: step.id,
       label: stepLabel(step),
       meta: stepMeta(step),
       note: stepNote(step),
       timestamp: step.created_at,
+      colorClass: color,
       children: [],
     };
 
@@ -161,7 +204,7 @@ function FlowBranch({ node, level }: { node: FlowNode; level: number }) {
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-xs text-[#57606a]">
-            <span className="font-semibold text-[#24292f]">{node.label}</span>
+            <span className={`font-semibold ${node.colorClass ?? "text-[#24292f]"}`}>{node.label}</span>
             {node.meta ? <span>{node.meta}</span> : null}
             {node.timestamp ? <span className="ml-auto">{formatTime(node.timestamp)}</span> : null}
           </div>

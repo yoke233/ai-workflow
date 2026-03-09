@@ -111,6 +111,14 @@ func registerV1Routes(
 		r.With(RequireScope(ScopeRunsWrite)).Post("/runs/{id}/stages/{stage}/session/wake", ssHandlers.wake)
 		r.With(RequireScope(ScopeRunsWrite)).Post("/runs/{id}/stages/{stage}/session/prompt", ssHandlers.prompt)
 	}
+
+	gateH := &gateHandlers{store: store}
+	r.With(RequireScope(ScopeIssuesRead)).Get("/issues/{id}/gates", gateH.listGates)
+	r.With(RequireScope(ScopeIssuesWrite)).Post("/issues/{id}/gates/{gateName}/resolve", gateH.resolveGate)
+
+	decH := &decisionHandlers{store: store}
+	r.With(RequireScope(ScopeIssuesRead)).Get("/issues/{id}/decisions", decH.listIssueDecisions)
+	r.With(RequireScope(ScopeIssuesRead)).Get("/decisions/{id}", decH.getDecision)
 }
 
 // stageSessionHandlers handles stage-level ACP session operations.

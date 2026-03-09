@@ -367,7 +367,10 @@ export type TaskStepAction =
   | "stage_completed"
   | "stage_failed"
   | "run_completed"
-  | "run_failed";
+  | "run_failed"
+  | "gate_check"
+  | "gate_passed"
+  | "gate_failed";
 
 export interface TaskStep {
   id: string;
@@ -474,3 +477,62 @@ export type ListChatRunEventsResponse = ChatEventsPage;
 export type GetChatResponse = ChatSession;
 export type CreateIssueResponse = ApiIssue;
 export type ListAdminAuditLogResponse = PaginatedResponse<AdminAuditLogItem>;
+
+// ---- Gate types ----
+
+export interface Gate {
+  name: string;
+  type: "auto" | "owner_review" | "peer_review" | "vote";
+  rules: string;
+  max_attempts?: number;
+  fallback?: "escalate" | "force_pass" | "abort";
+}
+
+export interface GateCheck {
+  id: string;
+  issue_id: string;
+  gate_name: string;
+  gate_type: string;
+  attempt: number;
+  status: "pending" | "passed" | "failed" | "skipped";
+  reason: string;
+  decision_id?: string;
+  checked_by: string;
+  created_at: string;
+}
+
+export interface GateStatusEntry {
+  name: string;
+  type: string;
+  status: string;
+  attempts: number;
+  checks: GateCheck[];
+}
+
+export interface ListGatesResponse {
+  gates: GateStatusEntry[];
+}
+
+// ---- Decision types ----
+
+export interface Decision {
+  id: string;
+  issue_id: string;
+  run_id?: string;
+  stage_id?: string;
+  agent_id: string;
+  type: string;
+  prompt_hash: string;
+  prompt_preview: string;
+  model: string;
+  action: string;
+  reasoning: string;
+  confidence: number;
+  duration_ms: number;
+  created_at: string;
+}
+
+export interface ListDecisionsResponse {
+  items: Decision[];
+  total: number;
+}

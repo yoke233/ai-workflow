@@ -49,6 +49,9 @@ import type {
   SetIssueAutoMergeRequest,
   SetIssueAutoMergeResponse,
   SubmitIssueReviewResponse,
+  ListGatesResponse,
+  Decision,
+  ListDecisionsResponse,
 } from "../types/api";
 import type { AvailableCommand, ConfigOption, ConfigOptionValue } from "../types/ws";
 import type { Project } from "../types/workflow";
@@ -466,12 +469,15 @@ const taskStepStatusToTimelineTone = (
     case "merge_completed":
     case "stage_completed":
     case "run_completed":
+    case "gate_passed":
       return "success";
     case "review_rejected":
+    case "gate_check":
       return "warning";
     case "failed":
     case "stage_failed":
     case "run_failed":
+    case "gate_failed":
       return "failed";
     case "execution_started":
     case "merge_started":
@@ -672,6 +678,16 @@ export interface ApiClient {
   getRepoStatus(projectId: string): Promise<RepoStatusResponse>;
   getRepoDiff(projectId: string, filePath: string): Promise<RepoDiffResponse>;
   listRunEvents(runId: string): Promise<ListRunEventsResponse>;
+
+  fetchIssueGates(issueId: string): Promise<ListGatesResponse>;
+  resolveGate(
+    issueId: string,
+    gateName: string,
+    action: "pass" | "fail",
+    reason: string,
+  ): Promise<void>;
+  fetchIssueDecisions(issueId: string): Promise<Decision[]>;
+  fetchDecision(decisionId: string): Promise<Decision>;
 }
 
 export const createApiClient = (options: ApiClientOptions): ApiClient => {
@@ -1084,5 +1100,25 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
         total: typeof response.total === "number" ? response.total : 0,
       };
     },
+    fetchIssueGates: (issueId) =>
+      request<ListGatesResponse>({
+        path: `/api/v1/issues/${issueId}/gates`,
+      }),
+    resolveGate: (issueId, gateName, action, reason) =>
+      request<void>({
+        path: `/api/v1/issues/${issueId}/gates/${gateName}/resolve`,
+        method: "POST",
+        body: { action, reason },
+      }),
+    fetchIssueDecisions: async (issueId) => {
+      const response = await request<ListDecisionsResponse>({
+        path: `/api/v1/issues/${issueId}/decisions`,
+      });
+      return Array.isArray(response.items) ? response.items : [];
+    },
+    fetchDecision: (decisionId) =>
+      request<Decision>({
+        path: `/api/v1/decisions/${decisionId}`,
+      }),
   };
 };
