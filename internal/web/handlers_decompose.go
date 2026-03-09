@@ -103,6 +103,7 @@ func (h *decomposeHandlers) confirm(w http.ResponseWriter, r *http.Request) {
 	specs := make([]teamleader.CreateIssueSpec, 0, len(req.Issues))
 	createdRefs := make([]createdIssueRef, 0, len(req.Issues))
 	tempToIssueID := make(map[string]string, len(req.Issues))
+	tempToBlocks := make(map[string][]string, len(req.Issues))
 	for _, item := range req.Issues {
 		tempID := strings.TrimSpace(item.TempID)
 		if tempID == "" {
@@ -114,6 +115,25 @@ func (h *decomposeHandlers) confirm(w http.ResponseWriter, r *http.Request) {
 			issueID = core.NewIssueID()
 		}
 		tempToIssueID[tempID] = issueID
+	}
+	for _, item := range req.Issues {
+		for _, dep := range item.DependsOn {
+			depID := strings.TrimSpace(dep)
+			if depID == "" {
+				continue
+			}
+			realID := strings.TrimSpace(tempToIssueID[depID])
+			if realID == "" {
+				writeAPIError(w, http.StatusBadRequest, "unknown depends_on temp_id: "+depID, "UNKNOWN_DEPENDENCY")
+				return
+			}
+			tempID := strings.TrimSpace(item.TempID)
+			if tempID == "" {
+				writeAPIError(w, http.StatusBadRequest, "temp_id is required", "TEMP_ID_REQUIRED")
+				return
+			}
+			tempToBlocks[depID] = append(tempToBlocks[depID], strings.TrimSpace(tempToIssueID[tempID]))
+		}
 	}
 	for _, item := range req.Issues {
 		tempID := strings.TrimSpace(item.TempID)
@@ -141,6 +161,7 @@ func (h *decomposeHandlers) confirm(w http.ResponseWriter, r *http.Request) {
 			Body:      item.Body,
 			Labels:    append([]string(nil), item.Labels...),
 			DependsOn: resolvedDeps,
+			Blocks:    append([]string(nil), tempToBlocks[tempID]...),
 			Template:  template,
 			AutoMerge: item.AutoMerge,
 		})

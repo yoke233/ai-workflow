@@ -117,6 +117,42 @@ export interface CreateIssueFromFilesRequest {
   file_paths: string[];
 }
 
+export interface DecomposeRequest {
+  prompt: string;
+}
+
+export interface ProposalItem {
+  temp_id: string;
+  title: string;
+  body: string;
+  labels: string[];
+  depends_on: string[];
+  template?: string;
+  auto_merge?: boolean;
+}
+
+export interface DecomposeProposal {
+  proposal_id: string;
+  project_id: string;
+  prompt: string;
+  summary: string;
+  issues: ProposalItem[];
+  created_at?: string;
+}
+
+export interface ConfirmDecomposeRequest {
+  proposal_id: string;
+  issues: ProposalItem[];
+  issue_ids?: Record<string, string>;
+}
+
+export interface ConfirmDecomposeResponse {
+  created_issues: Array<{
+    temp_id: string;
+    issue_id: string;
+  }>;
+}
+
 export interface FileEntry {
   path: string;
   name: string;

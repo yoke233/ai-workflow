@@ -8,8 +8,12 @@ import type {
   ChatEventGroupResponse,
   ChatEventsPageQuery,
   ChatSessionStatus,
+  ConfirmDecomposeRequest,
+  ConfirmDecomposeResponse,
   CreateChatResponse,
   CreateChatRequest,
+  DecomposeProposal,
+  DecomposeRequest,
   CreateIssueFromFilesRequest,
   CreateIssueRequest,
   CreateIssueResponse,
@@ -582,6 +586,14 @@ export interface ApiClient {
     projectId: string,
     body: CreateIssueRequest,
   ): Promise<CreateIssueResponse>;
+  decompose(
+    projectId: string,
+    body: DecomposeRequest,
+  ): Promise<DecomposeProposal>;
+  confirmDecompose(
+    projectId: string,
+    body: ConfirmDecomposeRequest,
+  ): Promise<ConfirmDecomposeResponse>;
   createIssueFromFiles(
     projectId: string,
     body: CreateIssueFromFilesRequest,
@@ -874,6 +886,18 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       });
       return normalizeApiIssue(response);
     },
+    decompose: (projectId, body) =>
+      request<DecomposeProposal, DecomposeRequest>({
+        path: `/api/v1/projects/${projectId}/decompose`,
+        method: "POST",
+        body,
+      }),
+    confirmDecompose: (projectId, body) =>
+      request<ConfirmDecomposeResponse, ConfirmDecomposeRequest>({
+        path: `/api/v1/projects/${projectId}/decompose/confirm`,
+        method: "POST",
+        body,
+      }),
     createIssueFromFiles: async (projectId, body) => {
       const response = await request<
         CreateIssueResponse,

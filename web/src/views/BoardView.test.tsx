@@ -6,6 +6,42 @@ import BoardView, { groupBoardTasks, toBoardStatus, type BoardTask } from "./Boa
 import type { ApiClient } from "../lib/apiClient";
 import type { ApiIssue, IssueTimelineEntry } from "../types/api";
 
+vi.mock("../components/DagPreview", () => ({
+  default: ({
+    items,
+    summary,
+    loading,
+    onConfirm,
+    onCancel,
+  }: {
+    items: Array<{ temp_id: string; title: string }>;
+    summary: string;
+    loading?: boolean;
+    onConfirm: (items: Array<{ temp_id: string; title: string }>) => void;
+    onCancel: () => void;
+  }) => (
+    <div data-testid="dag-preview">
+      <div>{summary}</div>
+      <button
+        type="button"
+        onClick={() => {
+          onConfirm(items);
+        }}
+        disabled={loading}
+      >
+        confirm dag
+      </button>
+      <button type="button" onClick={onCancel}>
+        cancel dag
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock("../components/IssueFlowTree", () => ({
+  default: () => <div data-testid="issue-flow-tree" />,
+}));
+
 const buildIssue = (overrides?: Partial<ApiIssue>): ApiIssue => {
   return {
     id: "issue-1",
@@ -57,6 +93,34 @@ const createMockApiClient = (): ApiClient => {
     cancelChat: vi.fn(),
     getChat: vi.fn(),
     createIssue: vi.fn(),
+    decompose: vi.fn().mockResolvedValue({
+      proposal_id: "prop-1",
+      project_id: "proj-1",
+      prompt: "做一个用户注册系统",
+      summary: "拆成两个依赖任务",
+      issues: [
+        {
+          temp_id: "A",
+          title: "设计 schema",
+          body: "设计用户表",
+          labels: ["backend"],
+          depends_on: [],
+        },
+        {
+          temp_id: "B",
+          title: "实现注册 API",
+          body: "实现 POST /register",
+          labels: ["backend"],
+          depends_on: ["A"],
+        },
+      ],
+    }),
+    confirmDecompose: vi.fn().mockResolvedValue({
+      created_issues: [
+        { temp_id: "A", issue_id: "issue-a" },
+        { temp_id: "B", issue_id: "issue-b" },
+      ],
+    }),
     submitIssueReview: vi.fn().mockResolvedValue({ status: "reviewing" }),
     applyIssueAction: vi.fn().mockResolvedValue({ status: "executing" }),
     applyTaskAction: vi.fn(),
@@ -389,6 +453,87 @@ describe("BoardView", () => {
     });
   });
 
+  it("QuickInput 拆解后可确认创建并刷新列表", async () => {
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.decompose).mockResolvedValue({
+      proposal_id: "prop-1",
+      project_id: "proj-1",
+      prompt: "做一个注册功能",
+      summary: "先做 schema 再做 API",
+      issues: [
+        {
+          temp_id: "A",
+          title: "设计 schema",
+          body: "设计用户表",
+          labels: ["backend"],
+          depends_on: [],
+        },
+        {
+          temp_id: "B",
+          title: "实现 API",
+          body: "实现注册接口",
+          labels: ["backend"],
+          depends_on: ["A"],
+        },
+      ],
+    });
+    vi.mocked(apiClient.confirmDecompose).mockResolvedValue({
+      created_issues: [
+        { temp_id: "A", issue_id: "issue-a" },
+        { temp_id: "B", issue_id: "issue-b" },
+      ],
+    });
+
+    render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    await waitFor(() => {
+      expect(apiClient.listIssues).toHaveBeenCalledTimes(1);
+    });
+
+    fireEvent.change(
+      screen.getByPlaceholderText("描述你的需求，AI 将自动拆解为任务..."),
+      { target: { value: "做一个注册功能" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "DAG 拆解" }));
+
+    await waitFor(() => {
+      expect(apiClient.decompose).toHaveBeenCalledWith("proj-1", {
+        prompt: "做一个注册功能",
+      });
+    });
+    expect(screen.getByTestId("dag-preview")).toBeTruthy();
+    expect(screen.getByText("先做 schema 再做 API")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "confirm dag" }));
+
+    await waitFor(() => {
+      expect(apiClient.confirmDecompose).toHaveBeenCalledWith("proj-1", {
+        proposal_id: "prop-1",
+        issues: [
+          {
+            temp_id: "A",
+            title: "设计 schema",
+            body: "设计用户表",
+            labels: ["backend"],
+            depends_on: [],
+          },
+          {
+            temp_id: "B",
+            title: "实现 API",
+            body: "实现注册接口",
+            labels: ["backend"],
+            depends_on: ["A"],
+          },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(apiClient.listIssues).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.queryByTestId("dag-preview")).toBeNull();
+  });
+
   it("点击 issue 会调用 timeline API 并渲染事件", async () => {
     const apiClient = createMockApiClient();
     vi.mocked(apiClient.listIssues).mockResolvedValue({
@@ -633,5 +778,50 @@ describe("BoardView", () => {
 
     fireEvent.change(interval, { target: { value: "30000" } });
     expect(interval.value).toBe("30000");
+  });
+
+  it("支持从 QuickInput 触发 DAG 拆解并确认创建", async () => {
+    const apiClient = createMockApiClient();
+
+    render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    fireEvent.change(
+      screen.getByPlaceholderText("描述你的需求，AI 将自动拆解为任务..."),
+      { target: { value: "做一个用户注册系统" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "DAG 拆解" }));
+
+    await waitFor(() => {
+      expect(apiClient.decompose).toHaveBeenCalledWith("proj-1", {
+        prompt: "做一个用户注册系统",
+      });
+    });
+
+    expect(screen.getByTestId("dag-preview")).toBeTruthy();
+    expect(screen.getByText("拆成两个依赖任务")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "confirm dag" }));
+
+    await waitFor(() => {
+      expect(apiClient.confirmDecompose).toHaveBeenCalledWith("proj-1", {
+        proposal_id: "prop-1",
+        issues: [
+          {
+            temp_id: "A",
+            title: "设计 schema",
+            body: "设计用户表",
+            labels: ["backend"],
+            depends_on: [],
+          },
+          {
+            temp_id: "B",
+            title: "实现注册 API",
+            body: "实现 POST /register",
+            labels: ["backend"],
+            depends_on: ["A"],
+          },
+        ],
+      });
+    });
   });
 });

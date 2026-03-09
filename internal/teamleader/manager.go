@@ -207,6 +207,7 @@ func (m *Manager) CreateIssues(ctx context.Context, input CreateIssuesInput) ([]
 		if err := m.store.CreateIssue(issue); err != nil {
 			return nil, fmt.Errorf("create issue %s: %w", issueID, err)
 		}
+		m.recordTaskStep(issueID, core.StepCreated, "system", "issue created")
 
 		latest, err := m.store.GetIssue(issueID)
 		if err != nil {
@@ -420,6 +421,7 @@ func (m *Manager) applyIssueApprove(ctx context.Context, issue *core.Issue, feed
 		return nil, fmt.Errorf("save approved issue %s: %w", updated.ID, err)
 	}
 	m.recordTaskStep(updated.ID, core.StepReviewApproved, "system", "approved by review gate")
+	m.recordTaskStep(updated.ID, core.StepQueued, "system", "queued for execution")
 	if err := m.saveIssueChange(updated.ID, "status", string(before), string(updated.Status), reason); err != nil {
 		return nil, err
 	}

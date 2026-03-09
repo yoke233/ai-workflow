@@ -1,7 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiClient } from "../lib/apiClient";
-import type { IssueTimelineEntry, TaskStep } from "../types/api";
+import type {
+  DecomposeProposal,
+  IssueTimelineEntry,
+  ProposalItem,
+  TaskStep,
+} from "../types/api";
+import DagPreview from "../components/DagPreview";
 import IssueFlowTree from "../components/IssueFlowTree";
+import QuickInput from "../components/QuickInput";
 
 interface BoardViewProps {
   apiClient: ApiClient;
@@ -416,6 +423,10 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
   const [taskSteps, setTaskSteps] = useState<TaskStep[]>([]);
   const [taskStepsError, setTaskStepsError] = useState<string | null>(null);
   const [timelineReloadToken, setTimelineReloadToken] = useState(0);
+  const [decomposeLoading, setDecomposeLoading] = useState(false);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [proposal, setProposal] = useState<DecomposeProposal | null>(null);
+  const [decomposeError, setDecomposeError] = useState<string | null>(null);
   const hasLoadedTasksRef = useRef(false);
   const hasLoadedTimelineRef = useRef(false);
   const timelineIssueRef = useRef("");
@@ -758,10 +769,60 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
     writeRouteIssueID(null);
   };
 
+  const handleDecompose = useCallback(
+    async (prompt: string) => {
+      if (!projectId.trim()) {
+        return;
+      }
+      setDecomposeLoading(true);
+      setDecomposeError(null);
+      try {
+        const nextProposal = await apiClient.decompose(projectId, { prompt });
+        setProposal(nextProposal);
+      } catch (requestError) {
+        setDecomposeError(getErrorMessage(requestError));
+      } finally {
+        setDecomposeLoading(false);
+      }
+    },
+    [apiClient, projectId],
+  );
+
+  const handleConfirmDecompose = useCallback(
+    async (items: ProposalItem[]) => {
+      if (!projectId.trim() || !proposal) {
+        return;
+      }
+      setConfirmLoading(true);
+      setDecomposeError(null);
+      try {
+        const response = await apiClient.confirmDecompose(projectId, {
+          proposal_id: proposal.proposal_id,
+          issues: items,
+        });
+        setProposal(null);
+        setManualReloadToken((current) => current + 1);
+        setActionNotice(`已创建 ${response.created_issues.length} 个 Issue`);
+      } catch (requestError) {
+        setDecomposeError(getErrorMessage(requestError));
+      } finally {
+        setConfirmLoading(false);
+      }
+    },
+    [apiClient, projectId, proposal],
+  );
+
   return (
     <section className="flex flex-col gap-4">
       <header className="rounded-md border border-[#d0d7de] bg-white p-4">
         <h1 className="text-xl font-semibold text-[#24292f]">Issues</h1>
+        <div className="mt-3">
+          <QuickInput
+            onSubmit={handleDecompose}
+            loading={decomposeLoading}
+            placeholder="描述你的需求，AI 将自动拆解为任务..."
+          />
+        </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
           <button
             type="button"
@@ -809,9 +870,32 @@ const BoardView = ({ apiClient, projectId, refreshToken }: BoardViewProps) => {
         </div>
       </header>
 
+      {proposal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-4xl">
+            <DagPreview
+              items={proposal.issues}
+              summary={proposal.summary}
+              loading={confirmLoading}
+              onConfirm={handleConfirmDecompose}
+              onCancel={() => {
+                if (!confirmLoading) {
+                  setProposal(null);
+                }
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
+
       {error ? (
         <p className="rounded-md border border-[#cf222e] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">
           {error}
+        </p>
+      ) : null}
+      {decomposeError ? (
+        <p className="rounded-md border border-[#cf222e] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]">
+          {decomposeError}
         </p>
       ) : null}
 

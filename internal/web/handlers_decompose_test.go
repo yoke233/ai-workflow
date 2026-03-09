@@ -41,6 +41,20 @@ func (s *stubProposalIssueCreator) ConfirmCreatedIssues(ctx context.Context, iss
 	return s.confirmCreatedIssuesFn(ctx, issueIDs, feedback)
 }
 
+type stubManagerScheduler struct{}
+
+func (s *stubManagerScheduler) Start(_ context.Context) error { return nil }
+
+func (s *stubManagerScheduler) Stop(_ context.Context) error { return nil }
+
+func (s *stubManagerScheduler) RecoverExecutingIssues(_ context.Context) error { return nil }
+
+func (s *stubManagerScheduler) StartIssue(_ context.Context, _ *core.Issue) error { return nil }
+
+type stubReviewSubmitter struct{}
+
+func (s *stubReviewSubmitter) Submit(_ context.Context, _ []*core.Issue) error { return nil }
+
 func TestDecomposeAPI_ReturnsProposal(t *testing.T) {
 	store := newTestStore(t)
 	project := core.Project{ID: "proj-decompose", Name: "proj-decompose", RepoPath: filepath.Join(t.TempDir(), "repo")}
@@ -108,6 +122,9 @@ func TestConfirmDecomposeAPI_ResolvesDependenciesViaCreator(t *testing.T) {
 			}
 			if len(input.Issues) != 2 {
 				t.Fatalf("issues len = %d", len(input.Issues))
+			}
+			if got := input.Issues[0].Blocks; len(got) != 1 || got[0] != "issue-b" {
+				t.Fatalf("resolved blocks = %#v", got)
 			}
 			if got := input.Issues[1].DependsOn; len(got) != 1 || got[0] != "issue-a" {
 				t.Fatalf("resolved depends_on = %#v", got)
@@ -264,6 +281,9 @@ func TestConfirmDecomposeAPI_GeneratesIssueIDsForDependenciesWhenOmitted(t *test
 			if input.Issues[0].ID == "" || input.Issues[1].ID == "" {
 				t.Fatalf("expected generated issue ids, got %#v", input.Issues)
 			}
+			if got := input.Issues[0].Blocks; len(got) != 1 || got[0] != input.Issues[1].ID {
+				t.Fatalf("resolved blocks = %#v, want [%q]", got, input.Issues[1].ID)
+			}
 			if got := input.Issues[1].DependsOn; len(got) != 1 || got[0] != input.Issues[0].ID {
 				t.Fatalf("resolved depends_on = %#v, want [%q]", got, input.Issues[0].ID)
 			}
@@ -345,5 +365,70 @@ func TestConfirmDecomposeAPI_RejectsUnknownDependencyReference(t *testing.T) {
 	}
 	if creatorCalled {
 		t.Fatal("proposal issue creator should not be called for invalid dependency")
+	}
+}
+
+func TestConfirmDecomposeAPI_WritesCreatedAndQueuedTaskSteps(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{ID: "proj-confirm-tasksteps", Name: "proj-confirm-tasksteps", RepoPath: filepath.Join(t.TempDir(), "repo")}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	manager, err := teamleader.NewManager(store, nil, &stubReviewSubmitter{}, &stubManagerScheduler{})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	srv := NewServer(Config{Store: store, ProposalIssueCreator: manager})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, _ := json.Marshal(map[string]any{
+		"proposal_id": "prop-tasksteps",
+		"issues": []map[string]any{
+			{"temp_id": "A", "title": "schema", "body": "", "depends_on": []string{}, "labels": []string{}},
+			{"temp_id": "B", "title": "api", "body": "", "depends_on": []string{"A"}, "labels": []string{}},
+		},
+		"issue_ids": map[string]string{"A": "issue-a", "B": "issue-b"},
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/projects/"+project.ID+"/decompose/confirm", "application/json", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatalf("POST confirm: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+
+	for _, issueID := range []string{"issue-a", "issue-b"} {
+		steps, err := store.ListTaskSteps(issueID)
+		if err != nil {
+			t.Fatalf("ListTaskSteps(%s): %v", issueID, err)
+		}
+
+		createdIndex := -1
+		queuedIndex := -1
+		for index, step := range steps {
+			if step.Action == core.StepCreated && createdIndex < 0 {
+				createdIndex = index
+			}
+			if step.Action == core.StepQueued && queuedIndex < 0 {
+				queuedIndex = index
+			}
+		}
+		if createdIndex < 0 {
+			t.Fatalf("task steps for %s do not contain %s: %#v", issueID, core.StepCreated, steps)
+		}
+		if queuedIndex < 0 {
+			t.Fatalf("task steps for %s do not contain %s: %#v", issueID, core.StepQueued, steps)
+		}
+		issue, err := store.GetIssue(issueID)
+		if err != nil {
+			t.Fatalf("GetIssue(%s): %v", issueID, err)
+		}
+		if issue.Status != core.IssueStatusQueued {
+			t.Fatalf("issue %s status = %s, want %s", issueID, issue.Status, core.IssueStatusQueued)
+		}
 	}
 }
