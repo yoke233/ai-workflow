@@ -32,6 +32,7 @@ type DepScheduler struct {
 	mu            sync.Mutex
 	sessions      map[string]*runningSession
 	RunIndex      map[string]RunRef
+	runCancels    map[string]context.CancelFunc
 	lastSessionID string
 
 	loopCancel     context.CancelFunc
@@ -76,14 +77,15 @@ func NewDepScheduler(
 	}
 
 	return &DepScheduler{
-		store:    store,
-		bus:      bus,
-		pub:      bus,
-		tracker:  tracker,
-		runRun:   runRun,
-		sem:      make(chan struct{}, maxConcurrent),
-		sessions: make(map[string]*runningSession),
-		RunIndex: make(map[string]RunRef),
+		store:      store,
+		bus:        bus,
+		pub:        bus,
+		tracker:    tracker,
+		runRun:     runRun,
+		sem:        make(chan struct{}, maxConcurrent),
+		sessions:   make(map[string]*runningSession),
+		RunIndex:   make(map[string]RunRef),
+		runCancels: make(map[string]context.CancelFunc),
 	}
 }
 
@@ -448,6 +450,9 @@ func (s *DepScheduler) registerSessionRuntime(sessionID string, rs *runningSessi
 func (s *DepScheduler) OnEvent(ctx context.Context, evt core.Event) error {
 	if s == nil {
 		return nil
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
 	}
 	if !isSchedulerHandledEvent(evt.Type) {
 		return nil

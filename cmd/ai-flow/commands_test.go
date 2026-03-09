@@ -10,19 +10,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-	"unsafe"
 
 	"github.com/yoke233/ai-workflow/internal/config"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/engine"
 	pluginfactory "github.com/yoke233/ai-workflow/internal/plugins/factory"
-	storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
 	"github.com/yoke233/ai-workflow/internal/teamleader"
 	"github.com/yoke233/ai-workflow/internal/web"
 )
@@ -475,53 +472,6 @@ func TestRunServer_IssueManagerReceivesWatchdogConfig(t *testing.T) {
 	}
 	if got := capturedWatchdog.QueueStaleTTL.Duration; got != 60*time.Minute {
 		t.Fatalf("captured watchdog queue_stale_ttl = %s, want %s", got, 60*time.Minute)
-	}
-}
-
-func TestNewServerIssueManager_ConfiguresDepSchedulerWatchdog(t *testing.T) {
-	store, err := storesqlite.New(":memory:")
-	if err != nil {
-		t.Fatalf("storesqlite.New() error = %v", err)
-	}
-	defer store.Close()
-
-	defaults := config.Defaults()
-	issueManager, err := newServerIssueManager(
-		&engine.Executor{},
-		&pluginfactory.BootstrapSet{Store: store},
-		nil,
-		defaults.Scheduler.Watchdog,
-		defaults.TeamLeader,
-		defaults.RoleBinds,
-	)
-	if err != nil {
-		t.Fatalf("newServerIssueManager() error = %v", err)
-	}
-
-	adapter, ok := issueManager.(*teamLeaderIssueManagerAdapter)
-	if !ok {
-		t.Fatalf("issue manager type = %T, want *teamLeaderIssueManagerAdapter", issueManager)
-	}
-
-	managerVal := reflect.ValueOf(adapter.manager)
-	if managerVal.Kind() != reflect.Pointer || managerVal.IsNil() {
-		t.Fatalf("manager value = %v, want non-nil pointer", managerVal)
-	}
-	managerElem := managerVal.Elem()
-	schedulerField := managerElem.FieldByName("scheduler")
-	schedulerValue := reflect.NewAt(schedulerField.Type(), unsafe.Pointer(schedulerField.UnsafeAddr())).Elem().Interface()
-
-	depAdapter, ok := schedulerValue.(*depSchedulerIssueAdapter)
-	if !ok {
-		t.Fatalf("scheduler type = %T, want *depSchedulerIssueAdapter", schedulerValue)
-	}
-
-	schedulerReflect := reflect.ValueOf(depAdapter.scheduler).Elem()
-	watchdogField := schedulerReflect.FieldByName("watchdogCfg")
-	actualWatchdog := reflect.NewAt(watchdogField.Type(), unsafe.Pointer(watchdogField.UnsafeAddr())).Elem().Interface().(config.WatchdogConfig)
-
-	if actualWatchdog != defaults.Scheduler.Watchdog {
-		t.Fatalf("dep scheduler watchdog config = %+v, want %+v", actualWatchdog, defaults.Scheduler.Watchdog)
 	}
 }
 

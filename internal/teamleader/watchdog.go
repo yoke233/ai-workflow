@@ -91,6 +91,9 @@ func (s *DepScheduler) watchdogOnce(ctx context.Context, cfg config.WatchdogConf
 	if s == nil {
 		return
 	}
+	if ctx != nil && ctx.Err() != nil {
+		return
+	}
 	cfg = watchdogDefaults(cfg)
 	s.checkStuckRuns(ctx, cfg.StuckRunTTL.Duration)
 	s.checkStuckMerging(ctx, cfg.StuckMergeTTL.Duration)
@@ -131,14 +134,36 @@ func (s *DepScheduler) checkStuckRuns(ctx context.Context, ttl time.Duration) {
 	s.mu.Unlock()
 
 	for _, candidate := range candidates {
+		if ctx != nil && ctx.Err() != nil {
+			return
+		}
 		run, err := s.store.GetRun(candidate.runID)
-		if err != nil || run == nil {
+		if err != nil {
+			slog.Warn("watchdog: failed to load run", "run_id", candidate.runID, "error", err)
 			continue
 		}
-		if run.Status == core.StatusCompleted {
+		if run == nil {
 			continue
 		}
-		age := now.Sub(run.UpdatedAt)
+		if evtType, terminal := RunRecoveryEvent(run.Status, run.Conclusion); terminal {
+			slog.Info("watchdog: reconciling terminal run", "run_id", candidate.runID, "status", run.Status, "conclusion", run.Conclusion)
+			_ = s.OnEvent(ctx, core.Event{
+				Type:      evtType,
+				RunID:     candidate.runID,
+				Error:     run.ErrorMessage,
+				Timestamp: now,
+			})
+			continue
+		}
+		if run.Status != core.StatusInProgress {
+			continue
+		}
+
+		lastSeen := run.LastHeartbeatAt
+		if lastSeen.IsZero() {
+			lastSeen = run.UpdatedAt
+		}
+		age := now.Sub(lastSeen)
 		if age < ttl {
 			continue
 		}
@@ -158,6 +183,10 @@ func (s *DepScheduler) checkStuckRuns(ctx context.Context, ttl time.Duration) {
 		}
 
 		slog.Warn("watchdog: stuck run detected", "run_id", candidate.runID, "age", age)
+		s.cancelRun(candidate.runID)
+		if err := markRunTimedOut(s.store, run, now, fmt.Sprintf("watchdog: run stuck for %v", age)); err != nil {
+			slog.Warn("watchdog: failed to persist timed-out run", "run_id", candidate.runID, "error", err)
+		}
 		_ = s.OnEvent(ctx, core.Event{
 			Type:      core.EventRunFailed,
 			RunID:     candidate.runID,
@@ -200,6 +229,9 @@ func (s *DepScheduler) checkStuckMerging(ctx context.Context, ttl time.Duration)
 	s.mu.Unlock()
 
 	for _, candidate := range candidates {
+		if ctx != nil && ctx.Err() != nil {
+			return
+		}
 		s.mu.Lock()
 		rs := s.sessions[candidate.sessionID]
 		if rs == nil {
@@ -220,7 +252,7 @@ func (s *DepScheduler) checkStuckMerging(ctx context.Context, ttl time.Duration)
 
 		slog.Warn("watchdog: stuck merging detected", "issue_id", candidate.issueID, "age", age)
 		_ = s.OnEvent(ctx, core.Event{
-			Type:      core.EventRunFailed,
+			Type:      core.EventMergeFailed,
 			RunID:     candidate.runID,
 			IssueID:   candidate.issueID,
 			Error:     fmt.Sprintf("watchdog: merging stuck for %v", age),
@@ -235,30 +267,52 @@ func (s *DepScheduler) checkQueueStale(ttl time.Duration) {
 	}
 
 	now := time.Now()
+	type staleQueueCandidate struct {
+		issueID string
+		status  core.IssueStatus
+		age     time.Duration
+	}
+	candidates := make([]staleQueueCandidate, 0)
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	semAvailable := len(s.sem) < cap(s.sem)
 
 	for _, rs := range s.sessions {
-		if rs == nil {
+		if rs == nil || rs.HaltNew {
 			continue
 		}
 		for issueID, issue := range rs.IssueByID {
 			if issue == nil {
 				continue
 			}
-			if issue.Status != core.IssueStatusQueued && issue.Status != core.IssueStatusReady {
+			shouldLog := false
+			switch issue.Status {
+			case core.IssueStatusReady:
+				shouldLog = semAvailable
+			case core.IssueStatusQueued:
+				ready, err := s.dependenciesSatisfiedLocked(rs, issue)
+				shouldLog = err == nil && ready && semAvailable
+			default:
+				continue
+			}
+			if !shouldLog {
 				continue
 			}
 			age := now.Sub(issue.UpdatedAt)
 			if age < ttl {
 				continue
 			}
-			slog.Warn("watchdog: stale queue item",
-				"issue_id", issueID,
-				"status", issue.Status,
-				"age", age,
-			)
+			candidates = append(candidates, staleQueueCandidate{issueID: issueID, status: issue.Status, age: age})
 		}
+	}
+	s.mu.Unlock()
+
+	for _, candidate := range candidates {
+		slog.Warn("watchdog: stale queue item",
+			"issue_id", candidate.issueID,
+			"status", candidate.status,
+			"age", candidate.age,
+		)
 	}
 }
 
@@ -292,4 +346,21 @@ func (s *DepScheduler) checkSemLeak() {
 	for i := 0; i < leaked; i++ {
 		s.releaseSlot()
 	}
+}
+
+func markRunTimedOut(store core.Store, run *core.Run, finishedAt time.Time, message string) error {
+	if store == nil || run == nil {
+		return nil
+	}
+	if run.Status == core.StatusCompleted {
+		return nil
+	}
+	if err := run.TransitionStatus(core.StatusCompleted); err != nil {
+		return err
+	}
+	run.Conclusion = core.ConclusionTimedOut
+	run.ErrorMessage = message
+	run.FinishedAt = finishedAt
+	run.LastHeartbeatAt = finishedAt
+	return store.SaveRun(run)
 }

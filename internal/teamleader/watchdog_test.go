@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,11 +23,10 @@ func TestWatchdogOnce_StuckRunFailsIssue(t *testing.T) {
 		newIssueWithProfile("issue-watchdog-stuck-run", "stuck run", core.WorkflowProfileStrict, nil),
 	})
 
-	blockingRunner := func(_ context.Context, _ string) error {
-		select {}
-	}
+	runner := newControlledBlockingRunner()
+	t.Cleanup(runner.Release)
 
-	s := NewDepScheduler(store, nil, blockingRunner, nil, 1)
+	s := NewDepScheduler(store, nil, runner.Run, nil, 1)
 	if err := s.ScheduleIssues(context.Background(), issues); err != nil {
 		t.Fatalf("ScheduleIssues() error = %v", err)
 	}
@@ -64,6 +64,16 @@ func TestWatchdogOnce_StuckRunFailsIssue(t *testing.T) {
 	}
 	if last.AgentID != "system" {
 		t.Fatalf("expected watchdog to reuse scheduler failure path agent_id system, got %q", last.AgentID)
+	}
+	updatedRun, err := store.GetRun(issue.RunID)
+	if err != nil {
+		t.Fatalf("GetRun(%s) after watchdog error = %v", issue.RunID, err)
+	}
+	if updatedRun.Status != core.StatusCompleted {
+		t.Fatalf("run status after watchdog = %q, want %q", updatedRun.Status, core.StatusCompleted)
+	}
+	if updatedRun.Conclusion != core.ConclusionTimedOut {
+		t.Fatalf("run conclusion after watchdog = %q, want %q", updatedRun.Conclusion, core.ConclusionTimedOut)
 	}
 }
 
@@ -127,6 +137,7 @@ func TestWatchdogOnce_QueueStaleOnlyLogs(t *testing.T) {
 		current.UpdatedAt = time.Now().Add(-2 * time.Hour)
 	}
 	s.mu.Unlock()
+	s.releaseSlot()
 
 	var logBuf bytes.Buffer
 	prevLogger := slog.Default()
@@ -155,7 +166,7 @@ func TestWatchdogOnce_QueueStaleOnlyLogs(t *testing.T) {
 	}
 }
 
-func TestWatchdogOnce_SkipsCompletedRunEvenIfPreviouslyStale(t *testing.T) {
+func TestWatchdogOnce_ReconcilesCompletedRunToIssueDone(t *testing.T) {
 	store := newSchedulerTestStore(t)
 	defer store.Close()
 
@@ -164,11 +175,10 @@ func TestWatchdogOnce_SkipsCompletedRunEvenIfPreviouslyStale(t *testing.T) {
 		newIssueWithProfile("issue-watchdog-skip-completed", "skip completed", core.WorkflowProfileStrict, nil),
 	})
 
-	blockingRunner := func(_ context.Context, _ string) error {
-		select {}
-	}
+	runner := newControlledBlockingRunner()
+	t.Cleanup(runner.Release)
 
-	s := NewDepScheduler(store, nil, blockingRunner, nil, 1)
+	s := NewDepScheduler(store, nil, runner.Run, nil, 1)
 	if err := s.ScheduleIssues(context.Background(), issues); err != nil {
 		t.Fatalf("ScheduleIssues() error = %v", err)
 	}
@@ -193,9 +203,51 @@ func TestWatchdogOnce_SkipsCompletedRunEvenIfPreviouslyStale(t *testing.T) {
 		QueueStaleTTL: config.Duration{Duration: time.Hour},
 	})
 
-	stillExecuting := waitIssueStatus(t, store, "issue-watchdog-skip-completed", core.IssueStatusExecuting, 500*time.Millisecond)
+	doneIssue := waitIssueStatus(t, store, "issue-watchdog-skip-completed", core.IssueStatusDone, 3*time.Second)
+	if doneIssue.RunID != issue.RunID {
+		t.Fatalf("expected completed issue to keep original run id %q, got %q", issue.RunID, doneIssue.RunID)
+	}
+}
+
+func TestWatchdogOnce_SkipsActionRequiredRun(t *testing.T) {
+	store := newSchedulerTestStore(t)
+	defer store.Close()
+
+	project := mustCreateSchedulerProject(t, store, "proj-watchdog-action-required")
+	issues := mustCreateIssueSessionWithItems(t, store, project.ID, "session-watchdog-action-required", core.FailSkip, []core.Issue{
+		newIssueWithProfile("issue-watchdog-action-required", "action required", core.WorkflowProfileStrict, nil),
+	})
+
+	runner := newControlledBlockingRunner()
+	t.Cleanup(runner.Release)
+
+	s := NewDepScheduler(store, nil, runner.Run, nil, 1)
+	if err := s.ScheduleIssues(context.Background(), issues); err != nil {
+		t.Fatalf("ScheduleIssues() error = %v", err)
+	}
+
+	issue := waitIssueStatus(t, store, "issue-watchdog-action-required", core.IssueStatusExecuting, 3*time.Second)
+	run, err := store.GetRun(issue.RunID)
+	if err != nil {
+		t.Fatalf("GetRun(%s) error = %v", issue.RunID, err)
+	}
+	run.Status = core.StatusActionRequired
+	if err := store.SaveRun(run); err != nil {
+		t.Fatalf("SaveRun(%s) error = %v", run.ID, err)
+	}
+	time.Sleep(25 * time.Millisecond)
+
+	s.watchdogOnce(context.Background(), config.WatchdogConfig{
+		Enabled:       true,
+		Interval:      config.Duration{Duration: time.Minute},
+		StuckRunTTL:   config.Duration{Duration: 5 * time.Millisecond},
+		StuckMergeTTL: config.Duration{Duration: time.Hour},
+		QueueStaleTTL: config.Duration{Duration: time.Hour},
+	})
+
+	stillExecuting := waitIssueStatus(t, store, "issue-watchdog-action-required", core.IssueStatusExecuting, 500*time.Millisecond)
 	if stillExecuting.RunID != issue.RunID {
-		t.Fatalf("expected issue to keep original run id %q, got %q", issue.RunID, stillExecuting.RunID)
+		t.Fatalf("expected action-required issue to keep run id %q, got %q", issue.RunID, stillExecuting.RunID)
 	}
 }
 
@@ -276,11 +328,10 @@ func TestDepScheduler_StopHonorsContextWhenWatchdogBusy(t *testing.T) {
 		newIssueWithProfile("issue-watchdog-stop-timeout", "stop timeout", core.WorkflowProfileStrict, nil),
 	})
 
-	blockingRunner := func(_ context.Context, _ string) error {
-		select {}
-	}
+	runner := newControlledBlockingRunner()
+	t.Cleanup(runner.Release)
 
-	s := NewDepScheduler(store, nil, blockingRunner, nil, 1)
+	s := NewDepScheduler(store, nil, runner.Run, nil, 1)
 	if err := s.ScheduleIssues(context.Background(), issues); err != nil {
 		t.Fatalf("ScheduleIssues() error = %v", err)
 	}
@@ -388,4 +439,31 @@ func (s *blockingGetRunStore) GetRun(id string) (*core.Run, error) {
 	}
 	<-s.release
 	return s.Store.GetRun(id)
+}
+
+type controlledBlockingRunner struct {
+	release chan struct{}
+	once    sync.Once
+}
+
+func newControlledBlockingRunner() *controlledBlockingRunner {
+	return &controlledBlockingRunner{release: make(chan struct{})}
+}
+
+func (r *controlledBlockingRunner) Run(ctx context.Context, _ string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-r.release:
+		return nil
+	}
+}
+
+func (r *controlledBlockingRunner) Release() {
+	if r == nil {
+		return
+	}
+	r.once.Do(func() {
+		close(r.release)
+	})
 }

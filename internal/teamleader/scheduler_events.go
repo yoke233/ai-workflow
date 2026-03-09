@@ -22,6 +22,7 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 	if rs == nil {
 		if trackedRunID != "" {
 			delete(s.RunIndex, trackedRunID)
+			delete(s.runCancels, trackedRunID)
 		}
 		return nil
 	}
@@ -30,6 +31,7 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 	if issue == nil {
 		if trackedRunID != "" {
 			delete(s.RunIndex, trackedRunID)
+			delete(s.runCancels, trackedRunID)
 		}
 		delete(rs.Running, ref.issueID)
 		s.releaseSlot()
@@ -70,6 +72,7 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 		if issue.Status != core.IssueStatusExecuting && issue.Status != core.IssueStatusMerging {
 			if !running && cleanupRunID != "" {
 				delete(s.RunIndex, cleanupRunID)
+				delete(s.runCancels, cleanupRunID)
 			}
 			return nil
 		}
@@ -148,6 +151,7 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 		if !running {
 			if cleanupRunID != "" {
 				delete(s.RunIndex, cleanupRunID)
+				delete(s.runCancels, cleanupRunID)
 			}
 			return nil
 		}
@@ -176,6 +180,7 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 	}
 	if cleanupRunID != "" {
 		delete(s.RunIndex, cleanupRunID)
+		delete(s.runCancels, cleanupRunID)
 	}
 	return nil
 }
