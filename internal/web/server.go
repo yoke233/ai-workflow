@@ -67,6 +67,14 @@ type IssueManager interface {
 	ApplyIssueAction(ctx context.Context, issueID string, action IssueAction) (*core.Issue, error)
 }
 
+type DecomposePlanner interface {
+	Plan(ctx context.Context, projectID, prompt string) (*core.DecomposeProposal, error)
+}
+
+type ProposalIssueCreator interface {
+	CreateIssues(ctx context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error)
+}
+
 // RunExecutor defines Run human-action entrypoints used by web handlers.
 type RunExecutor interface {
 	ApplyAction(ctx context.Context, action core.RunAction) error
@@ -95,7 +103,7 @@ type WebhookDeliveryReplayer interface {
 // Config controls web server behavior.
 type Config struct {
 	Addr                   string
-	Token                  string // legacy single token; upgraded to Auth with wildcard scope
+	Token                  string         // legacy single token; upgraded to Auth with wildcard scope
 	Auth                   *TokenRegistry // scope-based token auth for all endpoints
 	WebhookSecret          string
 	AllowedOrigins         []string
@@ -105,6 +113,8 @@ type Config struct {
 	Frontend               fs.FS
 	Store                  core.Store
 	IssueManager           IssueManager
+	DecomposePlanner       DecomposePlanner
+	ProposalIssueCreator   ProposalIssueCreator
 	ChatAssistant          ChatAssistant
 	EventPublisher         chatEventPublisher
 	RunExec                RunExecutor
@@ -219,7 +229,7 @@ func NewServer(cfg Config) *Server {
 			// REST API
 			issueManager := cfg.IssueManager
 			issueParserRoleID := strings.TrimSpace(cfg.IssueParserRoleID)
-			registerV1Routes(r, cfg.Store, issueManager, issueParserRoleID, cfg.RunExec, cfg.StageSessionMgr, cfg.RunstageRoles,
+			registerV1Routes(r, cfg.Store, issueManager, cfg.DecomposePlanner, cfg.ProposalIssueCreator, issueParserRoleID, cfg.RunExec, cfg.StageSessionMgr, cfg.RunstageRoles,
 				hub, projectRepoProvisioner, cfg.ChatAssistant, cfg.EventPublisher, webhookReplayer, cfg.RestartFunc, cfg.RoleResolver)
 		})
 	})

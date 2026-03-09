@@ -47,7 +47,10 @@ func TestParseDecomposeResponse_Invalid(t *testing.T) {
 }
 
 func TestDecomposePlannerPlan(t *testing.T) {
-	planner := NewDecomposePlanner(func(_ context.Context, systemPrompt, userMessage string) (string, error) {
+	planner := NewDecomposePlanner(func(_ context.Context, projectID, systemPrompt, userMessage string) (string, error) {
+		if projectID != "proj-1" {
+			t.Fatalf("projectID = %q", projectID)
+		}
 		if systemPrompt == "" {
 			t.Fatal("system prompt should not be empty")
 		}

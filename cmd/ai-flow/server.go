@@ -224,6 +224,29 @@ func runServer(ctx context.Context, args []string) error {
 			ServerAddr: "http://" + listenAddr,
 		},
 	})
+	var decomposePlanner *teamleader.DecomposePlanner
+	if chatAssistant != nil {
+		decomposePlanner = teamleader.NewDecomposePlanner(func(ctx context.Context, projectID, systemPrompt, userMessage string) (string, error) {
+			var workDir string
+			if trimmedProjectID := strings.TrimSpace(projectID); trimmedProjectID != "" {
+				project, err := store.GetProject(trimmedProjectID)
+				if err == nil && project != nil {
+					workDir = strings.TrimSpace(project.RepoPath)
+				}
+			}
+			resp, err := chatAssistant.Reply(ctx, web.ChatAssistantRequest{
+				Message:   systemPrompt + "\n\nUser request:\n" + userMessage,
+				ProjectID: strings.TrimSpace(projectID),
+				WorkDir:   workDir,
+			})
+			if err != nil {
+				return "", err
+			}
+			return resp.Reply, nil
+		})
+	}
+	var proposalIssueCreator web.ProposalIssueCreator
+
 	var merger teamleader.PRMerger
 	if cfg.GitHub.Enabled {
 		merger = ghwebhook.NewPRLifecycle(store, bootstrapSet.SCM)
@@ -237,23 +260,21 @@ func runServer(ctx context.Context, args []string) error {
 	})
 	if adapter, ok := issueManager.(*teamLeaderIssueManagerAdapter); ok {
 		decomposeHandler.SetReviewSubmitter(adapter.manager)
+		proposalIssueCreator = adapter.manager
 	}
 
 	childCompletionHandler := teamleader.NewChildCompletionHandler(store, bus)
 
-	// WSBroadcaster: subscribes to all events and forwards to WebSocket hub.
 	wsBroadcaster := newWSBroadcaster(hub, bus)
 	if err := wsBroadcaster.Start(ctx); err != nil {
 		return fmt.Errorf("start ws broadcaster: %w", err)
 	}
 
-	// EventPersister: subscribes to all events and persists non-transient run events.
 	eventPersister := newEventPersister(store, bus)
 	if err := eventPersister.Start(ctx); err != nil {
 		return fmt.Errorf("start event persister: %w", err)
 	}
 
-	// Each handler self-subscribes with type filtering.
 	if err := autoMerger.Start(ctx); err != nil {
 		return fmt.Errorf("start auto merger: %w", err)
 	}
@@ -276,24 +297,26 @@ func runServer(ctx context.Context, args []string) error {
 	}
 
 	apiSrv := newAPIServer(web.Config{
-		Addr:              listenAddr,
-		Auth:              tokenRegistry,
-		WebhookSecret:     cfg.GitHub.WebhookSecret,
-		A2AEnabled:        cfg.A2A.Enabled,
-		A2AVersion:        cfg.A2A.Version,
-		Frontend:          frontendFS,
-		Store:             store,
-		A2ABridge:         a2aBridge,
-		IssueManager:      issueManager,
-		ChatAssistant:     chatAssistant,
-		EventPublisher:    bus,
-		RunExec:           exec,
-		StageSessionMgr:   exec,
-		RunstageRoles:     cfg.RoleBinds.Run.StageRoles,
-		IssueParserRoleID: strings.TrimSpace(cfg.RoleBinds.PlanParser.Role),
-		SCM:               bootstrapSet.SCM,
-		Hub:               hub,
-		RestartFunc:       restartFunc,
+		Addr:                 listenAddr,
+		Auth:                 tokenRegistry,
+		WebhookSecret:        cfg.GitHub.WebhookSecret,
+		A2AEnabled:           cfg.A2A.Enabled,
+		A2AVersion:           cfg.A2A.Version,
+		Frontend:             frontendFS,
+		Store:                store,
+		A2ABridge:            a2aBridge,
+		IssueManager:         issueManager,
+		DecomposePlanner:     decomposePlanner,
+		ProposalIssueCreator: proposalIssueCreator,
+		ChatAssistant:        chatAssistant,
+		EventPublisher:       bus,
+		RunExec:              exec,
+		StageSessionMgr:      exec,
+		RunstageRoles:        cfg.RoleBinds.Run.StageRoles,
+		IssueParserRoleID:    strings.TrimSpace(cfg.RoleBinds.PlanParser.Role),
+		SCM:                  bootstrapSet.SCM,
+		Hub:                  hub,
+		RestartFunc:          restartFunc,
 		MCPServerOpts: web.MCPServerOptions{
 			DBPath:     expandStorePath(cfg.Store.Path),
 			ServerAddr: "http://" + listenAddr,

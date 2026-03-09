@@ -94,11 +94,11 @@ func TestManager_CreateIssuesPersistsDraftWithDefaults(t *testing.T) {
 	if issue.FailPolicy != core.FailBlock {
 		t.Fatalf("created fail_policy = %q, want %q", issue.FailPolicy, core.FailBlock)
 	}
-	if len(issue.DependsOn) != 0 {
-		t.Fatalf("created depends_on = %#v, want [] in v2", issue.DependsOn)
+	if got, want := issue.DependsOn, []string{"issue-prep"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("created depends_on = %#v, want %#v", got, want)
 	}
-	if len(issue.Blocks) != 0 {
-		t.Fatalf("created blocks = %#v, want [] in v2", issue.Blocks)
+	if got, want := issue.Blocks, []string{"issue-deploy"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("created blocks = %#v, want %#v", got, want)
 	}
 
 	persisted, err := store.GetIssue(issue.ID)
@@ -113,6 +113,12 @@ func TestManager_CreateIssuesPersistsDraftWithDefaults(t *testing.T) {
 	}
 	if persisted.SessionID != sessionID {
 		t.Fatalf("persisted session_id = %q, want %q", persisted.SessionID, sessionID)
+	}
+	if got, want := persisted.DependsOn, []string{"issue-prep"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("persisted depends_on = %#v, want %#v", got, want)
+	}
+	if got, want := persisted.Blocks, []string{"issue-deploy"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("persisted blocks = %#v, want %#v", got, want)
 	}
 }
 

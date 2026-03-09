@@ -184,15 +184,14 @@ func (m *Manager) CreateIssues(ctx context.Context, input CreateIssuesInput) ([]
 		}
 
 		issue := &core.Issue{
-			ID:        issueID,
-			ProjectID: projectID,
-			SessionID: strings.TrimSpace(input.SessionID),
-			Title:     strings.TrimSpace(spec.Title),
-			Body:      spec.Body,
-			Labels:    cloneStringSlice(spec.Labels),
-			// V2 removes runtime dependency graph; dependency fields are ignored.
-			DependsOn:   nil,
-			Blocks:      nil,
+			ID:          issueID,
+			ProjectID:   projectID,
+			SessionID:   strings.TrimSpace(input.SessionID),
+			Title:       strings.TrimSpace(spec.Title),
+			Body:        spec.Body,
+			Labels:      cloneStringSlice(spec.Labels),
+			DependsOn:   normalizeIssueRefs(spec.DependsOn),
+			Blocks:      normalizeIssueRefs(spec.Blocks),
 			Priority:    spec.Priority,
 			Template:    template,
 			AutoMerge:   autoMerge,

@@ -11,12 +11,12 @@ import (
 	storesqlite "github.com/yoke233/ai-workflow/internal/plugins/store-sqlite"
 )
 
-func TestScheduler_ProfileQueueIgnoresDependencyEdges(t *testing.T) {
+func TestScheduler_ProfileQueueRespectsDependencyEdges(t *testing.T) {
 	store := newSchedulerTestStore(t)
 	defer store.Close()
 
-	project := mustCreateSchedulerProject(t, store, "proj-scheduler-profile-ignore-deps")
-	issues := mustCreateIssueSessionWithItems(t, store, project.ID, "session-profile-ignore-deps", core.FailBlock, []core.Issue{
+	project := mustCreateSchedulerProject(t, store, "proj-scheduler-profile-deps")
+	issues := mustCreateIssueSessionWithItems(t, store, project.ID, "session-profile-deps", core.FailBlock, []core.Issue{
 		newIssueWithProfile("issue-a", "A", core.WorkflowProfileStrict, nil),
 		newIssueWithProfile("issue-b", "B", core.WorkflowProfileNormal, []string{"issue-a"}),
 	})
@@ -29,15 +29,31 @@ func TestScheduler_ProfileQueueIgnoresDependencyEdges(t *testing.T) {
 		t.Fatalf("ScheduleIssues() error = %v", err)
 	}
 
-	waitIssueStatus(t, store, "issue-a", core.IssueStatusExecuting, 2*time.Second)
-	issueB := waitIssueStatus(t, store, "issue-b", core.IssueStatusExecuting, 2*time.Second)
+	issueA := waitIssueStatus(t, store, "issue-a", core.IssueStatusExecuting, 2*time.Second)
+	issueB := waitIssueStatus(t, store, "issue-b", core.IssueStatusQueued, 2*time.Second)
+	if issueB.RunID != "" {
+		t.Fatalf("issue-b should stay queued before dependency is done, got Run=%q", issueB.RunID)
+	}
+	if _, ok := bus.FirstEvent(core.EventIssueReady, "issue-b"); ok {
+		t.Fatalf("issue-b should not emit ready event before dependency is done")
+	}
+
+	if err := s.OnEvent(context.Background(), core.Event{
+		Type:      core.EventRunDone,
+		RunID:     issueA.RunID,
+		Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatalf("OnEvent(done issue-a) error = %v", err)
+	}
+
+	issueB = waitIssueStatus(t, store, "issue-b", core.IssueStatusExecuting, 2*time.Second)
 	if issueB.RunID == "" {
-		t.Fatalf("expected issue-b Run assigned even with depends_on edge")
+		t.Fatalf("expected issue-b Run assigned after dependency done")
 	}
 
 	event, ok := bus.FirstEvent(core.EventIssueReady, "issue-b")
 	if !ok {
-		t.Fatalf("expected issue-b ready event")
+		t.Fatalf("expected issue-b ready event after dependency done")
 	}
 	if got := event.Data["workflow_profile"]; got != string(core.WorkflowProfileNormal) {
 		t.Fatalf("issue-b ready profile = %q, want %q", got, core.WorkflowProfileNormal)

@@ -229,6 +229,13 @@ func (s *DepScheduler) markReadyByProfileQueueLocked(rs *runningSession) error {
 		if issue == nil || issue.Status != core.IssueStatusQueued {
 			continue
 		}
+		ready, err := s.dependenciesSatisfiedLocked(rs, issue)
+		if err != nil {
+			return err
+		}
+		if !ready {
+			continue
+		}
 		profile := workflowProfileFromIssue(issue)
 		queuedByProfile[profile] = append(queuedByProfile[profile], issueID)
 	}
@@ -244,6 +251,13 @@ func (s *DepScheduler) markReadyByProfileQueueLocked(rs *runningSession) error {
 			if issue == nil || issue.Status != core.IssueStatusQueued {
 				continue
 			}
+			ready, err := s.dependenciesSatisfiedLocked(rs, issue)
+			if err != nil {
+				return err
+			}
+			if !ready {
+				continue
+			}
 			if err := transitionIssueStatus(issue, core.IssueStatusReady); err != nil {
 				return err
 			}
@@ -257,6 +271,49 @@ func (s *DepScheduler) markReadyByProfileQueueLocked(rs *runningSession) error {
 		}
 	}
 	return nil
+}
+
+func areDependenciesMet(dependsOn []string, lookup func(string) *core.Issue) bool {
+	if len(dependsOn) == 0 {
+		return true
+	}
+	for _, depID := range dependsOn {
+		trimmed := strings.TrimSpace(depID)
+		if trimmed == "" {
+			continue
+		}
+		dep := lookup(trimmed)
+		if dep == nil || dep.Status != core.IssueStatusDone {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *DepScheduler) dependenciesSatisfiedLocked(rs *runningSession, issue *core.Issue) (bool, error) {
+	if issue == nil {
+		return false, nil
+	}
+	lookup := func(id string) *core.Issue {
+		if dep := rs.IssueByID[id]; dep != nil {
+			return dep
+		}
+		dep, err := s.store.GetIssue(id)
+		if err != nil {
+			return nil
+		}
+		return dep
+	}
+	for _, depID := range issue.DependsOn {
+		trimmed := strings.TrimSpace(depID)
+		if trimmed == "" || rs.IssueByID[trimmed] != nil {
+			continue
+		}
+		if _, err := s.store.GetIssue(trimmed); err != nil {
+			return false, err
+		}
+	}
+	return areDependenciesMet(issue.DependsOn, lookup), nil
 }
 
 func (s *DepScheduler) tryAcquireSlot() bool {

@@ -59,6 +59,8 @@ func registerV1Routes(
 	r chi.Router,
 	store core.Store,
 	issueManager IssueManager,
+	decomposePlanner DecomposePlanner,
+	proposalIssueCreator ProposalIssueCreator,
 	issueParserRoleID string,
 	executor RunExecutor,
 	stageSessionMgr StageSessionManager,
@@ -82,6 +84,7 @@ func registerV1Routes(
 	registerProjectRoutes(r, store, hub, provisioner)
 	registerRepoRoutes(r, store)
 	registerChatRoutes(r, store, chatAssistant, eventPublisher)
+	registerDecomposeRoutes(r, decomposePlanner, proposalIssueCreator)
 	r.Group(func(r chi.Router) {
 		r.Use(RequireScope(ScopeAdmin))
 		registerAdminOpsRoutes(r, store, webhookReplayer, restartFunc, hub)
