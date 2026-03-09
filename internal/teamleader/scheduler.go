@@ -33,9 +33,11 @@ type DepScheduler struct {
 	RunIndex      map[string]RunRef
 	lastSessionID string
 
-	loopCancel  context.CancelFunc
-	loopWG      sync.WaitGroup
-	reconcileWG sync.WaitGroup
+	loopCancel     context.CancelFunc
+	watchdogCancel context.CancelFunc
+	loopWG         sync.WaitGroup
+	reconcileWG    sync.WaitGroup
+	watchdogWG     sync.WaitGroup
 
 	reconcileInterval time.Duration
 	reconcileRun      func(context.Context) error
@@ -163,6 +165,8 @@ func (s *DepScheduler) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	s.stopWatchdog()
+
 	s.mu.Lock()
 	cancel := s.loopCancel
 	s.loopCancel = nil
@@ -177,6 +181,7 @@ func (s *DepScheduler) Stop(ctx context.Context) error {
 		defer close(done)
 		s.loopWG.Wait()
 		s.reconcileWG.Wait()
+		s.watchdogWG.Wait()
 	}()
 
 	select {

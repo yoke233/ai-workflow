@@ -63,6 +63,16 @@ func (s *DepScheduler) handleRunEventLocked(evt core.Event) error {
 		s.recordTaskStep(issue, core.StepCompleted, "system", "run completed with auto_merge disabled")
 		s.publishIssueEvent(core.EventIssueDone, issue, nil, "")
 	case core.EventRunFailed:
+		_, running := rs.Running[ref.issueID]
+		if issue.Status == core.IssueStatusMerging && strings.TrimSpace(evt.IssueID) == "" {
+			return nil
+		}
+		if issue.Status != core.IssueStatusExecuting && issue.Status != core.IssueStatusMerging {
+			if !running && cleanupRunID != "" {
+				delete(s.RunIndex, cleanupRunID)
+			}
+			return nil
+		}
 		if err := transitionIssueStatus(issue, core.IssueStatusFailed); err != nil {
 			return err
 		}
