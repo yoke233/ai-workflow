@@ -1,27 +1,41 @@
 /** @vitest-environment jsdom */
 
+import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import BoardView, { groupBoardTasks, toBoardStatus, type BoardTask } from "./BoardView";
 import type { ApiClient } from "../lib/apiClient";
 import type { ApiIssue, IssueTimelineEntry } from "../types/api";
 
+vi.mock("@xyflow/react", () => ({
+  Background: () => <div data-testid="react-flow-background" />,
+  Controls: () => <div data-testid="react-flow-controls" />,
+  MarkerType: { ArrowClosed: "arrow-closed" },
+  Position: { Left: "left", Right: "right" },
+  ReactFlow: ({ children }: { children?: ReactNode }) => (
+    <div data-testid="react-flow">{children}</div>
+  ),
+}));
+
 vi.mock("../components/DagPreview", () => ({
   default: ({
     items,
     summary,
+    error,
     loading,
     onConfirm,
     onCancel,
   }: {
     items: Array<{ temp_id: string; title: string }>;
     summary: string;
+    error?: string | null;
     loading?: boolean;
     onConfirm: (items: Array<{ temp_id: string; title: string }>) => void;
     onCancel: () => void;
   }) => (
     <div data-testid="dag-preview">
       <div>{summary}</div>
+      {error ? <div role="alert">{error}</div> : null}
       <button
         type="button"
         onClick={() => {
@@ -534,6 +548,245 @@ describe("BoardView", () => {
     expect(screen.queryByTestId("dag-preview")).toBeNull();
   });
 
+  it("projectId 切换后会清理 DAG 状态并忽略旧 proposal", async () => {
+    const pendingDecompose = createDeferred<{
+      proposal_id: string;
+      project_id: string;
+      prompt: string;
+      summary: string;
+      issues: Array<{
+        temp_id: string;
+        title: string;
+        body: string;
+        labels: string[];
+        depends_on: string[];
+      }>;
+    }>();
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.decompose).mockImplementation((projectId, body) => {
+      if (projectId === "proj-1") {
+        return pendingDecompose.promise;
+      }
+      return Promise.resolve({
+        proposal_id: "prop-2",
+        project_id: projectId,
+        prompt: body.prompt,
+        summary: "新项目提案",
+        issues: [
+          {
+            temp_id: "C",
+            title: "新任务",
+            body: "new",
+            labels: ["frontend"],
+            depends_on: [],
+          },
+        ],
+      });
+    });
+
+    const view = render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    fireEvent.change(
+      screen.getByPlaceholderText("描述你的需求，AI 将自动拆解为任务..."),
+      { target: { value: "旧项目需求" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "DAG 拆解" }));
+
+    await waitFor(() => {
+      expect(apiClient.decompose).toHaveBeenCalledWith("proj-1", {
+        prompt: "旧项目需求",
+      });
+    });
+
+    view.rerender(<BoardView apiClient={apiClient} projectId="proj-2" refreshToken={0} />);
+
+    pendingDecompose.resolve({
+      proposal_id: "prop-stale",
+      project_id: "proj-1",
+      prompt: "旧项目需求",
+      summary: "旧 proposal",
+      issues: [
+        {
+          temp_id: "A",
+          title: "旧任务",
+          body: "",
+          labels: [],
+          depends_on: [],
+        },
+      ],
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("dag-preview")).toBeNull();
+    });
+    expect(screen.queryByText("旧 proposal")).toBeNull();
+
+    fireEvent.change(
+      screen.getByPlaceholderText("描述你的需求，AI 将自动拆解为任务..."),
+      { target: { value: "新项目需求" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "DAG 拆解" }));
+
+    await waitFor(() => {
+      expect(apiClient.decompose).toHaveBeenCalledWith("proj-2", {
+        prompt: "新项目需求",
+      });
+    });
+    expect(screen.getByTestId("dag-preview")).toBeTruthy();
+    expect(screen.getByText("新项目提案")).toBeTruthy();
+    expect(screen.queryByText("旧 proposal")).toBeNull();
+  });
+
+  it("confirm handler 会同步防重入，快双击只发一次请求", async () => {
+    const confirmDeferred = createDeferred<{
+      created_issues: Array<{ temp_id: string; issue_id: string }>;
+    }>();
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.confirmDecompose).mockImplementation(() => confirmDeferred.promise);
+
+    render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    fireEvent.change(
+      screen.getByPlaceholderText("描述你的需求，AI 将自动拆解为任务..."),
+      { target: { value: "做一个用户注册系统" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "DAG 拆解" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dag-preview")).toBeTruthy();
+    });
+
+    const confirmButton = screen.getByRole("button", { name: "confirm dag" });
+    fireEvent.click(confirmButton);
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(apiClient.confirmDecompose).toHaveBeenCalledTimes(1);
+    });
+
+    confirmDeferred.resolve({
+      created_issues: [{ temp_id: "A", issue_id: "issue-a" }],
+    });
+  });
+
+  it("confirm 失败时错误会显示在 DagPreview 模态内", async () => {
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.confirmDecompose).mockRejectedValue(new Error("confirm exploded"));
+
+    render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    fireEvent.change(
+      screen.getByPlaceholderText("描述你的需求，AI 将自动拆解为任务..."),
+      { target: { value: "做一个用户注册系统" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "DAG 拆解" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dag-preview")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "confirm dag" }));
+
+    await waitFor(() => {
+      const preview = screen.getByTestId("dag-preview");
+      expect(within(preview).getByRole("alert").textContent).toContain("confirm exploded");
+    });
+  });
+
+  it("projectId 切换会重置 confirm 锁并允许新项目继续确认", async () => {
+    const pendingConfirm = createDeferred<{
+      created_issues: Array<{ temp_id: string; issue_id: string }>;
+    }>();
+    const apiClient = createMockApiClient();
+    vi.mocked(apiClient.confirmDecompose).mockImplementation((projectId) => {
+      if (projectId === "proj-1") {
+        return pendingConfirm.promise;
+      }
+      return Promise.resolve({
+        created_issues: [{ temp_id: "A", issue_id: "issue-next" }],
+      });
+    });
+    vi.mocked(apiClient.decompose).mockImplementation((projectId) =>
+      Promise.resolve({
+        proposal_id: projectId === "proj-1" ? "prop-1" : "prop-2",
+        project_id: projectId,
+        prompt: "prompt",
+        summary: projectId === "proj-1" ? "旧项目提案" : "新项目提案",
+        issues: [
+          {
+            temp_id: "A",
+            title: projectId === "proj-1" ? "旧任务" : "新任务",
+            body: "",
+            labels: [],
+            depends_on: [],
+          },
+        ],
+      }),
+    );
+
+    const view = render(<BoardView apiClient={apiClient} projectId="proj-1" refreshToken={0} />);
+
+    fireEvent.change(
+      screen.getByPlaceholderText("描述你的需求，AI 将自动拆解为任务..."),
+      { target: { value: "旧项目需求" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "DAG 拆解" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("旧项目提案")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "confirm dag" }));
+
+    await waitFor(() => {
+      expect(apiClient.confirmDecompose).toHaveBeenCalledWith("proj-1", {
+        proposal_id: "prop-1",
+        issues: [
+          {
+            temp_id: "A",
+            title: "旧任务",
+            body: "",
+            labels: [],
+            depends_on: [],
+          },
+        ],
+      });
+    });
+
+    view.rerender(<BoardView apiClient={apiClient} projectId="proj-2" refreshToken={0} />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("dag-preview")).toBeNull();
+    });
+
+    fireEvent.change(
+      screen.getByPlaceholderText("描述你的需求，AI 将自动拆解为任务..."),
+      { target: { value: "新项目需求" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "DAG 拆解" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("新项目提案")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "confirm dag" }));
+
+    await waitFor(() => {
+      expect(apiClient.confirmDecompose).toHaveBeenCalledWith("proj-2", {
+        proposal_id: "prop-2",
+        issues: [
+          {
+            temp_id: "A",
+            title: "新任务",
+            body: "",
+            labels: [],
+            depends_on: [],
+          },
+        ],
+      });
+    });
+  });
+
   it("点击 issue 会调用 timeline API 并渲染事件", async () => {
     const apiClient = createMockApiClient();
     vi.mocked(apiClient.listIssues).mockResolvedValue({
@@ -822,6 +1075,51 @@ describe("BoardView", () => {
           },
         ],
       });
+    });
+  });
+});
+
+describe("DagPreview", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("confirm 按钮本地防重入，快双击只触发一次 onConfirm", async () => {
+    const { default: RealDagPreview } = await vi.importActual<typeof import("../components/DagPreview")>(
+      "../components/DagPreview",
+    );
+    const deferred = createDeferred<void>();
+    const onConfirm = vi.fn(() => deferred.promise);
+
+    render(
+      <RealDagPreview
+        items={[
+          {
+            temp_id: "A",
+            title: "设计 schema",
+            body: "",
+            labels: [],
+            depends_on: [],
+          },
+        ]}
+        summary="拆解摘要"
+        onConfirm={onConfirm}
+        onCancel={() => undefined}
+      />,
+    );
+
+    const confirmButton = screen.getByRole("button", { name: "创建 1 个 Issue" });
+    fireEvent.click(confirmButton);
+    fireEvent.click(confirmButton);
+
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "创建中..." }).hasAttribute("disabled")).toBe(true);
+
+    deferred.resolve();
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "创建 1 个 Issue" }).hasAttribute("disabled"),
+      ).toBe(false);
     });
   });
 });

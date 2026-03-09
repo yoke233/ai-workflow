@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/yoke233/ai-workflow/internal/core"
@@ -15,6 +18,21 @@ import (
 
 type stubDecomposePlanner struct {
 	planFn func(ctx context.Context, projectID, prompt string) (*core.DecomposeProposal, error)
+}
+
+type stubDecomposeBadRequestError struct {
+	message string
+}
+
+func (e *stubDecomposeBadRequestError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.message
+}
+
+func (e *stubDecomposeBadRequestError) BadRequest() bool {
+	return true
 }
 
 func (s *stubDecomposePlanner) Plan(ctx context.Context, projectID, prompt string) (*core.DecomposeProposal, error) {
@@ -54,6 +72,76 @@ func (s *stubManagerScheduler) StartIssue(_ context.Context, _ *core.Issue) erro
 type stubReviewSubmitter struct{}
 
 func (s *stubReviewSubmitter) Submit(_ context.Context, _ []*core.Issue) error { return nil }
+
+func persistStubCreatedIssues(t *testing.T, store core.Store, input teamleader.CreateIssuesInput) []*core.Issue {
+	t.Helper()
+	if strings.TrimSpace(input.SessionID) != "" {
+		if _, err := store.GetChatSession(input.SessionID); err != nil {
+			if !isNotFoundError(err) {
+				t.Fatalf("GetChatSession(%s): %v", input.SessionID, err)
+			}
+			if err := store.CreateChatSession(&core.ChatSession{
+				ID:        input.SessionID,
+				ProjectID: input.ProjectID,
+				AgentName: "test",
+				Messages:  []core.ChatMessage{},
+			}); err != nil {
+				t.Fatalf("CreateChatSession(%s): %v", input.SessionID, err)
+			}
+		}
+	}
+	out := make([]*core.Issue, 0, len(input.Issues))
+	for _, spec := range input.Issues {
+		issue := &core.Issue{
+			ID:         spec.ID,
+			ProjectID:  input.ProjectID,
+			SessionID:  input.SessionID,
+			Title:      spec.Title,
+			Body:       spec.Body,
+			Labels:     append([]string(nil), spec.Labels...),
+			DependsOn:  append([]string(nil), spec.DependsOn...),
+			Blocks:     append([]string(nil), spec.Blocks...),
+			Template:   "standard",
+			AutoMerge:  false,
+			State:      core.IssueStateOpen,
+			Status:     core.IssueStatusDraft,
+			FailPolicy: core.FailBlock,
+		}
+		if spec.Template != "" {
+			issue.Template = spec.Template
+		}
+		if spec.AutoMerge != nil {
+			issue.AutoMerge = *spec.AutoMerge
+		}
+		if err := store.CreateIssue(issue); err != nil {
+			t.Fatalf("CreateIssue(%s): %v", issue.ID, err)
+		}
+		out = append(out, issue)
+	}
+	return out
+}
+
+type flakyProposalIssueCreator struct {
+	base             ProposalIssueCreator
+	failConfirmCalls int
+	createCallCount  int
+	confirmCallCount int
+	lastCreatedInput teamleader.CreateIssuesInput
+}
+
+func (f *flakyProposalIssueCreator) CreateIssues(ctx context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error) {
+	f.createCallCount++
+	f.lastCreatedInput = input
+	return f.base.CreateIssues(ctx, input)
+}
+
+func (f *flakyProposalIssueCreator) ConfirmCreatedIssues(ctx context.Context, issueIDs []string, feedback string) ([]*core.Issue, error) {
+	f.confirmCallCount++
+	if f.confirmCallCount <= f.failConfirmCalls {
+		return nil, errors.New("temporary confirm failure")
+	}
+	return f.base.ConfirmCreatedIssues(ctx, issueIDs, feedback)
+}
 
 func TestDecomposeAPI_ReturnsProposal(t *testing.T) {
 	store := newTestStore(t)
@@ -104,6 +192,108 @@ func TestDecomposeAPI_ReturnsProposal(t *testing.T) {
 	}
 }
 
+func TestDecomposeAPI_ReturnsBadRequestForPlannerClientError(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{ID: "proj-decompose-bad-request", Name: "proj-decompose-bad-request", RepoPath: filepath.Join(t.TempDir(), "repo")}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	srv := NewServer(Config{
+		Store: store,
+		DecomposePlanner: &stubDecomposePlanner{planFn: func(_ context.Context, projectID, prompt string) (*core.DecomposeProposal, error) {
+			return nil, &stubDecomposeBadRequestError{message: "prompt is too broad"}
+		}},
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, _ := json.Marshal(map[string]any{"prompt": "build everything"})
+	resp, err := http.Post(ts.URL+"/api/v1/projects/"+project.ID+"/decompose", "application/json", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatalf("POST decompose: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+	var apiErr apiError
+	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if apiErr.Code != "DECOMPOSE_FAILED" {
+		t.Fatalf("api error code = %q", apiErr.Code)
+	}
+}
+
+func TestDecomposeAPI_ReturnsGatewayTimeoutForPlannerTimeout(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{ID: "proj-decompose-timeout", Name: "proj-decompose-timeout", RepoPath: filepath.Join(t.TempDir(), "repo")}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	srv := NewServer(Config{
+		Store: store,
+		DecomposePlanner: &stubDecomposePlanner{planFn: func(_ context.Context, projectID, prompt string) (*core.DecomposeProposal, error) {
+			return nil, context.DeadlineExceeded
+		}},
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, _ := json.Marshal(map[string]any{"prompt": "build signup"})
+	resp, err := http.Post(ts.URL+"/api/v1/projects/"+project.ID+"/decompose", "application/json", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatalf("POST decompose: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusGatewayTimeout)
+	}
+	var apiErr apiError
+	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if apiErr.Code != "DECOMPOSE_UPSTREAM_TIMEOUT" {
+		t.Fatalf("api error code = %q", apiErr.Code)
+	}
+}
+
+func TestDecomposeAPI_ReturnsServiceUnavailableForPlannerConfigError(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{ID: "proj-decompose-config", Name: "proj-decompose-config", RepoPath: filepath.Join(t.TempDir(), "repo")}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	srv := NewServer(Config{
+		Store: store,
+		DecomposePlanner: &stubDecomposePlanner{planFn: func(_ context.Context, projectID, prompt string) (*core.DecomposeProposal, error) {
+			return nil, errors.New("provider credentials are required")
+		}},
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, _ := json.Marshal(map[string]any{"prompt": "build signup"})
+	resp, err := http.Post(ts.URL+"/api/v1/projects/"+project.ID+"/decompose", "application/json", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatalf("POST decompose: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusServiceUnavailable)
+	}
+	var apiErr apiError
+	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if apiErr.Code != "DECOMPOSE_UPSTREAM_UNAVAILABLE" {
+		t.Fatalf("api error code = %q", apiErr.Code)
+	}
+}
+
 func TestConfirmDecomposeAPI_ResolvesDependenciesViaCreator(t *testing.T) {
 	store := newTestStore(t)
 	project := core.Project{ID: "proj-confirm", Name: "proj-confirm", RepoPath: filepath.Join(t.TempDir(), "repo")}
@@ -120,6 +310,9 @@ func TestConfirmDecomposeAPI_ResolvesDependenciesViaCreator(t *testing.T) {
 			if input.ProjectID != project.ID {
 				t.Fatalf("projectID = %q", input.ProjectID)
 			}
+			if input.SessionID != decomposeSessionID("prop-1") {
+				t.Fatalf("sessionID = %q", input.SessionID)
+			}
 			if len(input.Issues) != 2 {
 				t.Fatalf("issues len = %d", len(input.Issues))
 			}
@@ -129,10 +322,7 @@ func TestConfirmDecomposeAPI_ResolvesDependenciesViaCreator(t *testing.T) {
 			if got := input.Issues[1].DependsOn; len(got) != 1 || got[0] != "issue-a" {
 				t.Fatalf("resolved depends_on = %#v", got)
 			}
-			return []*core.Issue{
-				{ID: "issue-a", Title: input.Issues[0].Title},
-				{ID: "issue-b", Title: input.Issues[1].Title},
-			}, nil
+			return persistStubCreatedIssues(t, store, input), nil
 		}, confirmCreatedIssuesFn: func(_ context.Context, issueIDs []string, feedback string) ([]*core.Issue, error) {
 			confirmCalled = true
 			if feedback != "confirmed from decompose proposal" {
@@ -161,7 +351,8 @@ func TestConfirmDecomposeAPI_ResolvesDependenciesViaCreator(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want %d body=%s", resp.StatusCode, http.StatusCreated, string(body))
 	}
 	if !creatorCalled {
 		t.Fatal("expected proposal issue creator to be called")
@@ -205,10 +396,7 @@ func TestConfirmDecomposeAPI_PreservesDependenciesWhenIDsAreGenerated(t *testing
 			if got := input.Issues[1].DependsOn; len(got) != 1 || got[0] != input.Issues[0].ID {
 				t.Fatalf("resolved depends_on = %#v, want [%q]", got, input.Issues[0].ID)
 			}
-			return []*core.Issue{
-				{ID: input.Issues[0].ID, Title: input.Issues[0].Title},
-				{ID: input.Issues[1].ID, Title: input.Issues[1].Title},
-			}, nil
+			return persistStubCreatedIssues(t, store, input), nil
 		}, confirmCreatedIssuesFn: func(_ context.Context, issueIDs []string, feedback string) ([]*core.Issue, error) {
 			confirmCalled = true
 			if feedback != "confirmed from decompose proposal" {
@@ -236,7 +424,8 @@ func TestConfirmDecomposeAPI_PreservesDependenciesWhenIDsAreGenerated(t *testing
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want %d body=%s", resp.StatusCode, http.StatusCreated, string(body))
 	}
 	if !creatorCalled {
 		t.Fatal("expected proposal issue creator to be called")
@@ -287,10 +476,7 @@ func TestConfirmDecomposeAPI_GeneratesIssueIDsForDependenciesWhenOmitted(t *test
 			if got := input.Issues[1].DependsOn; len(got) != 1 || got[0] != input.Issues[0].ID {
 				t.Fatalf("resolved depends_on = %#v, want [%q]", got, input.Issues[0].ID)
 			}
-			return []*core.Issue{
-				{ID: input.Issues[0].ID, Title: input.Issues[0].Title},
-				{ID: input.Issues[1].ID, Title: input.Issues[1].Title},
-			}, nil
+			return persistStubCreatedIssues(t, store, input), nil
 		}, confirmCreatedIssuesFn: func(_ context.Context, issueIDs []string, feedback string) ([]*core.Issue, error) {
 			confirmCalled = true
 			if feedback != "confirmed from decompose proposal" {
@@ -429,6 +615,192 @@ func TestConfirmDecomposeAPI_WritesCreatedAndQueuedTaskSteps(t *testing.T) {
 		}
 		if issue.Status != core.IssueStatusQueued {
 			t.Fatalf("issue %s status = %s, want %s", issueID, issue.Status, core.IssueStatusQueued)
+		}
+		if issue.SessionID != decomposeSessionID("prop-tasksteps") {
+			t.Fatalf("issue %s session_id = %q", issueID, issue.SessionID)
+		}
+	}
+}
+
+func TestDecomposeAPI_RejectsUnknownProject(t *testing.T) {
+	store := newTestStore(t)
+	plannerCalled := false
+	srv := NewServer(Config{
+		Store: store,
+		DecomposePlanner: &stubDecomposePlanner{planFn: func(_ context.Context, projectID, prompt string) (*core.DecomposeProposal, error) {
+			plannerCalled = true
+			return nil, nil
+		}},
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, _ := json.Marshal(map[string]any{"prompt": "build signup"})
+	resp, err := http.Post(ts.URL+"/api/v1/projects/missing-project/decompose", "application/json", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatalf("POST decompose: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+	var apiErr apiError
+	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if apiErr.Code != "PROJECT_NOT_FOUND" {
+		t.Fatalf("api error code = %q", apiErr.Code)
+	}
+	if plannerCalled {
+		t.Fatal("planner should not be called when project is missing")
+	}
+}
+
+func TestConfirmDecomposeAPI_RejectsUnknownProject(t *testing.T) {
+	store := newTestStore(t)
+	creatorCalled := false
+	srv := NewServer(Config{
+		Store: store,
+		ProposalIssueCreator: &stubProposalIssueCreator{
+			createIssuesFn: func(_ context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error) {
+				creatorCalled = true
+				return nil, nil
+			},
+		},
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, _ := json.Marshal(map[string]any{
+		"proposal_id": "prop-missing",
+		"issues": []map[string]any{
+			{"temp_id": "A", "title": "schema", "body": "", "depends_on": []string{}, "labels": []string{}},
+		},
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/projects/missing-project/decompose/confirm", "application/json", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatalf("POST confirm: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+	var apiErr apiError
+	if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if apiErr.Code != "PROJECT_NOT_FOUND" {
+		t.Fatalf("api error code = %q", apiErr.Code)
+	}
+	if creatorCalled {
+		t.Fatal("creator should not be called when project is missing")
+	}
+}
+
+func TestConfirmDecomposeAPI_RetryReusesStableIDsAndDoesNotDuplicateIssues(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{ID: "proj-confirm-retry", Name: "proj-confirm-retry", RepoPath: filepath.Join(t.TempDir(), "repo")}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	manager, err := teamleader.NewManager(store, nil, &stubReviewSubmitter{}, &stubManagerScheduler{})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	creator := &flakyProposalIssueCreator{
+		base:             manager,
+		failConfirmCalls: 1,
+	}
+	srv := NewServer(Config{Store: store, ProposalIssueCreator: creator})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, _ := json.Marshal(map[string]any{
+		"proposal_id": "prop-retry",
+		"issues": []map[string]any{
+			{"temp_id": "A", "title": "schema", "body": "", "depends_on": []string{}, "labels": []string{}},
+			{"temp_id": "B", "title": "api", "body": "", "depends_on": []string{"A"}, "labels": []string{}},
+		},
+	})
+
+	firstResp, err := http.Post(ts.URL+"/api/v1/projects/"+project.ID+"/decompose/confirm", "application/json", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatalf("first POST confirm: %v", err)
+	}
+	if firstResp.StatusCode != http.StatusInternalServerError {
+		body, _ := io.ReadAll(firstResp.Body)
+		firstResp.Body.Close()
+		t.Fatalf("first status = %d, want %d body=%s", firstResp.StatusCode, http.StatusInternalServerError, string(body))
+	}
+	firstResp.Body.Close()
+	if creator.createCallCount != 1 {
+		t.Fatalf("create call count after first attempt = %d, want 1", creator.createCallCount)
+	}
+	if creator.lastCreatedInput.SessionID != decomposeSessionID("prop-retry") {
+		t.Fatalf("session_id = %q", creator.lastCreatedInput.SessionID)
+	}
+
+	issues, total, err := store.ListIssues(project.ID, core.IssueFilter{Limit: 20, Offset: 0})
+	if err != nil {
+		t.Fatalf("ListIssues after first attempt: %v", err)
+	}
+	if total != 2 || len(issues) != 2 {
+		t.Fatalf("issues after first attempt total=%d len=%d", total, len(issues))
+	}
+	for _, issue := range issues {
+		if issue.Status != core.IssueStatusDraft {
+			t.Fatalf("issue %s status after first attempt = %s, want draft", issue.ID, issue.Status)
+		}
+		if issue.SessionID != decomposeSessionID("prop-retry") {
+			t.Fatalf("issue %s session_id = %q", issue.ID, issue.SessionID)
+		}
+	}
+
+	secondResp, err := http.Post(ts.URL+"/api/v1/projects/"+project.ID+"/decompose/confirm", "application/json", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatalf("second POST confirm: %v", err)
+	}
+	defer secondResp.Body.Close()
+	if secondResp.StatusCode != http.StatusCreated {
+		t.Fatalf("second status = %d, want %d", secondResp.StatusCode, http.StatusCreated)
+	}
+	if creator.createCallCount != 1 {
+		t.Fatalf("create call count after retry = %d, want still 1", creator.createCallCount)
+	}
+
+	var payload confirmDecomposeResponse
+	if err := json.NewDecoder(secondResp.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode second response: %v", err)
+	}
+	if len(payload.CreatedIssues) != 2 {
+		t.Fatalf("created issues len = %d, want 2", len(payload.CreatedIssues))
+	}
+	if payload.CreatedIssues[0].IssueID != decomposeIssueID("prop-retry", "A") {
+		t.Fatalf("issue A id = %q", payload.CreatedIssues[0].IssueID)
+	}
+	if payload.CreatedIssues[1].IssueID != decomposeIssueID("prop-retry", "B") {
+		t.Fatalf("issue B id = %q", payload.CreatedIssues[1].IssueID)
+	}
+
+	issues, total, err = store.ListIssues(project.ID, core.IssueFilter{Limit: 20, Offset: 0})
+	if err != nil {
+		t.Fatalf("ListIssues after retry: %v", err)
+	}
+	if total != 2 || len(issues) != 2 {
+		t.Fatalf("issues after retry total=%d len=%d", total, len(issues))
+	}
+
+	for _, issueID := range []string{
+		decomposeIssueID("prop-retry", "A"),
+		decomposeIssueID("prop-retry", "B"),
+	} {
+		issue, err := store.GetIssue(issueID)
+		if err != nil {
+			t.Fatalf("GetIssue(%s): %v", issueID, err)
+		}
+		if issue.Status != core.IssueStatusQueued {
+			t.Fatalf("issue %s status after retry = %s, want queued", issueID, issue.Status)
 		}
 	}
 }

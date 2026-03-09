@@ -190,6 +190,74 @@ func TestManager_CreateIssuesRejectsDuplicateIssueIDs(t *testing.T) {
 	}
 }
 
+func TestManager_CreateIssuesRollsBackCreatedIssuesWhenLaterCreateFails(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+
+	project := mustCreateManagerProject(t, store, "proj-manager-create-rollback")
+	const sessionID = "sess-manager-create-rollback"
+	if err := store.CreateChatSession(&core.ChatSession{
+		ID:        sessionID,
+		ProjectID: project.ID,
+		Messages:  []core.ChatMessage{},
+	}); err != nil {
+		t.Fatalf("CreateChatSession() error = %v", err)
+	}
+	if err := store.CreateIssue(&core.Issue{
+		ID:         "issue-existing",
+		ProjectID:  project.ID,
+		SessionID:  sessionID,
+		Title:      "existing",
+		Template:   "standard",
+		State:      core.IssueStateOpen,
+		Status:     core.IssueStatusDraft,
+		FailPolicy: core.FailBlock,
+	}); err != nil {
+		t.Fatalf("seed existing issue: %v", err)
+	}
+
+	manager, err := NewManager(store, nil, nil, &fakeManagerScheduler{})
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	_, err = manager.CreateIssues(context.Background(), CreateIssuesInput{
+		ProjectID: project.ID,
+		SessionID: sessionID,
+		Issues: []CreateIssueSpec{
+			{ID: "issue-first", Title: "first"},
+			{ID: "issue-existing", Title: "duplicate existing"},
+		},
+	})
+	if err == nil {
+		t.Fatal("CreateIssues() should fail when later issue create fails")
+	}
+	if !strings.Contains(err.Error(), `create issue issue-existing`) {
+		t.Fatalf("error = %v, want create issue context", err)
+	}
+
+	if _, getErr := store.GetIssue("issue-first"); getErr == nil {
+		t.Fatal("issue-first should be rolled back after batch create failure")
+	}
+	steps, stepsErr := store.ListTaskSteps("issue-first")
+	if stepsErr != nil {
+		t.Fatalf("ListTaskSteps(issue-first) error = %v", stepsErr)
+	}
+	if len(steps) != 0 {
+		t.Fatalf("ListTaskSteps(issue-first) len = %d, want 0 after rollback", len(steps))
+	}
+
+	persisted, getErr := store.GetIssue("issue-existing")
+	if getErr != nil {
+		t.Fatalf("GetIssue(issue-existing) error = %v", getErr)
+	}
+	if persisted == nil || persisted.ID != "issue-existing" {
+		t.Fatalf("persisted existing issue = %#v", persisted)
+	}
+}
+
 func TestManager_SubmitForReviewMarksIssueReviewingViaTwoPhase(t *testing.T) {
 	t.Parallel()
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -14,6 +14,7 @@ import type { ProposalItem } from "../types/api";
 interface DagPreviewProps {
   items: ProposalItem[];
   summary: string;
+  error?: string | null;
   loading?: boolean;
   onConfirm: (items: ProposalItem[]) => void | Promise<void>;
   onCancel: () => void;
@@ -161,17 +162,29 @@ const buildEdges = (items: ProposalItem[]): Edge[] => {
 export function DagPreview({
   items,
   summary,
+  error = null,
   loading = false,
   onConfirm,
   onCancel,
 }: DagPreviewProps) {
   const [draftItems, setDraftItems] = useState<ProposalItem[]>(items);
   const [selectedID, setSelectedID] = useState<string | null>(items[0]?.temp_id ?? null);
+  const [confirmLocked, setConfirmLocked] = useState(false);
+  const confirmLockedRef = useRef(false);
 
   useEffect(() => {
     setDraftItems(items);
     setSelectedID(items[0]?.temp_id ?? null);
+    setConfirmLocked(false);
+    confirmLockedRef.current = false;
   }, [items]);
+
+  useEffect(() => {
+    if (!loading) {
+      setConfirmLocked(false);
+      confirmLockedRef.current = false;
+    }
+  }, [loading]);
 
   const normalizedItems = useMemo(
     () => cleanupProposalItems(draftItems.filter((item) => item.temp_id.trim().length > 0)),
@@ -179,6 +192,7 @@ export function DagPreview({
   );
   const nodes = useMemo(() => buildNodes(normalizedItems, selectedID), [normalizedItems, selectedID]);
   const edges = useMemo(() => buildEdges(normalizedItems), [normalizedItems]);
+  const confirmDisabled = loading || confirmLocked || normalizedItems.length === 0;
 
   const updateItem = (tempID: string, updater: (item: ProposalItem) => ProposalItem) => {
     setDraftItems((current) =>
@@ -246,14 +260,35 @@ export function DagPreview({
             type="button"
             className="rounded-md bg-[#0969da] px-3 py-2 text-sm font-medium text-white hover:bg-[#0858ba] disabled:cursor-not-allowed disabled:opacity-60"
             onClick={() => {
-              void onConfirm(normalizedItems);
+              if (confirmLockedRef.current || loading || normalizedItems.length === 0) {
+                return;
+              }
+              confirmLockedRef.current = true;
+              setConfirmLocked(true);
+              void Promise.resolve(onConfirm(normalizedItems))
+                .catch(() => undefined)
+                .finally(() => {
+                  confirmLockedRef.current = false;
+                  setConfirmLocked(false);
+                });
             }}
-            disabled={loading || normalizedItems.length === 0}
+            disabled={confirmDisabled}
           >
-            {loading ? "创建中..." : `创建 ${normalizedItems.length} 个 Issue`}
+            {loading || confirmLocked ? "创建中..." : `创建 ${normalizedItems.length} 个 Issue`}
           </button>
         </div>
       </div>
+
+      {error ? (
+        <div className="border-b border-[#d8dee4] bg-[#ffebe9] px-5 py-3">
+          <p
+            role="alert"
+            className="rounded-md border border-[#cf222e] bg-[#ffebe9] px-3 py-2 text-sm text-[#cf222e]"
+          >
+            {error}
+          </p>
+        </div>
+      ) : null}
 
       <div className="grid min-h-[640px] grid-cols-1 xl:grid-cols-[minmax(0,1.3fr)_420px]">
         <div className="border-b border-[#d8dee4] xl:border-b-0 xl:border-r">

@@ -84,7 +84,7 @@ func registerV1Routes(
 	registerProjectRoutes(r, store, hub, provisioner)
 	registerRepoRoutes(r, store)
 	registerChatRoutes(r, store, chatAssistant, eventPublisher)
-	registerDecomposeRoutes(r, decomposePlanner, proposalIssueCreator)
+	registerDecomposeRoutes(r, store, decomposePlanner, proposalIssueCreator)
 	r.Group(func(r chi.Router) {
 		r.Use(RequireScope(ScopeAdmin))
 		registerAdminOpsRoutes(r, store, webhookReplayer, restartFunc, hub)

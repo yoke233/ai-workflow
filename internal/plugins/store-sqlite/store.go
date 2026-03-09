@@ -777,6 +777,25 @@ func (s *SQLiteStore) CreateIssue(issue *core.Issue) error {
 	return s.bindRunIssueLink(normalized.RunID, normalized.ID)
 }
 
+func (s *SQLiteStore) DeleteIssue(id string) error {
+	if err := s.ensureIssueTables(); err != nil {
+		return err
+	}
+
+	result, err := s.db.Exec(`DELETE FROM issues WHERE id=?`, strings.TrimSpace(id))
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return fmt.Errorf("issue %s not found", strings.TrimSpace(id))
+	}
+	return nil
+}
+
 func (s *SQLiteStore) GetIssue(id string) (*core.Issue, error) {
 	if err := s.ensureIssueTables(); err != nil {
 		return nil, err

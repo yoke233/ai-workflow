@@ -56,6 +56,10 @@ type managerIssueReviewSubmitter interface {
 	Submit(ctx context.Context, issues []*core.Issue) error
 }
 
+type managerIssueRollbackStore interface {
+	DeleteIssue(id string) error
+}
+
 type ManagerOption func(*Manager)
 
 func WithEventPublisher(pub eventPublisher) ManagerOption {
@@ -157,7 +161,27 @@ func (m *Manager) CreateIssues(ctx context.Context, input CreateIssuesInput) ([]
 	}
 
 	created := make([]*core.Issue, 0, len(input.Issues))
+	createdIDs := make([]string, 0, len(input.Issues))
 	usedIDs := make(map[string]struct{}, len(input.Issues))
+	rollbackCreated := func(cause error) error {
+		if cause == nil || len(createdIDs) == 0 {
+			return cause
+		}
+		rollbackStore, ok := m.store.(managerIssueRollbackStore)
+		if !ok {
+			return cause
+		}
+		var rollbackErrs []string
+		for i := len(createdIDs) - 1; i >= 0; i-- {
+			if err := rollbackStore.DeleteIssue(createdIDs[i]); err != nil && !isManagerNotFoundError(err) {
+				rollbackErrs = append(rollbackErrs, fmt.Sprintf("%s: %v", createdIDs[i], err))
+			}
+		}
+		if len(rollbackErrs) == 0 {
+			return cause
+		}
+		return fmt.Errorf("%w (rollback issues: %s)", cause, strings.Join(rollbackErrs, "; "))
+	}
 
 	for i := range input.Issues {
 		spec := input.Issues[i]
@@ -166,7 +190,7 @@ func (m *Manager) CreateIssues(ctx context.Context, input CreateIssuesInput) ([]
 			issueID = core.NewIssueID()
 		}
 		if _, exists := usedIDs[issueID]; exists {
-			return nil, fmt.Errorf("duplicate issue id %q in create input", issueID)
+			return nil, rollbackCreated(fmt.Errorf("duplicate issue id %q in create input", issueID))
 		}
 		usedIDs[issueID] = struct{}{}
 
@@ -202,11 +226,12 @@ func (m *Manager) CreateIssues(ctx context.Context, input CreateIssuesInput) ([]
 			FailPolicy:  failPolicy,
 		}
 		if err := issue.Validate(); err != nil {
-			return nil, fmt.Errorf("validate issue %s: %w", issueID, err)
+			return nil, rollbackCreated(fmt.Errorf("validate issue %s: %w", issueID, err))
 		}
 		if err := m.store.CreateIssue(issue); err != nil {
-			return nil, fmt.Errorf("create issue %s: %w", issueID, err)
+			return nil, rollbackCreated(fmt.Errorf("create issue %s: %w", issueID, err))
 		}
+		createdIDs = append(createdIDs, issueID)
 		m.recordTaskStep(issueID, core.StepCreated, "system", "issue created")
 
 		latest, err := m.store.GetIssue(issueID)
@@ -217,6 +242,14 @@ func (m *Manager) CreateIssues(ctx context.Context, input CreateIssuesInput) ([]
 		created = append(created, latest)
 	}
 	return created, nil
+}
+
+func isManagerNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(msg, "not found")
 }
 
 func (m *Manager) ConfirmCreatedIssues(ctx context.Context, issueIDs []string, feedback string) ([]*core.Issue, error) {
@@ -242,8 +275,31 @@ func (m *Manager) ConfirmCreatedIssues(ctx context.Context, issueIDs []string, f
 		if issue == nil {
 			continue
 		}
-		if issue.Status != core.IssueStatusDraft {
-			return nil, fmt.Errorf("issue %s must be in draft before confirm, got %s", issue.ID, issue.Status)
+		switch issue.Status {
+		case core.IssueStatusDraft:
+			// continue below with the normal draft -> reviewing -> approve flow.
+		case core.IssueStatusReviewing:
+			approved, err := m.applyIssueApprove(ctx, issue, reason)
+			if err != nil {
+				return nil, err
+			}
+			updatedIssues = append(updatedIssues, approved)
+			continue
+		case core.IssueStatusQueued,
+			core.IssueStatusReady,
+			core.IssueStatusExecuting,
+			core.IssueStatusMerging,
+			core.IssueStatusDone,
+			core.IssueStatusDecomposing,
+			core.IssueStatusDecomposed:
+			latest, err := m.loadIssue(issue.ID)
+			if err != nil {
+				return nil, err
+			}
+			updatedIssues = append(updatedIssues, latest)
+			continue
+		default:
+			return nil, fmt.Errorf("issue %s cannot be confirmed from status %s", issue.ID, issue.Status)
 		}
 
 		reviewing := cloneManagerIssue(issue)
