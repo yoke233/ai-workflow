@@ -90,9 +90,19 @@ func (h *decomposeHandlers) confirm(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "issues are required", "ISSUES_REQUIRED")
 		return
 	}
+	proposal := core.DecomposeProposal{
+		ID:        strings.TrimSpace(req.ProposalID),
+		ProjectID: projectID,
+		Items:     append([]core.ProposalItem(nil), req.Issues...),
+	}
+	if err := proposal.Validate(); err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error(), "INVALID_PROPOSAL")
+		return
+	}
 
 	specs := make([]teamleader.CreateIssueSpec, 0, len(req.Issues))
 	createdRefs := make([]createdIssueRef, 0, len(req.Issues))
+	tempToIssueID := make(map[string]string, len(req.Issues))
 	for _, item := range req.Issues {
 		tempID := strings.TrimSpace(item.TempID)
 		if tempID == "" {
@@ -103,15 +113,23 @@ func (h *decomposeHandlers) confirm(w http.ResponseWriter, r *http.Request) {
 		if issueID == "" {
 			issueID = core.NewIssueID()
 		}
+		tempToIssueID[tempID] = issueID
+	}
+	for _, item := range req.Issues {
+		tempID := strings.TrimSpace(item.TempID)
+		issueID := tempToIssueID[tempID]
 		resolvedDeps := make([]string, 0, len(item.DependsOn))
 		for _, dep := range item.DependsOn {
 			depID := strings.TrimSpace(dep)
 			if depID == "" {
 				continue
 			}
-			if realID := strings.TrimSpace(req.IssueIDs[depID]); realID != "" {
-				resolvedDeps = append(resolvedDeps, realID)
+			realID := strings.TrimSpace(tempToIssueID[depID])
+			if realID == "" {
+				writeAPIError(w, http.StatusBadRequest, "unknown depends_on temp_id: "+depID, "UNKNOWN_DEPENDENCY")
+				return
 			}
+			resolvedDeps = append(resolvedDeps, realID)
 		}
 		template := strings.TrimSpace(item.Template)
 		if template == "" {
@@ -137,10 +155,22 @@ func (h *decomposeHandlers) confirm(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, err.Error(), "CONFIRM_FAILED")
 		return
 	}
-	if len(created) == len(createdRefs) {
+	createdIDs := make([]string, 0, len(created))
+	for i := range created {
+		if created[i] == nil || strings.TrimSpace(created[i].ID) == "" {
+			continue
+		}
+		createdIDs = append(createdIDs, strings.TrimSpace(created[i].ID))
+	}
+	confirmed, err := h.creator.ConfirmCreatedIssues(r.Context(), createdIDs, "confirmed from decompose proposal")
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error(), "CONFIRM_ACTIVATE_FAILED")
+		return
+	}
+	if len(confirmed) == len(createdRefs) {
 		for i := range createdRefs {
-			if created[i] != nil && strings.TrimSpace(created[i].ID) != "" {
-				createdRefs[i].IssueID = strings.TrimSpace(created[i].ID)
+			if confirmed[i] != nil && strings.TrimSpace(confirmed[i].ID) != "" {
+				createdRefs[i].IssueID = strings.TrimSpace(confirmed[i].ID)
 			}
 		}
 	}

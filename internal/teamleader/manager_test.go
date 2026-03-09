@@ -122,6 +122,47 @@ func TestManager_CreateIssuesPersistsDraftWithDefaults(t *testing.T) {
 	}
 }
 
+func TestManager_ConfirmCreatedIssuesQueuesAndDispatches(t *testing.T) {
+	t.Parallel()
+
+	store := newManagerTestStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+
+	project := mustCreateManagerProject(t, store, "proj-manager-confirm-created")
+	issue := mustCreateManagerIssue(t, store, project.ID, "issue-confirm-created", core.IssueStatusDraft, core.IssueStateOpen)
+
+	scheduler := &fakeManagerScheduler{}
+	manager, err := NewManager(store, nil, nil, scheduler)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	confirmed, err := manager.ConfirmCreatedIssues(context.Background(), []string{issue.ID}, "confirmed from test")
+	if err != nil {
+		t.Fatalf("ConfirmCreatedIssues() error = %v", err)
+	}
+	if len(confirmed) != 1 || confirmed[0] == nil {
+		t.Fatalf("confirmed issues = %#v", confirmed)
+	}
+	if confirmed[0].Status != core.IssueStatusQueued {
+		t.Fatalf("confirmed status = %q, want %q", confirmed[0].Status, core.IssueStatusQueued)
+	}
+
+	persisted, err := store.GetIssue(issue.ID)
+	if err != nil {
+		t.Fatalf("GetIssue(%s) error = %v", issue.ID, err)
+	}
+	if persisted.Status != core.IssueStatusQueued {
+		t.Fatalf("persisted status = %q, want %q", persisted.Status, core.IssueStatusQueued)
+	}
+	if scheduler.startIssueCalls != 1 {
+		t.Fatalf("scheduler startIssueCalls = %d, want 1", scheduler.startIssueCalls)
+	}
+	if len(scheduler.startedIssues) != 1 || scheduler.startedIssues[0].ID != issue.ID {
+		t.Fatalf("scheduler started issues = %#v, want [%s]", scheduler.startedIssues, issue.ID)
+	}
+}
+
 func TestManager_CreateIssuesRejectsDuplicateIssueIDs(t *testing.T) {
 	t.Parallel()
 

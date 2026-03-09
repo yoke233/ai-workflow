@@ -717,6 +717,7 @@ type fakeTeamLeaderIssueService struct {
 	startErr          error
 	stopErr           error
 	createIssuesFn    func(ctx context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error)
+	confirmIssuesFn   func(ctx context.Context, issueIDs []string, feedback string) ([]*core.Issue, error)
 	submitForReviewFn func(ctx context.Context, issueIDs []string) error
 	applyActionFn     func(ctx context.Context, issueID, action, feedback string) (*core.Issue, error)
 }
@@ -734,6 +735,17 @@ func (s *fakeTeamLeaderIssueService) CreateIssues(ctx context.Context, input tea
 		return nil, errors.New("unexpected CreateIssues call")
 	}
 	return s.createIssuesFn(ctx, input)
+}
+
+func (s *fakeTeamLeaderIssueService) ConfirmCreatedIssues(ctx context.Context, issueIDs []string, feedback string) ([]*core.Issue, error) {
+	if s.confirmIssuesFn == nil {
+		out := make([]*core.Issue, 0, len(issueIDs))
+		for _, issueID := range issueIDs {
+			out = append(out, &core.Issue{ID: issueID})
+		}
+		return out, nil
+	}
+	return s.confirmIssuesFn(ctx, issueIDs, feedback)
 }
 
 func (s *fakeTeamLeaderIssueService) SubmitForReview(ctx context.Context, issueIDs []string) error {

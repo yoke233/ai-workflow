@@ -55,6 +55,7 @@ type teamLeaderIssueService interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 	CreateIssues(ctx context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error)
+	ConfirmCreatedIssues(ctx context.Context, issueIDs []string, feedback string) ([]*core.Issue, error)
 	SubmitForReview(ctx context.Context, issueIDs []string) error
 	ApplyIssueAction(ctx context.Context, issueID, action, feedback string) (*core.Issue, error)
 }

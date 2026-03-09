@@ -73,6 +73,7 @@ type DecomposePlanner interface {
 
 type ProposalIssueCreator interface {
 	CreateIssues(ctx context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error)
+	ConfirmCreatedIssues(ctx context.Context, issueIDs []string, feedback string) ([]*core.Issue, error)
 }
 
 // RunExecutor defines Run human-action entrypoints used by web handlers.
