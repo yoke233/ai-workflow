@@ -26,9 +26,9 @@
 |------|--------|--------|------|
 | 核心链路 | 6 | 1 | 0 |
 | 可靠性 | 3 | 0 | 1 |
-| 决策与门禁 | 1 | 0 | 1 |
+| 决策与门禁 | 2 | 0 | 0 |
 | 上下文与记忆 | 2 | 0 | 1 |
-| Issue 模型增强 | 0 | 0 | 4 |
+| Issue 模型增强 | 1 | 0 | 3 |
 | 通信层 | 0 | 0 | 3 |
 | Agent 能力 | 0 | 0 | 3 |
 | 自进化 | 0 | 0 | 4 |
@@ -64,7 +64,7 @@
 | # | 功能 | 状态 | v3 设计 | 优先级 | 说明 |
 |---|------|------|---------|--------|------|
 | D1 | Decision 版本化 | ✅ 完成 | 记录每个 AI 决策的 prompt/model/reasoning，可追溯 | — | `f57d220` Decision model + `df23f12` 后端基础 + `a5bd848` 审核决策串联 + `4f02e09` decompose/stage 决策追踪 |
-| D2 | Gate 门禁 | ❌ 待做 | 替代固定 ReviewGate，支持 auto/owner_review/peer_review/vote，可串联多道 | **P1** | D1 已就绪，Gate 是下一个解锁项 |
+| D2 | Gate 门禁 | ✅ 完成 | 后端已实现 Gate/GateCheck/GateChain、四种 gate type、fallback、人工 resolve API，并接入 Decision + TaskStep + SQLite | — | 当前实现挂在 `Issue + WorkflowProfile` 语义上，能力已具备，模型语义仍是过渡态 |
 
 ### 上下文与记忆（v3 Prompt 质量核心）
 
@@ -81,7 +81,7 @@
 | I1 | Tags 标签 | ❌ 待做 | `tags []string` 自由标签，看板分组 | P3 | 简单，按需加 |
 | I2 | acceptance_criteria | ❌ 待做 | 验收条件（自然语言），写进 prompt | **P2** | Gate 需要，提升 prompt 质量 |
 | I3 | participants 参与者 | ❌ 待做 | owner 之外的协作者列表 | P3 | 多 agent 讨论场景需要 |
-| I4 | children_mode | ❌ 待做 | parallel / sequential 子任务执行模式 | **P2** | DAG 完成后自然需要 |
+| I4 | children_mode | ✅ 完成 | parallel / sequential 子任务执行模式 | — | 字段、校验、SQLite 持久化、decompose / DAG 路径均已接入 |
 
 ### 通信层（v3 Message/Thread/Bus）
 
@@ -131,25 +131,22 @@ R2 Watchdog 巡检           ✅ 01e1d51
 D1 Decision 版本化         ✅ f57d220 + df23f12 + a5bd848
 ```
 
-### 当前优先级 — 下一步做（门禁 + Prompt 质量 + Issue 增强）
+### 当前优先级 — 下一步做（v3.1 语义差距补齐）
 
 ```
-D2 Gate 门禁               替代固定 ReviewGate，D1 已就绪      ← 最高优先
-C7 Issue DAG 拆解收尾      decompose 流程加固中（95%）
-I2 acceptance_criteria      Gate 的验收条件，写进 prompt
-I4 children_mode            DAG 之后的自然延伸
+T1 Thread 会话容器          热上下文从 issue/chat_session 升级到 thread
+I2 acceptance_criteria      验收条件进入主模型并写入 prompt / gate
+I3 participants             支持多 agent 讨论与 gate 参与者语义
+M3 Memory Compact           长任务冷层摘要与 fingerprint
+C7 Issue DAG 拆解收尾       剩余问题偏流程加固，不是后端能力缺失
 ```
 
-**依赖关系:** D1✅ → D2 → I2 | C7🔧 → I4 | M1✅ M2✅ 已完成
+**依赖关系:** M1✅ M2✅ → T1 | D1✅ D2✅ → I2 | C7🔧 → 更完整的子任务 / 讨论语义
 
 ### P3 — 按需推进（丰富功能）
 
 ```
 I1 Tags 标签               简单
-I3 participants 参与者      多 agent 协作
-M2 三级记忆                 依赖 M1
-M3 Memory Compact           长期任务需要
-T1 Thread 会话容器          依赖 M1
 T2 闲聊→任务结晶            依赖 T1
 A2 Prompt 即 Artifact       依赖 D1
 P3 定时任务 Schedule         独立
@@ -183,8 +180,8 @@ R3(信号量修复) ✅ ──┐
 R2(Watchdog)   ✅ ──┤── 可靠性基础 ✅
                     │
 D1(Decision)   ✅ ──┤── 决策基础 ✅
-  └→ D2(Gate)  ❌ ──┤   ← 下一个重点
-      └→ I2    ❌ ──┘
+  └→ D2(Gate)  ✅ ──┤
+      └→ I2    ❌ ──┘   ← 当前结构性缺口之一
       └→ E3(授权衰减)
 
 M1(PromptBuilder)  ✅
@@ -203,10 +200,172 @@ E1(Analyst) → E2(Pattern)
 |----------|---------|-----------|
 | Phase 0 | 最小闭环 | ✅ 已超额完成（含 Web UI、GitHub 集成） |
 | Phase 1 | Reviewer + 动态创建 + Validator | ✅ Reviewer ✅ / Decision 版本化 ✅ / 动态创建 P4 |
-| Phase 2 | 子任务拆分 + Merger + Watchdog | ⚠️ DAG 拆分 🔧收尾中 / Merger ✅ / Watchdog ✅ |
+| Phase 2 | 子任务拆分 + Merger + Watchdog | ⚠️ DAG 拆分后端骨架 ✅，产品闭环仍在收尾 / Merger ✅ / Watchdog ✅ |
 | Phase 3 | Analyst + Pattern + 授权衰减 + Dashboard | ❌ 全部 P4 远期 |
-| Phase 4 | 三级记忆 + PG + Docker + 企业 IM | ⚠️ PromptBuilder+Memory ✅已完成(含冷温热三层) / Memory Compact+PG+Docker P4 |
+| Phase 4 | 三级记忆 + PG + Docker + 企业 IM | ⚠️ PromptBuilder+Memory ✅已完成(含冷温热三层，但仍是 issue-centered) / Memory Compact+PG+Docker P4 |
 
 **我们的演化路径不是照搬 v3 Phase 顺序，而是按「实用价值 × 解锁后续」的乘积排序。** v3 的 Phase 是从零建系统的路线，我们在一个已有完整链路的项目上渐进注入 v3 理念。
 
-Phase 0-1 已基本达成，Phase 2 仅差 DAG 拆解收尾。当前瓶颈转移到 **Gate 门禁（D2）** — 所有前置依赖（Decision、Reviewer、Watchdog）均已就位。
+Phase 0-1 已基本达成，Phase 2 的后端主骨架也已就位。当前真正的结构性差距不再是 Gate，而是 **v3.1 语义补齐**：`Thread`、`acceptance_criteria`、`participants`、`Memory Compact`，以及从 `Issue/ChatSession` 逐步过渡到 `Task/Thread` 语义。
+
+---
+
+## 六、代码现状校准（2026-03-09）
+
+本节用于纠正文档与后端实现之间的时间差，尤其是当前仓库里仍保留较多 `v1/v2` 术语和结构。
+
+### 已明显领先原 roadmap 的部分
+
+| 项目 | 原状态 | 当前判断 | 证据 |
+|------|--------|---------|------|
+| D2 Gate 门禁 | ❌ 待做 | ✅ 后端已落地 | `internal/core/gate.go`, `internal/teamleader/gate_chain.go`, `internal/web/handlers_gate.go`, `cmd/ai-flow/server.go` |
+| I4 children_mode | ❌ 待做 | ✅ 字段和主链路已落地 | `internal/core/issue.go`, `internal/plugins/store-sqlite/store.go`, `internal/web/handlers_decompose.go` |
+| C7 Issue DAG 拆解 | 🔧 进行中 | 🔧 仍在收尾，但后端骨架已完整 | `internal/teamleader/scheduler_dispatch.go`, `internal/teamleader/child_completion.go`, `internal/web/handlers_decompose.go` |
+| D1 Decision 版本化 | ✅ 完成 | ✅ 完成且覆盖更广 | `internal/core/decision.go`, `internal/web/handlers_decisions.go`, `internal/teamleader/gate_chain.go` |
+
+### 当前代码的过渡态特征
+
+当前后端并不是“落后到还没做 v3”，而是：
+
+- 执行能力已经显著吸收了 v3 思路
+- 领域模型语义仍以 `Issue` 为核心，而不是纯 `Task`
+- 会话模型仍是 `ChatSession`，而不是 `Thread`
+- Gate 已存在，但是挂在 `Issue + WorkflowProfile` 语义上运行
+
+一句话概括：
+
+**当前后端是“用 v2 壳承载了相当一部分 v3 能力”。**
+
+---
+
+## 七、从当前后端到 v3.1 的差距清单
+
+以下清单不是重新罗列全部愿景，而是只列当前代码仍明显缺失、且会影响 v3.1 语义完整性的部分。
+
+### G1. Thread 会话容器
+
+当前状态：
+
+- 聊天仍使用 `ChatSession`
+- 热上下文仍按 `issueID/runID` 召回
+- 没有 `thread_id`、`reply_to_msg_id`
+
+差距：
+
+- 无法把“任务前闲聊”和“任务内讨论”统一成会话容器
+- 无法把同一任务下的不同讨论主题拆开
+- 无法做 reply chain 级别的热上下文提取
+
+影响文件：
+
+- `internal/core/chat.go`
+- `internal/core/memory.go`
+- `internal/engine/prompt_builder.go`
+- `internal/web/handlers_chat*`
+
+### G2. Issue/Task 主模型仍缺 `acceptance_criteria`
+
+当前状态：
+
+- Gate 已存在
+- 但主模型里没有显式 `acceptance_criteria`
+
+差距：
+
+- Gate 规则和任务“什么算完成”仍然没有统一领域字段
+- PromptBuilder 也无法稳定注入验收条件
+
+影响：
+
+- 这是把 Gate 从“可运行”推进到“v3 语义完整”的关键一步
+
+### G3. Issue/Task 主模型仍缺 `participants`
+
+当前状态：
+
+- 后端已有 reviewer / role binding / gate runner
+- 但主模型里没有 owner 之外的 `participants`
+
+差距：
+
+- 多 agent 讨论缺少领域层参与者表达
+- peer_review / vote 只能靠流程逻辑，不是靠显式协作者模型
+
+### G4. 缺少 `tags`
+
+当前状态：
+
+- MCP 工具和部分外围已有 tags 痕迹
+- 但核心 Issue 模型未把它作为主字段
+
+差距：
+
+- 看板视图、归类、后续 Pattern 提炼会缺少稳定标签面
+
+### G5. Memory Compact 尚未实现
+
+当前状态：
+
+- 已有 cold / warm / hot recall
+- 没有 compact、fingerprint、冷层失效控制
+
+差距：
+
+- 长任务上下文会继续膨胀
+- 还没达到 v3 文档要求的长期可控记忆模型
+
+### G6. 通信层仍非 v3.1 语义
+
+当前状态：
+
+- EventBus 是 in-process `MemoryBus`
+- 没有 `idempotency_key`
+- 没有 thread broadcast
+
+差距：
+
+- 还没进入 `Thread + Message + Bus` 的目标形态
+- `R4` 仍然成立
+
+### G7. Schedule 尚未落地
+
+当前状态：
+
+- 有 scheduler，但这是 run/issue 调度器
+- 没有 v3 中 cron 驱动的 `Schedule` 模型
+
+差距：
+
+- 日报、周期提醒、定时触发等场景还不能复用统一领域模型
+
+### G8. Artifact 仍不是统一交付中心
+
+当前状态：
+
+- 运行时有 run artifacts / PR / merge 结果
+- 但还没有 v3 语义下统一的 Artifact 版本化交付中心
+
+差距：
+
+- 代码和非代码结果还没完全统一到同一套可审阅、可返工、可追溯模型
+- 这也是后续文档/PPT/图片交付设计要接入的地方
+
+---
+
+## 八、推荐更新后的判断
+
+如果只看“后端距离 v3 还有多远”，当前更准确的判断是：
+
+- **能力层**：已达到或超过 roadmap 原先预期的 60%-70%
+- **领域语义层**：仍处在 `Issue/ChatSession -> Task/Thread` 的迁移中
+- **真正该优先补的不是 Gate，而是 v3.1 语义关键字段和会话模型**
+
+下一阶段建议按这个顺序推进：
+
+1. `Thread`
+2. `acceptance_criteria`
+3. `participants`
+4. `Memory Compact`
+5. `tags`
+6. `Schedule`
+7. 统一 Artifact 交付模型

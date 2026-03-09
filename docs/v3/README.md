@@ -13,6 +13,7 @@
 | [02-v3-post-iterations.zh-CN.md](02-v3-post-iterations.zh-CN.md) | v3 后续迭代补充 | `补充文档 — v3之后的迭代` |
 | [03-context-prompt-cache.zh-CN.md](03-context-prompt-cache.zh-CN.md) | 上下文与 Prompt 缓存策略 | `上下文与Prompt缓存策略详细设计` |
 | [04-openviking-analysis.zh-CN.md](04-openviking-analysis.zh-CN.md) | OpenViking 接入分析 | `OpenViking 与本系统的关联分析` |
+| [08-artifact-delivery-and-storage.zh-CN.md](08-artifact-delivery-and-storage.zh-CN.md) | 交付物落地设计讨论 | 2026-03-09 讨论整理 |
 
 ## 说明
 

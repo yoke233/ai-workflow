@@ -20,6 +20,7 @@
 - [补充文档 — v3之后的迭代](02-v3-post-iterations.zh-CN.md)
 - [上下文与Prompt缓存策略详细设计](03-context-prompt-cache.zh-CN.md)
 - [OpenViking 与本系统的关联分析](04-openviking-analysis.zh-CN.md)
+- [v3 交付物落地设计讨论 — Artifact、代码提交、文件上传与存储](08-artifact-delivery-and-storage.zh-CN.md)
 
 ## Notion 根页中列出的其他后续页面
 
