@@ -381,6 +381,55 @@ func TestConfirmDecomposeAPI_ResolvesDependenciesViaCreator(t *testing.T) {
 	}
 }
 
+func TestConfirmDecomposeAPI_ExpandsSequentialModeIntoExplicitDependency(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{ID: "proj-confirm-sequential", Name: "proj-confirm-sequential", RepoPath: filepath.Join(t.TempDir(), "repo")}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	creatorCalled := false
+	srv := NewServer(Config{
+		Store: store,
+		ProposalIssueCreator: &stubProposalIssueCreator{createIssuesFn: func(_ context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error) {
+			creatorCalled = true
+			if len(input.Issues) != 2 {
+				t.Fatalf("issues len = %d", len(input.Issues))
+			}
+			if got := input.Issues[0].Blocks; len(got) != 1 || got[0] != "issue-b" {
+				t.Fatalf("resolved blocks = %#v, want [issue-b]", got)
+			}
+			if got := input.Issues[1].DependsOn; len(got) != 1 || got[0] != "issue-a" {
+				t.Fatalf("resolved depends_on = %#v, want [issue-a]", got)
+			}
+			return persistStubCreatedIssues(t, store, input), nil
+		}},
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, _ := json.Marshal(map[string]any{
+		"proposal_id": "prop-sequential",
+		"issues": []map[string]any{
+			{"temp_id": "A", "title": "schema", "body": "", "depends_on": []string{}, "labels": []string{}, "children_mode": "parallel"},
+			{"temp_id": "B", "title": "api", "body": "", "depends_on": []string{}, "labels": []string{}, "children_mode": "sequential"},
+		},
+		"issue_ids": map[string]string{"A": "issue-a", "B": "issue-b"},
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/projects/"+project.ID+"/decompose/confirm", "application/json", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatalf("POST confirm: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want %d body=%s", resp.StatusCode, http.StatusCreated, string(body))
+	}
+	if !creatorCalled {
+		t.Fatal("expected proposal issue creator to be called")
+	}
+}
+
 func TestConfirmDecomposeAPI_PreservesDependenciesWhenIDsAreGenerated(t *testing.T) {
 	store := newTestStore(t)
 	project := core.Project{ID: "proj-generated", Name: "proj-generated", RepoPath: filepath.Join(t.TempDir(), "repo")}
@@ -809,5 +858,186 @@ func TestConfirmDecomposeAPI_RetryReusesStableIDsAndDoesNotDuplicateIssues(t *te
 		if issue.Status != core.IssueStatusQueued {
 			t.Fatalf("issue %s status after retry = %s, want queued", issueID, issue.Status)
 		}
+	}
+}
+
+func TestConfirmDecomposeAPI_RetryUpdatesExistingDraftIssueFields(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{ID: "proj-confirm-retry-update", Name: "proj-confirm-retry-update", RepoPath: filepath.Join(t.TempDir(), "repo")}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	manager, err := teamleader.NewManager(store, nil, &stubReviewSubmitter{}, &stubManagerScheduler{})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	creator := &flakyProposalIssueCreator{
+		base:             manager,
+		failConfirmCalls: 1,
+	}
+	srv := NewServer(Config{Store: store, ProposalIssueCreator: creator})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	firstBody, _ := json.Marshal(map[string]any{
+		"proposal_id": "prop-retry-update",
+		"issues": []map[string]any{
+			{"temp_id": "A", "title": "schema", "body": "", "depends_on": []string{}, "labels": []string{}, "children_mode": "parallel"},
+			{"temp_id": "B", "title": "api", "body": "", "depends_on": []string{}, "labels": []string{}, "children_mode": "parallel"},
+		},
+	})
+	firstResp, err := http.Post(ts.URL+"/api/v1/projects/"+project.ID+"/decompose/confirm", "application/json", bytes.NewReader(firstBody))
+	if err != nil {
+		t.Fatalf("first POST confirm: %v", err)
+	}
+	if firstResp.StatusCode != http.StatusInternalServerError {
+		body, _ := io.ReadAll(firstResp.Body)
+		firstResp.Body.Close()
+		t.Fatalf("first status = %d, want %d body=%s", firstResp.StatusCode, http.StatusInternalServerError, string(body))
+	}
+	firstResp.Body.Close()
+
+	secondBody, _ := json.Marshal(map[string]any{
+		"proposal_id": "prop-retry-update",
+		"issues": []map[string]any{
+			{"temp_id": "A", "title": "schema", "body": "", "depends_on": []string{}, "labels": []string{}, "children_mode": "parallel"},
+			{"temp_id": "B", "title": "api", "body": "", "depends_on": []string{"A", "A"}, "labels": []string{}, "children_mode": "sequential"},
+		},
+	})
+	secondResp, err := http.Post(ts.URL+"/api/v1/projects/"+project.ID+"/decompose/confirm", "application/json", bytes.NewReader(secondBody))
+	if err != nil {
+		t.Fatalf("second POST confirm: %v", err)
+	}
+	defer secondResp.Body.Close()
+	if secondResp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(secondResp.Body)
+		t.Fatalf("second status = %d, want %d body=%s", secondResp.StatusCode, http.StatusCreated, string(body))
+	}
+
+	issueAID := decomposeIssueID("prop-retry-update", "A")
+	issueBID := decomposeIssueID("prop-retry-update", "B")
+	issueA, err := store.GetIssue(issueAID)
+	if err != nil {
+		t.Fatalf("GetIssue(%s): %v", issueAID, err)
+	}
+	issueB, err := store.GetIssue(issueBID)
+	if err != nil {
+		t.Fatalf("GetIssue(%s): %v", issueBID, err)
+	}
+	if issueB.ChildrenMode != core.ChildrenModeSequential {
+		t.Fatalf("issue B children_mode = %q, want %q", issueB.ChildrenMode, core.ChildrenModeSequential)
+	}
+	if got := issueB.DependsOn; len(got) != 1 || got[0] != issueAID {
+		t.Fatalf("issue B depends_on = %#v, want [%q]", got, issueAID)
+	}
+	if got := issueA.Blocks; len(got) != 1 || got[0] != issueBID {
+		t.Fatalf("issue A blocks = %#v, want [%q]", got, issueBID)
+	}
+}
+
+func TestConfirmDecomposeAPI_RetryRejectsChangesToReviewingIssue(t *testing.T) {
+	store := newTestStore(t)
+	project := core.Project{ID: "proj-confirm-retry-reviewing", Name: "proj-confirm-retry-reviewing", RepoPath: filepath.Join(t.TempDir(), "repo")}
+	if err := store.CreateProject(&project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+
+	sessionID := decomposeSessionID("prop-retry-reviewing")
+	if err := store.CreateChatSession(&core.ChatSession{
+		ID:        sessionID,
+		ProjectID: project.ID,
+		AgentName: "test",
+		Messages:  []core.ChatMessage{},
+	}); err != nil {
+		t.Fatalf("CreateChatSession: %v", err)
+	}
+
+	issueAID := decomposeIssueID("prop-retry-reviewing", "A")
+	issueBID := decomposeIssueID("prop-retry-reviewing", "B")
+	for _, issue := range []core.Issue{
+		{
+			ID:           issueAID,
+			ProjectID:    project.ID,
+			SessionID:    sessionID,
+			Title:        "schema",
+			Body:         "",
+			Labels:       []string{},
+			DependsOn:    []string{},
+			Blocks:       []string{issueBID},
+			Template:     "standard",
+			AutoMerge:    true,
+			ChildrenMode: core.ChildrenModeParallel,
+			State:        core.IssueStateOpen,
+			Status:       core.IssueStatusDraft,
+			FailPolicy:   core.FailBlock,
+		},
+		{
+			ID:           issueBID,
+			ProjectID:    project.ID,
+			SessionID:    sessionID,
+			Title:        "api",
+			Body:         "",
+			Labels:       []string{},
+			DependsOn:    []string{issueAID},
+			Blocks:       []string{},
+			Template:     "standard",
+			AutoMerge:    true,
+			ChildrenMode: core.ChildrenModeParallel,
+			State:        core.IssueStateOpen,
+			Status:       core.IssueStatusReviewing,
+			FailPolicy:   core.FailBlock,
+		},
+	} {
+		issue := issue
+		if err := store.CreateIssue(&issue); err != nil {
+			t.Fatalf("CreateIssue(%s): %v", issue.ID, err)
+		}
+	}
+
+	confirmCalled := false
+	srv := NewServer(Config{
+		Store: store,
+		ProposalIssueCreator: &stubProposalIssueCreator{
+			createIssuesFn: func(_ context.Context, input teamleader.CreateIssuesInput) ([]*core.Issue, error) {
+				return persistStubCreatedIssues(t, store, input), nil
+			},
+			confirmCreatedIssuesFn: func(_ context.Context, issueIDs []string, feedback string) ([]*core.Issue, error) {
+				confirmCalled = true
+				return []*core.Issue{}, nil
+			},
+		},
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	rawBody, _ := json.Marshal(map[string]any{
+		"proposal_id": "prop-retry-reviewing",
+		"issues": []map[string]any{
+			{"temp_id": "A", "title": "schema", "body": "", "depends_on": []string{}, "labels": []string{}, "children_mode": "parallel"},
+			{"temp_id": "B", "title": "api v2", "body": "", "depends_on": []string{"A"}, "labels": []string{}, "children_mode": "parallel"},
+		},
+	})
+	resp, err := http.Post(ts.URL+"/api/v1/projects/"+project.ID+"/decompose/confirm", "application/json", bytes.NewReader(rawBody))
+	if err != nil {
+		t.Fatalf("POST confirm: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want %d body=%s", resp.StatusCode, http.StatusConflict, string(body))
+	}
+	if confirmCalled {
+		t.Fatal("ConfirmCreatedIssues should not be called when reviewing issue changes are rejected")
+	}
+	issueB, err := store.GetIssue(issueBID)
+	if err != nil {
+		t.Fatalf("GetIssue(%s): %v", issueBID, err)
+	}
+	if issueB.Title != "api" {
+		t.Fatalf("issue B title = %q, want original title", issueB.Title)
+	}
+	if issueB.Status != core.IssueStatusReviewing {
+		t.Fatalf("issue B status = %q, want reviewing", issueB.Status)
 	}
 }

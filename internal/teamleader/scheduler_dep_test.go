@@ -93,11 +93,11 @@ func TestEffectiveDependsOn_Sequential(t *testing.T) {
 	rs := newRunningSession("session-effective-sequential", project.ID, []*core.Issue{loadedParent, loadedA, loadedB, loadedC})
 	scheduler := NewDepScheduler(store, nil, nil, nil, 1)
 
-	if got := scheduler.effectiveDependsOn(rs, loadedB); !reflect.DeepEqual(got, []string{"child-a"}) {
-		t.Fatalf("effective deps for B = %#v, want [child-a]", got)
+	if got, err := scheduler.effectiveDependsOn(rs, loadedB); err != nil || !reflect.DeepEqual(got, []string{"child-a"}) {
+		t.Fatalf("effective deps for B err=%v got=%#v, want [child-a]", err, got)
 	}
-	if got := scheduler.effectiveDependsOn(rs, loadedC); !reflect.DeepEqual(got, []string{"child-b"}) {
-		t.Fatalf("effective deps for C = %#v, want [child-b]", got)
+	if got, err := scheduler.effectiveDependsOn(rs, loadedC); err != nil || !reflect.DeepEqual(got, []string{"child-b"}) {
+		t.Fatalf("effective deps for C err=%v got=%#v, want [child-b]", err, got)
 	}
 }
 
@@ -137,8 +137,8 @@ func TestEffectiveDependsOn_Parallel(t *testing.T) {
 	rs := newRunningSession("session-effective-parallel", project.ID, []*core.Issue{loadedParent, loadedChild})
 	scheduler := NewDepScheduler(store, nil, nil, nil, 1)
 
-	if got := scheduler.effectiveDependsOn(rs, loadedChild); !reflect.DeepEqual(got, []string{"explicit-dep"}) {
-		t.Fatalf("effective deps for parallel child = %#v, want original deps", got)
+	if got, err := scheduler.effectiveDependsOn(rs, loadedChild); err != nil || !reflect.DeepEqual(got, []string{"explicit-dep"}) {
+		t.Fatalf("effective deps for parallel child err=%v got=%#v, want original deps", err, got)
 	}
 }
 
@@ -152,7 +152,45 @@ func TestEffectiveDependsOn_NoParent(t *testing.T) {
 	}
 	rs := newRunningSession("session-no-parent", "proj-no-parent", []*core.Issue{issue})
 
-	if got := scheduler.effectiveDependsOn(rs, issue); !reflect.DeepEqual(got, issue.DependsOn) {
-		t.Fatalf("effective deps for standalone issue = %#v, want %#v", got, issue.DependsOn)
+	if got, err := scheduler.effectiveDependsOn(rs, issue); err != nil || !reflect.DeepEqual(got, issue.DependsOn) {
+		t.Fatalf("effective deps for standalone issue err=%v got=%#v, want %#v", err, got, issue.DependsOn)
+	}
+}
+
+func TestEffectiveDependsOn_SequentialDetectsCycle(t *testing.T) {
+	store := newSchedulerTestStore(t)
+	defer store.Close()
+
+	project := mustCreateSchedulerProject(t, store, "proj-effective-cycle")
+	parent := core.Issue{
+		ID:           "parent-cycle",
+		Title:        "parent",
+		ProjectID:    project.ID,
+		Template:     "epic",
+		State:        core.IssueStateOpen,
+		Status:       core.IssueStatusDecomposed,
+		ChildrenMode: core.ChildrenModeSequential,
+	}
+	children := []core.Issue{
+		{ID: "child-a", ProjectID: project.ID, ParentID: parent.ID, Title: "A", Template: "standard", State: core.IssueStateOpen, Status: core.IssueStatusQueued, Priority: 30, DependsOn: []string{"child-c"}},
+		{ID: "child-b", ProjectID: project.ID, ParentID: parent.ID, Title: "B", Template: "standard", State: core.IssueStateOpen, Status: core.IssueStatusQueued, Priority: 20},
+		{ID: "child-c", ProjectID: project.ID, ParentID: parent.ID, Title: "C", Template: "standard", State: core.IssueStateOpen, Status: core.IssueStatusQueued, Priority: 10},
+	}
+	for _, issue := range append([]core.Issue{parent}, children...) {
+		issue := issue
+		if err := store.CreateIssue(&issue); err != nil {
+			t.Fatalf("CreateIssue(%s) error = %v", issue.ID, err)
+		}
+	}
+
+	loadedParent, _ := store.GetIssue(parent.ID)
+	loadedA, _ := store.GetIssue("child-a")
+	loadedB, _ := store.GetIssue("child-b")
+	loadedC, _ := store.GetIssue("child-c")
+	rs := newRunningSession("session-effective-cycle", project.ID, []*core.Issue{loadedParent, loadedA, loadedB, loadedC})
+	scheduler := NewDepScheduler(store, nil, nil, nil, 1)
+
+	if _, err := scheduler.effectiveDependsOn(rs, loadedB); err == nil {
+		t.Fatal("expected cycle detection error for sequential siblings")
 	}
 }

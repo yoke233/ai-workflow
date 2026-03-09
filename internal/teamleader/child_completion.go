@@ -111,7 +111,7 @@ func (h *ChildCompletionHandler) OnEvent(ctx context.Context, evt core.Event) {
 		switch s.Status {
 		case core.IssueStatusDone:
 			// ok
-		case core.IssueStatusFailed:
+		case core.IssueStatusFailed, core.IssueStatusAbandoned:
 			anyFailed = true
 		default:
 			allDone = false

@@ -163,6 +163,38 @@ func TestChildCompletion_FailedChildSkipPolicy(t *testing.T) {
 	}
 }
 
+func TestChildCompletion_AbandonedChildSkipPolicy(t *testing.T) {
+	store := newManagerTestStore(t)
+	t.Cleanup(func() { _ = store.Close() })
+	store.CreateProject(&core.Project{ID: "proj-1", Name: "svc", RepoPath: t.TempDir()})
+	store.CreateIssue(&core.Issue{
+		ID: "parent-4b", ProjectID: "proj-1", Title: "Epic",
+		Template: "epic", State: core.IssueStateOpen, Status: core.IssueStatusDecomposed,
+		FailPolicy: core.FailSkip,
+	})
+	store.CreateIssue(&core.Issue{
+		ID: "child-gb", ProjectID: "proj-1", ParentID: "parent-4b",
+		Title: "G", Template: "standard", State: core.IssueStateOpen, Status: core.IssueStatusDone,
+	})
+	store.CreateIssue(&core.Issue{
+		ID: "child-hb", ProjectID: "proj-1", ParentID: "parent-4b",
+		Title: "H", Template: "standard", State: core.IssueStateClosed, Status: core.IssueStatusAbandoned,
+	})
+
+	var published []core.Event
+	handler := NewChildCompletionHandler(store, &capturePublisher{events: &published})
+
+	handler.OnEvent(context.Background(), core.Event{
+		Type:    core.EventIssueDone,
+		IssueID: "child-gb",
+	})
+
+	parent, _ := store.GetIssue("parent-4b")
+	if parent.Status != core.IssueStatusDone {
+		t.Errorf("parent status = %q, want done (skip policy with abandoned child)", parent.Status)
+	}
+}
+
 func TestChildCompletion_IgnoresNonChildIssue(t *testing.T) {
 	store := newManagerTestStore(t)
 	t.Cleanup(func() { _ = store.Close() })

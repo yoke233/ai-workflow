@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -111,15 +112,20 @@ func (h *decomposeHandlers) confirm(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, err.Error(), "INVALID_PROPOSAL")
 		return
 	}
+	resolvedItems, err := applyProposalChildrenModes(proposal)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error(), "INVALID_PROPOSAL")
+		return
+	}
 	sessionID := decomposeSessionID(proposal.ID)
 
-	specs := make([]teamleader.CreateIssueSpec, 0, len(req.Issues))
-	missingSpecs := make([]teamleader.CreateIssueSpec, 0, len(req.Issues))
-	createdRefs := make([]createdIssueRef, 0, len(req.Issues))
-	tempToIssueID := make(map[string]string, len(req.Issues))
-	tempToBlocks := make(map[string][]string, len(req.Issues))
-	existingIssues := make(map[string]*core.Issue, len(req.Issues))
-	for _, item := range req.Issues {
+	specs := make([]teamleader.CreateIssueSpec, 0, len(resolvedItems))
+	missingSpecs := make([]teamleader.CreateIssueSpec, 0, len(resolvedItems))
+	createdRefs := make([]createdIssueRef, 0, len(resolvedItems))
+	tempToIssueID := make(map[string]string, len(resolvedItems))
+	tempToBlocks := make(map[string][]string, len(resolvedItems))
+	existingIssues := make(map[string]struct{}, len(resolvedItems))
+	for _, item := range resolvedItems {
 		tempID := strings.TrimSpace(item.TempID)
 		if tempID == "" {
 			writeAPIError(w, http.StatusBadRequest, "temp_id is required", "TEMP_ID_REQUIRED")
@@ -130,7 +136,7 @@ func (h *decomposeHandlers) confirm(w http.ResponseWriter, r *http.Request) {
 			issueID = decomposeIssueID(proposal.ID, tempID)
 		}
 		tempToIssueID[tempID] = issueID
-		issue, ok, err := h.loadExistingDecomposeIssue(projectID, sessionID, issueID)
+		_, ok, err := h.loadExistingDecomposeIssue(projectID, sessionID, issueID)
 		if err != nil {
 			var conflict *conflictError
 			if errors.As(err, &conflict) {
@@ -141,11 +147,11 @@ func (h *decomposeHandlers) confirm(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if ok {
-			existingIssues[issueID] = issue
+			existingIssues[issueID] = struct{}{}
 		}
 	}
-	for _, item := range req.Issues {
-		for _, dep := range item.DependsOn {
+	for _, item := range resolvedItems {
+		for _, dep := range normalizeIssueRefs(item.DependsOn) {
 			depID := strings.TrimSpace(dep)
 			if depID == "" {
 				continue
@@ -163,7 +169,7 @@ func (h *decomposeHandlers) confirm(w http.ResponseWriter, r *http.Request) {
 			tempToBlocks[depID] = append(tempToBlocks[depID], strings.TrimSpace(tempToIssueID[tempID]))
 		}
 	}
-	for _, item := range req.Issues {
+	for _, item := range resolvedItems {
 		tempID := strings.TrimSpace(item.TempID)
 		issueID := tempToIssueID[tempID]
 		resolvedDeps := make([]string, 0, len(item.DependsOn))
@@ -188,14 +194,14 @@ func (h *decomposeHandlers) confirm(w http.ResponseWriter, r *http.Request) {
 			Title:        strings.TrimSpace(item.Title),
 			Body:         item.Body,
 			Labels:       append([]string(nil), item.Labels...),
-			DependsOn:    resolvedDeps,
-			Blocks:       append([]string(nil), tempToBlocks[tempID]...),
+			DependsOn:    normalizeIssueRefs(resolvedDeps),
+			Blocks:       normalizeIssueRefs(tempToBlocks[tempID]),
 			Template:     template,
 			AutoMerge:    item.AutoMerge,
 			ChildrenMode: item.ChildrenMode,
 		}
 		specs = append(specs, spec)
-		if existingIssues[issueID] == nil {
+		if _, ok := existingIssues[issueID]; !ok {
 			missingSpecs = append(missingSpecs, spec)
 		}
 		createdRefs = append(createdRefs, createdIssueRef{TempID: tempID, IssueID: issueID})
@@ -217,6 +223,20 @@ func (h *decomposeHandlers) confirm(w http.ResponseWriter, r *http.Request) {
 			Issues:    missingSpecs,
 		}); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, err.Error(), "CONFIRM_FAILED")
+			return
+		}
+	}
+	for _, spec := range specs {
+		if _, ok := existingIssues[spec.ID]; !ok {
+			continue
+		}
+		if err := h.reconcileExistingDecomposeIssue(projectID, sessionID, spec); err != nil {
+			var conflict *conflictError
+			if errors.As(err, &conflict) {
+				writeAPIError(w, http.StatusConflict, err.Error(), "ISSUE_STATE_CONFLICT")
+				return
+			}
+			writeAPIError(w, http.StatusInternalServerError, err.Error(), "SAVE_ISSUE_FAILED")
 			return
 		}
 	}
@@ -302,6 +322,142 @@ func (h *decomposeHandlers) loadExistingDecomposeIssue(projectID, sessionID, iss
 		return nil, false, &conflictError{message: "issue " + strings.TrimSpace(issueID) + " belongs to another decompose session"}
 	}
 	return issue, true, nil
+}
+
+func applyProposalChildrenModes(proposal core.DecomposeProposal) ([]core.ProposalItem, error) {
+	items := append([]core.ProposalItem(nil), proposal.Items...)
+	previousTempID := ""
+	for idx := range items {
+		currentTempID := strings.TrimSpace(items[idx].TempID)
+		if items[idx].ChildrenMode == core.ChildrenModeSequential && previousTempID != "" {
+			if !containsTrimmed(items[idx].DependsOn, previousTempID) {
+				items[idx].DependsOn = append(append([]string(nil), items[idx].DependsOn...), previousTempID)
+			}
+		}
+		previousTempID = currentTempID
+	}
+	updated := core.DecomposeProposal{
+		ID:        proposal.ID,
+		ProjectID: proposal.ProjectID,
+		Prompt:    proposal.Prompt,
+		Summary:   proposal.Summary,
+		Items:     items,
+		CreatedAt: proposal.CreatedAt,
+	}
+	if err := updated.Validate(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func containsTrimmed(values []string, target string) bool {
+	trimmedTarget := strings.TrimSpace(target)
+	if trimmedTarget == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.TrimSpace(value) == trimmedTarget {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeCreateIssueSpec(spec teamleader.CreateIssueSpec, existing *core.Issue) teamleader.CreateIssueSpec {
+	normalized := spec
+	normalized.ID = strings.TrimSpace(normalized.ID)
+	normalized.Title = strings.TrimSpace(normalized.Title)
+	normalized.Template = strings.TrimSpace(normalized.Template)
+	if normalized.Template == "" {
+		normalized.Template = "standard"
+	}
+	if normalized.ChildrenMode == "" {
+		normalized.ChildrenMode = core.ChildrenModeParallel
+	}
+	normalized.Labels = append([]string(nil), normalized.Labels...)
+	normalized.DependsOn = normalizeIssueRefs(normalized.DependsOn)
+	normalized.Blocks = normalizeIssueRefs(normalized.Blocks)
+	if normalized.AutoMerge == nil && existing != nil {
+		autoMerge := existing.AutoMerge
+		normalized.AutoMerge = &autoMerge
+	}
+	return normalized
+}
+
+func normalizeIssueRefs(refs []string) []string {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(refs))
+	seen := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		id := strings.TrimSpace(ref)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func decomposeIssueSpecChanged(issue *core.Issue, spec teamleader.CreateIssueSpec) bool {
+	if issue == nil {
+		return true
+	}
+	if issue.Title != spec.Title ||
+		issue.Body != spec.Body ||
+		issue.Template != spec.Template ||
+		issue.ChildrenMode != spec.ChildrenMode {
+		return true
+	}
+	if !reflect.DeepEqual(issue.Labels, spec.Labels) ||
+		!reflect.DeepEqual(issue.DependsOn, spec.DependsOn) ||
+		!reflect.DeepEqual(issue.Blocks, spec.Blocks) {
+		return true
+	}
+	if spec.AutoMerge != nil && issue.AutoMerge != *spec.AutoMerge {
+		return true
+	}
+	return false
+}
+
+func (h *decomposeHandlers) reconcileExistingDecomposeIssue(projectID, sessionID string, spec teamleader.CreateIssueSpec) error {
+	if h == nil || h.store == nil {
+		return nil
+	}
+	latest, ok, err := h.loadExistingDecomposeIssue(projectID, sessionID, spec.ID)
+	if err != nil {
+		return err
+	}
+	if !ok || latest == nil {
+		return &conflictError{message: "issue " + strings.TrimSpace(spec.ID) + " changed during confirm retry"}
+	}
+	normalized := normalizeCreateIssueSpec(spec, latest)
+	if !decomposeIssueSpecChanged(latest, normalized) {
+		return nil
+	}
+	if latest.Status != core.IssueStatusDraft {
+		return &conflictError{message: "issue " + strings.TrimSpace(spec.ID) + " can no longer be modified from status " + string(latest.Status)}
+	}
+	updated := *latest
+	updated.Title = normalized.Title
+	updated.Body = normalized.Body
+	updated.Labels = append([]string(nil), normalized.Labels...)
+	updated.DependsOn = append([]string(nil), normalized.DependsOn...)
+	updated.Blocks = append([]string(nil), normalized.Blocks...)
+	updated.Template = normalized.Template
+	updated.ChildrenMode = normalized.ChildrenMode
+	if normalized.AutoMerge != nil {
+		updated.AutoMerge = *normalized.AutoMerge
+	}
+	if err := updated.Validate(); err != nil {
+		return err
+	}
+	return h.store.SaveIssue(&updated)
 }
 
 func decomposeSessionID(proposalID string) string {

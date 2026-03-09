@@ -326,46 +326,11 @@ func areDependenciesMet(dependsOn []string, failPolicy core.FailurePolicy, looku
 	return true
 }
 
-func (s *DepScheduler) effectiveDependsOn(rs *runningSession, issue *core.Issue) []string {
-	if issue == nil {
-		return nil
-	}
-	if rs == nil || strings.TrimSpace(issue.ParentID) == "" {
-		return issue.DependsOn
-	}
-
-	parent := rs.IssueByID[issue.ParentID]
-	if parent == nil {
-		storedParent, err := s.store.GetIssue(issue.ParentID)
-		if err == nil {
-			parent = storedParent
-		}
-	}
-	if parent == nil || parent.ChildrenMode != core.ChildrenModeSequential {
-		return issue.DependsOn
-	}
-
-	siblings := make([]*core.Issue, 0)
-	for _, candidate := range rs.IssueByID {
-		if candidate == nil || candidate.ParentID != issue.ParentID {
-			continue
-		}
-		siblings = append(siblings, candidate)
-	}
+func buildSequentialSiblingDependencies(siblings []*core.Issue) (map[string][]string, error) {
+	dependenciesByID := make(map[string][]string, len(siblings))
 	if len(siblings) == 0 {
-		storedSiblings, err := s.store.GetChildIssues(issue.ParentID)
-		if err != nil {
-			return issue.DependsOn
-		}
-		for i := range storedSiblings {
-			sibling := storedSiblings[i]
-			siblings = append(siblings, &sibling)
-		}
+		return dependenciesByID, nil
 	}
-	if len(siblings) <= 1 {
-		return issue.DependsOn
-	}
-
 	sort.SliceStable(siblings, func(i, j int) bool {
 		if siblings[i].Priority != siblings[j].Priority {
 			return siblings[i].Priority > siblings[j].Priority
@@ -376,35 +341,131 @@ func (s *DepScheduler) effectiveDependsOn(rs *runningSession, issue *core.Issue)
 		return siblings[i].ID < siblings[j].ID
 	})
 
+	siblingIDs := make(map[string]struct{}, len(siblings))
 	previousID := ""
-	for i, sibling := range siblings {
-		if sibling == nil || sibling.ID != issue.ID {
+	for _, sibling := range siblings {
+		if sibling == nil {
 			continue
 		}
-		if i > 0 && siblings[i-1] != nil {
-			previousID = strings.TrimSpace(siblings[i-1].ID)
+		currentID := strings.TrimSpace(sibling.ID)
+		if currentID == "" {
+			continue
 		}
-		break
-	}
-	if previousID == "" {
-		return issue.DependsOn
-	}
-	for _, depID := range issue.DependsOn {
-		if strings.TrimSpace(depID) == previousID {
-			return issue.DependsOn
+		siblingIDs[currentID] = struct{}{}
+		deps := append([]string(nil), sibling.DependsOn...)
+		if previousID != "" && !containsTrimmed(deps, previousID) {
+			deps = append(deps, previousID)
 		}
+		dependenciesByID[currentID] = deps
+		previousID = currentID
 	}
 
-	effective := append([]string{}, issue.DependsOn...)
-	effective = append(effective, previousID)
-	return effective
+	visiting := make(map[string]bool, len(dependenciesByID))
+	visited := make(map[string]bool, len(dependenciesByID))
+	var visit func(string) error
+	visit = func(issueID string) error {
+		if visited[issueID] {
+			return nil
+		}
+		if visiting[issueID] {
+			return fmt.Errorf("sequential children dependency cycle detected at %s", issueID)
+		}
+		visiting[issueID] = true
+		for _, depID := range dependenciesByID[issueID] {
+			trimmed := strings.TrimSpace(depID)
+			if _, ok := siblingIDs[trimmed]; !ok {
+				continue
+			}
+			if err := visit(trimmed); err != nil {
+				return err
+			}
+		}
+		visiting[issueID] = false
+		visited[issueID] = true
+		return nil
+	}
+	for issueID := range dependenciesByID {
+		if err := visit(issueID); err != nil {
+			return nil, err
+		}
+	}
+	return dependenciesByID, nil
+}
+
+func containsTrimmed(values []string, target string) bool {
+	trimmedTarget := strings.TrimSpace(target)
+	if trimmedTarget == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.TrimSpace(value) == trimmedTarget {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *DepScheduler) effectiveDependsOn(rs *runningSession, issue *core.Issue) ([]string, error) {
+	if issue == nil {
+		return nil, nil
+	}
+	if rs == nil || strings.TrimSpace(issue.ParentID) == "" {
+		return issue.DependsOn, nil
+	}
+
+	parent := rs.IssueByID[issue.ParentID]
+	if parent == nil {
+		storedParent, err := s.store.GetIssue(issue.ParentID)
+		if err != nil {
+			return nil, err
+		}
+		parent = storedParent
+	}
+	if parent == nil || parent.ChildrenMode != core.ChildrenModeSequential {
+		return issue.DependsOn, nil
+	}
+
+	siblingByID := make(map[string]*core.Issue)
+	storedSiblings, err := s.store.GetChildIssues(issue.ParentID)
+	if err != nil {
+		return nil, err
+	}
+	for idx := range storedSiblings {
+		sibling := storedSiblings[idx]
+		siblingByID[sibling.ID] = &sibling
+	}
+	for _, candidate := range rs.IssueByID {
+		if candidate == nil || candidate.ParentID != issue.ParentID {
+			continue
+		}
+		siblingByID[candidate.ID] = candidate
+	}
+	siblings := make([]*core.Issue, 0, len(siblingByID))
+	for _, sibling := range siblingByID {
+		siblings = append(siblings, sibling)
+	}
+	if len(siblings) <= 1 {
+		return issue.DependsOn, nil
+	}
+
+	dependenciesByID, err := buildSequentialSiblingDependencies(siblings)
+	if err != nil {
+		return nil, err
+	}
+	if deps, ok := dependenciesByID[strings.TrimSpace(issue.ID)]; ok {
+		return deps, nil
+	}
+	return issue.DependsOn, nil
 }
 
 func (s *DepScheduler) dependenciesSatisfiedLocked(rs *runningSession, issue *core.Issue) (bool, error) {
 	if issue == nil {
 		return false, nil
 	}
-	effectiveDependsOn := s.effectiveDependsOn(rs, issue)
+	effectiveDependsOn, err := s.effectiveDependsOn(rs, issue)
+	if err != nil {
+		return false, err
+	}
 	lookup := func(id string) *core.Issue {
 		if dep := rs.IssueByID[id]; dep != nil {
 			return dep
