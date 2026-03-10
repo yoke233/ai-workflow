@@ -22,6 +22,7 @@ interface StepsDagProps {
   onSelectStep?: (stepId: number) => void;
   onUpdateStepDependsOn?: (stepId: number, dependsOn: number[]) => Promise<void> | void;
   onCreateStep?: (input: { name: string; type: "exec" | "gate" | "composite"; depends_on?: number[] }) => Promise<void> | void;
+  editable?: boolean;
 }
 
 const safeNumber = (value: unknown): number | null => {
@@ -154,6 +155,7 @@ export default function StepsDag({
   onSelectStep,
   onUpdateStepDependsOn,
   onCreateStep,
+  editable = true,
 }: StepsDagProps) {
   const [positions, setPositions] = useState<Record<number, { x: number; y: number }>>({});
   const [addOpen, setAddOpen] = useState(false);
@@ -217,6 +219,10 @@ export default function StepsDag({
       setAddFeedback("当前页面未启用快捷创建。");
       return;
     }
+    if (!editable) {
+      setAddFeedback("当前 Flow 已进入执行期，DAG 结构为只读，无法新增 Step。");
+      return;
+    }
     const name = addName.trim();
     if (!name) {
       setAddFeedback("Step 名称不能为空。");
@@ -247,7 +253,7 @@ export default function StepsDag({
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <p className="text-sm font-semibold text-slate-900">DAG 视图</p>
         <p className="mt-2 text-sm text-slate-500">还没有 Step，先在左侧创建 Step，或使用右侧快捷创建。</p>
-        {onCreateStep ? (
+        {onCreateStep && editable ? (
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-slate-900">快捷添加节点</p>
@@ -304,6 +310,8 @@ export default function StepsDag({
               </div>
             ) : null}
           </div>
+        ) : onCreateStep && !editable ? (
+          <p className="mt-4 text-sm text-slate-500">当前 Flow 已进入执行期，DAG 结构只读，无法新增 Step。</p>
         ) : null}
       </div>
     );
@@ -316,10 +324,11 @@ export default function StepsDag({
           <p className="text-sm font-semibold text-slate-900">DAG 视图（编排预览）</p>
           <p className="mt-1 text-xs leading-5 text-slate-500">
             可拖拽调整布局（仅本地保存）。依赖关系来自 Step 的 depends_on；拖拽连线会更新 depends_on。
+            {!editable ? "（当前只读）" : null}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {onCreateStep ? (
+          {onCreateStep && editable ? (
             <Button
               variant="outline"
               size="sm"
@@ -344,7 +353,7 @@ export default function StepsDag({
         </div>
       </div>
 
-      {addOpen && onCreateStep ? (
+      {addOpen && onCreateStep && editable ? (
         <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,220px)_minmax(0,220px)_auto] md:items-end">
             <div className="grid gap-1">
@@ -395,7 +404,7 @@ export default function StepsDag({
           edges={edges}
           fitView
           nodesDraggable
-          nodesConnectable
+          nodesConnectable={editable && Boolean(onUpdateStepDependsOn)}
           elementsSelectable
           onNodeClick={(_, node) => {
             const id = safeNumber(node.id);
@@ -404,6 +413,9 @@ export default function StepsDag({
             }
           }}
           onConnect={(connection) => {
+            if (!editable || !onUpdateStepDependsOn) {
+              return;
+            }
             const source = safeNumber(connection.source);
             const target = safeNumber(connection.target);
             if (source == null || target == null) {
@@ -415,7 +427,7 @@ export default function StepsDag({
             const step = byId.get(target);
             const current = Array.isArray(step?.depends_on) ? step?.depends_on : [];
             const next = Array.from(new Set([...current, source])).filter((id) => id !== target);
-            onUpdateStepDependsOn?.(target, next);
+            onUpdateStepDependsOn(target, next);
           }}
           onNodeDragStop={(_, node) => {
             const id = safeNumber(node.id);
