@@ -18,6 +18,7 @@ interface StepsDagProps {
   steps: Step[];
   selectedStepId: number | null;
   onSelectStep?: (stepId: number) => void;
+  onUpdateStepDependsOn?: (stepId: number, dependsOn: number[]) => Promise<void> | void;
 }
 
 const safeNumber = (value: unknown): number | null => {
@@ -143,7 +144,13 @@ const buildEdges = (steps: Step[]): Edge[] => {
 
 const storageKey = (flowId: number) => `v2:flow:${flowId}:dag_positions`;
 
-export default function StepsDag({ flowId, steps, selectedStepId, onSelectStep }: StepsDagProps) {
+export default function StepsDag({
+  flowId,
+  steps,
+  selectedStepId,
+  onSelectStep,
+  onUpdateStepDependsOn,
+}: StepsDagProps) {
   const [positions, setPositions] = useState<Record<number, { x: number; y: number }>>({});
 
   useEffect(() => {
@@ -186,6 +193,8 @@ export default function StepsDag({ flowId, steps, selectedStepId, onSelectStep }
     );
   }
 
+  const byId = useMemo(() => new Map(steps.map((step) => [step.id, step] as const)), [steps]);
+
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -213,13 +222,27 @@ export default function StepsDag({ flowId, steps, selectedStepId, onSelectStep }
           edges={edges}
           fitView
           nodesDraggable
-          nodesConnectable={false}
+          nodesConnectable
           elementsSelectable
           onNodeClick={(_, node) => {
             const id = safeNumber(node.id);
             if (id != null) {
               onSelectStep?.(id);
             }
+          }}
+          onConnect={(connection) => {
+            const source = safeNumber(connection.source);
+            const target = safeNumber(connection.target);
+            if (source == null || target == null) {
+              return;
+            }
+            if (source === target) {
+              return;
+            }
+            const step = byId.get(target);
+            const current = Array.isArray(step?.depends_on) ? step?.depends_on : [];
+            const next = Array.from(new Set([...current, source])).filter((id) => id !== target);
+            onUpdateStepDependsOn?.(target, next);
           }}
           onNodeDragStop={(_, node) => {
             const id = safeNumber(node.id);

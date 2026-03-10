@@ -1,0 +1,72 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createApiClientV2 } from "./apiClientV2";
+
+describe("apiClientV2", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("generateSteps 会命中 /flows/{id}/generate-steps 并 POST JSON body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClientV2({ baseUrl: "http://localhost:8080/api/v2" });
+    await client.generateSteps(12, { description: "make a dag" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/v2/flows/12/generate-steps");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ description: "make a dag" });
+  });
+
+  it("updateStep 会命中 /steps/{id} 并 PUT JSON body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 1,
+          flow_id: 2,
+          name: "x",
+          type: "exec",
+          status: "pending",
+          max_retries: 0,
+          retry_count: 0,
+          created_at: "2026-03-10T00:00:00Z",
+          updated_at: "2026-03-10T00:00:00Z",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClientV2({ baseUrl: "http://localhost:8080/api/v2" });
+    await client.updateStep(99, { depends_on: [1, 2, 3] });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/v2/steps/99");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(String(init.body))).toEqual({ depends_on: [1, 2, 3] });
+  });
+
+  it("deleteStep 会命中 /steps/{id} 并 DELETE", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClientV2({ baseUrl: "http://localhost:8080/api/v2" });
+    await client.deleteStep(7);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/v2/steps/7");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("DELETE");
+  });
+});

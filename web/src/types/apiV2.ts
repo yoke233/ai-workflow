@@ -181,6 +181,24 @@ export interface CreateStepRequest {
   config?: Record<string, unknown>;
 }
 
+export interface GenerateStepsRequest {
+  description: string;
+}
+
+export interface UpdateStepRequest {
+  name?: string;
+  type?: "exec" | "gate" | "composite";
+  status?: StepStatus;
+  depends_on?: number[];
+  sub_flow_id?: number | null;
+  agent_role?: string;
+  required_capabilities?: string[];
+  acceptance_criteria?: string[];
+  timeout?: string;
+  max_retries?: number;
+  config?: Record<string, unknown>;
+}
+
 export interface ChatRequest {
   session_id?: string;
   message: string;

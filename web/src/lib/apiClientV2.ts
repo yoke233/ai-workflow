@@ -12,6 +12,7 @@ import type {
   CreateProjectRequest,
   CreateFlowRequest,
   CreateStepRequest,
+  GenerateStepsRequest,
   Event,
   Execution,
   Flow,
@@ -19,6 +20,7 @@ import type {
   ResourceBinding,
   RunFlowResponse,
   Step,
+  UpdateStepRequest,
   UpdateProjectRequest,
 } from "../types/apiV2";
 
@@ -158,7 +160,10 @@ export interface ApiClientV2 {
 
   listSteps(flowId: number): Promise<Step[]>;
   createStep(flowId: number, body: CreateStepRequest): Promise<Step>;
+  generateSteps(flowId: number, body: GenerateStepsRequest): Promise<Step[]>;
   getStep(stepId: number): Promise<Step>;
+  updateStep(stepId: number, body: UpdateStepRequest): Promise<Step>;
+  deleteStep(stepId: number): Promise<void>;
 
   listExecutions(stepId: number): Promise<Execution[]>;
   getExecution(execId: number): Promise<Execution>;
@@ -365,9 +370,26 @@ export const createApiClientV2 = (opts: ApiClientV2Options): ApiClientV2 => {
         method: "POST",
         body,
       }),
+    generateSteps: (flowId, body) =>
+      request<Step[], GenerateStepsRequest>({
+        path: `/flows/${flowId}/generate-steps`,
+        method: "POST",
+        body,
+      }).then((items) => (Array.isArray(items) ? items : [])),
     getStep: (stepId) =>
       request<Step>({
         path: `/steps/${stepId}`,
+      }),
+    updateStep: (stepId, body) =>
+      request<Step, UpdateStepRequest>({
+        path: `/steps/${stepId}`,
+        method: "PUT",
+        body,
+      }),
+    deleteStep: (stepId) =>
+      request<void>({
+        path: `/steps/${stepId}`,
+        method: "DELETE",
       }),
 
     listExecutions: (stepId) =>
