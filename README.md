@@ -61,6 +61,31 @@ npm --prefix web run dev -- --strictPort
 - 前端：`http://localhost:5173`
 - 后端健康检查：`http://127.0.0.1:8080/health`
 
+## 桌面版（Tauri）
+
+已提供 **Tauri + Go sidecar + React** 的桌面打包骨架：
+
+- 前端：仍使用 `web/`（Vite 构建 `web/dist`）
+- 后端：`cmd/ai-flow` 作为 **sidecar** 随桌面应用发布，并在启动时自动拉起
+- Token：桌面版会通过 Tauri bridge 自动读取应用数据目录下的 `secrets.toml` 并注入到前端（首次启动不需要手动 `?token=...`）
+
+开发运行（Windows）：
+
+```powershell
+npm install
+npm run tauri:icons
+npm run tauri:dev
+```
+
+构建打包（Windows）：
+
+```powershell
+npm install
+npm run tauri:build
+```
+
+更多说明见：`docs/spec/tauri-desktop.md`。
+
 ## V2 API 主链路
 
 1. 创建项目：`POST /api/v1/projects`

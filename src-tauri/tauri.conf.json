@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AI Workflow",
+  "version": "0.1.0",
+  "identifier": "com.yoke233.aiworkflow",
+  "build": {
+    "beforeDevCommand": "npm --prefix web run dev -- --strictPort",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm --prefix web run build",
+    "frontendDist": "../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "AI Workflow",
+        "width": 1280,
+        "height": 800,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "externalBin": ["binaries/ai-flow"]
+  }
+}

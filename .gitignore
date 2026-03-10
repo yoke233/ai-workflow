@@ -10,6 +10,7 @@ artifacts/
 /data.db-wal
 /docs/.write-test.tmp
 .ai-workflow/
+node_modules/
 
 # Go
 *.exe
@@ -21,3 +22,7 @@ artifacts/
 *.coverprofile
 coverage.out
 bin/
+
+# Tauri
+src-tauri/target/
+src-tauri/binaries/ai-flow-*

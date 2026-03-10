@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { createA2AClient, type A2AClient } from "@/lib/a2aClient";
 import { createApiClient, type ApiClient } from "@/lib/apiClient";
+import { fetchDesktopBootstrap, isTauri } from "@/lib/desktopBridge";
 import { cn } from "@/lib/utils";
 import { createWsClient, type WsClient } from "@/lib/wsClient";
 import type { Project } from "@/types/workflow";
@@ -62,7 +63,8 @@ const ISSUE_RUN_EVENT_TYPES = new Set([
   "issue_dependency_changed",
 ]);
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
+const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
+const DEFAULT_A2A_BASE_URL = import.meta.env.VITE_A2A_BASE_URL || "/api/v1";
 const TOKEN_STORAGE_KEY = "ai-workflow-api-token";
 
 type TokenSource = "query" | "storage" | "missing";
@@ -238,29 +240,34 @@ interface AppProps {
 const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
   const a2aEnabled = a2aEnabledOverride ?? resolveA2AEnabledFromEnv();
   const tokenRef = useRef<string | null>(null);
+
+  const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE_URL);
+  const [wsBaseUrl, setWsBaseUrl] = useState(DEFAULT_API_BASE_URL);
+  const [a2aBaseUrl, setA2ABaseUrl] = useState(DEFAULT_A2A_BASE_URL);
+
   const apiClient = useMemo(
     () =>
       createApiClient({
-        baseUrl: API_BASE_URL,
+        baseUrl: apiBaseUrl,
         getToken: () => tokenRef.current,
       }),
-    [],
+    [apiBaseUrl],
   );
   const wsClient = useMemo(
     () =>
       createWsClient({
-        baseUrl: API_BASE_URL,
+        baseUrl: wsBaseUrl,
         getToken: () => tokenRef.current,
       }),
-    [],
+    [wsBaseUrl],
   );
   const a2aClient = useMemo(
     () =>
       createA2AClient({
-        baseUrl: import.meta.env.VITE_A2A_BASE_URL || "/api/v1",
+        baseUrl: a2aBaseUrl,
         getToken: () => tokenRef.current,
       }),
-    [],
+    [a2aBaseUrl],
   );
 
   const [authStatus, setAuthStatus] = useState<"checking" | "ready" | "error">("checking");
@@ -292,10 +299,14 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
     });
   }, []);
 
-  const fetchProjects = useCallback(async (): Promise<Project[]> => {
-    const listedProjects = await apiClient.listProjects();
-    return Array.isArray(listedProjects) ? listedProjects : [];
-  }, [apiClient]);
+  const fetchProjects = useCallback(
+    async (clientOverride?: ApiClient): Promise<Project[]> => {
+      const client = clientOverride ?? apiClient;
+      const listedProjects = await client.listProjects();
+      return Array.isArray(listedProjects) ? listedProjects : [];
+    },
+    [apiClient],
+  );
 
   const loadProjects = useCallback(
     async (preferredProjectId?: string | null) => {
@@ -320,29 +331,57 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
 
   useEffect(() => {
     const resolvedToken = resolveTokenFromLocation();
-    if (!resolvedToken.token) {
-      setAuthStatus("error");
-      setAuthError("缺少访问 token，请使用 ?token=xxxx 访问。");
-      return;
-    }
-
-    tokenRef.current = resolvedToken.token;
-
     let cancelled = false;
+
     const bootstrap = async (): Promise<void> => {
+      let token = resolvedToken.token;
+      let tokenSource = resolvedToken.source;
+      let effectiveApiBaseUrl = apiBaseUrl;
+
+      if (!token && isTauri()) {
+        try {
+          const desktop = await fetchDesktopBootstrap();
+          if (cancelled) return;
+          token = desktop.token;
+          tokenSource = "storage";
+          effectiveApiBaseUrl = desktop.api_v1_base_url;
+          setApiBaseUrl(desktop.api_v1_base_url);
+          setWsBaseUrl(desktop.ws_base_url);
+          setA2ABaseUrl(desktop.a2a_base_url);
+          persistTokenToStorage(desktop.token);
+        } catch (error) {
+          if (cancelled) return;
+          setAuthStatus("error");
+          setAuthError(`桌面版启动失败：${getErrorMessage(error)}`);
+          return;
+        }
+      }
+
+      if (!token) {
+        setAuthStatus("error");
+        setAuthError("缺少访问 token，请使用 ?token=xxxx 访问。");
+        return;
+      }
+
+      tokenRef.current = token;
+
       setAuthStatus("checking");
       setAuthError(null);
       setProjectsLoading(true);
       setProjectsError(null);
 
       try {
-        const nextProjects = await fetchProjects();
+        const bootstrapClient = createApiClient({
+          baseUrl: effectiveApiBaseUrl,
+          getToken: () => token,
+        });
+        const nextProjects = await fetchProjects(bootstrapClient);
         if (cancelled) {
           return;
         }
         applyProjects(nextProjects);
-        if (resolvedToken.source === "query" && resolvedToken.token) {
-          persistTokenToStorage(resolvedToken.token);
+        if (tokenSource === "query" && token) {
+          persistTokenToStorage(token);
           setActiveView("overview");
           cleanupTokenFromUrlToHome();
         }
@@ -367,7 +406,7 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
     return () => {
       cancelled = true;
     };
-  }, [applyProjects, fetchProjects]);
+  }, [a2aBaseUrl, apiBaseUrl, applyProjects, fetchProjects, wsBaseUrl]);
 
   useEffect(() => {
     if (authStatus !== "ready") {
@@ -543,7 +582,7 @@ const AppV3 = ({ a2aEnabledOverride }: AppProps = {}) => {
               <div className="grid gap-3 xl:min-w-[520px]">
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <Badge variant="outline" className="bg-slate-50 text-slate-600">
-                    API {API_BASE_URL}
+                    API {apiBaseUrl}
                   </Badge>
                   <Badge
                     variant="secondary"

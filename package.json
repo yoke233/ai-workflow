@@ -1,0 +1,13 @@
+{
+  "name": "ai-workflow-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "tauri:icons": "tauri icon src-tauri/app-icon.svg",
+    "tauri:dev": "node scripts/tauri/build-sidecar.mjs && tauri dev",
+    "tauri:build": "node scripts/tauri/build-sidecar.mjs && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

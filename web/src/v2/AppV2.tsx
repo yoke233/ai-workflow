@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { createApiClientV2, type ApiClientV2 } from "@/lib/apiClientV2";
+import { fetchDesktopBootstrap, isTauri } from "@/lib/desktopBridge";
 import { cn } from "@/lib/utils";
 import { createWsClient, type WsClient } from "@/lib/wsClient";
 import type { Project, ResourceBinding } from "@/types/apiV2";
@@ -44,12 +45,12 @@ const VIEW_EYEBROWS: Record<AppView, string> = {
   ops: "协议 / 审计 / 运维",
 };
 
-const API_BASE_URL =
+const DEFAULT_API_BASE_URL =
   import.meta.env.VITE_API_V2_BASE_URL ||
   import.meta.env.VITE_API_BASE_URL ||
   "/api/v2";
 
-const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || "/api/v1";
+const DEFAULT_WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || "/api/v1";
 const TOKEN_STORAGE_KEY = "ai-workflow-api-token";
 
 type TokenSource = "query" | "storage" | "missing";
@@ -141,22 +142,26 @@ interface AppV2Props {
 
 const AppV2 = ({ apiBaseUrlOverride, uiA2AEnabledOverride }: AppV2Props = {}) => {
   const tokenRef = useRef<string | null>(null);
+
+  const [apiBaseUrl, setApiBaseUrl] = useState(apiBaseUrlOverride ?? DEFAULT_API_BASE_URL);
+  const [wsBaseUrl, setWsBaseUrl] = useState(DEFAULT_WS_BASE_URL);
+
   const apiClient: ApiClientV2 = useMemo(
     () =>
       createApiClientV2({
-        baseUrl: apiBaseUrlOverride ?? API_BASE_URL,
+        baseUrl: apiBaseUrl,
         getToken: () => tokenRef.current,
       }),
-    [apiBaseUrlOverride],
+    [apiBaseUrl],
   );
 
   const wsClient: WsClient = useMemo(
     () =>
       createWsClient({
-        baseUrl: WS_BASE_URL,
+        baseUrl: wsBaseUrl,
         getToken: () => tokenRef.current,
       }),
-    [],
+    [wsBaseUrl],
   );
 
   const [authStatus, setAuthStatus] = useState<"checking" | "ready" | "error">("checking");
@@ -200,10 +205,14 @@ const AppV2 = ({ apiBaseUrlOverride, uiA2AEnabledOverride }: AppV2Props = {}) =>
     });
   }, []);
 
-  const fetchProjects = useCallback(async (): Promise<Project[]> => {
-    const listed = await apiClient.listProjects({ limit: 200, offset: 0 });
-    return Array.isArray(listed) ? listed : [];
-  }, [apiClient]);
+  const fetchProjects = useCallback(
+    async (clientOverride?: ApiClientV2): Promise<Project[]> => {
+      const client = clientOverride ?? apiClient;
+      const listed = await client.listProjects({ limit: 200, offset: 0 });
+      return Array.isArray(listed) ? listed : [];
+    },
+    [apiClient],
+  );
 
   const loadProjects = useCallback(
     async (preferredProjectId?: number | null) => {
@@ -234,29 +243,55 @@ const AppV2 = ({ apiBaseUrlOverride, uiA2AEnabledOverride }: AppV2Props = {}) =>
 
   useEffect(() => {
     const resolvedToken = resolveTokenFromLocation();
-    if (!resolvedToken.token) {
-      setAuthStatus("error");
-      setAuthError("缺少访问 token，请使用 ?token=xxxx 访问。");
-      return;
-    }
-
-    tokenRef.current = resolvedToken.token;
-    wsClient.connect();
-
     let cancelled = false;
+
     const bootstrap = async (): Promise<void> => {
+      let token = resolvedToken.token;
+      let tokenSource = resolvedToken.source;
+      let effectiveApiBaseUrl = apiBaseUrl;
+
+      if (!token && isTauri()) {
+        try {
+          const desktop = await fetchDesktopBootstrap();
+          if (cancelled) return;
+          token = desktop.token;
+          tokenSource = "storage";
+          effectiveApiBaseUrl = desktop.api_v2_base_url;
+          setApiBaseUrl(desktop.api_v2_base_url);
+          setWsBaseUrl(desktop.ws_base_url);
+          persistTokenToStorage(desktop.token);
+        } catch (error) {
+          if (cancelled) return;
+          setAuthStatus("error");
+          setAuthError(`桌面版启动失败：${getErrorMessage(error)}`);
+          return;
+        }
+      }
+
+      if (!token) {
+        setAuthStatus("error");
+        setAuthError("缺少访问 token，请使用 ?token=xxxx 访问。");
+        return;
+      }
+
+      tokenRef.current = token;
+
       setAuthStatus("checking");
       setAuthError(null);
       setProjectsLoading(true);
       setProjectsError(null);
       try {
-        const nextProjects = await fetchProjects();
+        const bootstrapClient = createApiClientV2({
+          baseUrl: effectiveApiBaseUrl,
+          getToken: () => token,
+        });
+        const nextProjects = await fetchProjects(bootstrapClient);
         if (cancelled) {
           return;
         }
         applyProjects(nextProjects);
-        if (resolvedToken.source === "query" && resolvedToken.token) {
-          persistTokenToStorage(resolvedToken.token);
+        if (tokenSource === "query" && token) {
+          persistTokenToStorage(token);
           setActiveView("overview");
           cleanupTokenFromUrlToHome();
         }
@@ -279,9 +314,18 @@ const AppV2 = ({ apiBaseUrlOverride, uiA2AEnabledOverride }: AppV2Props = {}) =>
     void bootstrap();
     return () => {
       cancelled = true;
+    };
+  }, [apiBaseUrl, applyProjects, fetchProjects, wsBaseUrl]);
+
+  useEffect(() => {
+    if (authStatus !== "ready") {
+      return;
+    }
+    wsClient.connect();
+    return () => {
       wsClient.disconnect();
     };
-  }, [applyProjects, fetchProjects, wsClient]);
+  }, [authStatus, wsClient]);
 
   useEffect(() => {
     if (selectedProjectId == null) {
@@ -473,7 +517,7 @@ const AppV2 = ({ apiBaseUrlOverride, uiA2AEnabledOverride }: AppV2Props = {}) =>
               <div className="grid gap-3 xl:min-w-[520px]">
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <Badge variant="outline" className="bg-slate-50 text-slate-600">
-                    API {apiBaseUrlOverride ?? API_BASE_URL}
+                    API {apiBaseUrl}
                   </Badge>
                   <Button
                     variant="outline"
@@ -567,12 +611,12 @@ const AppV2 = ({ apiBaseUrlOverride, uiA2AEnabledOverride }: AppV2Props = {}) =>
               ) : null}
 
               {activeView === "chat" ? (
-                <V2ChatView
-                  apiClient={apiClient}
-                  apiBaseUrl={apiBaseUrlOverride ?? API_BASE_URL}
-                  getToken={() => tokenRef.current}
-                  defaultWorkDir={selectedWorkspace?.kind === "local_fs" ? selectedWorkspace.uri : undefined}
-                />
+                  <V2ChatView
+                    apiClient={apiClient}
+                    apiBaseUrl={apiBaseUrl}
+                    getToken={() => tokenRef.current}
+                    defaultWorkDir={selectedWorkspace?.kind === "local_fs" ? selectedWorkspace.uri : undefined}
+                  />
               ) : null}
 
               {activeView === "flows" ? (
@@ -622,7 +666,7 @@ const AppV2 = ({ apiBaseUrlOverride, uiA2AEnabledOverride }: AppV2Props = {}) =>
                   {selectedFlowId != null ? (
                     <V2EventsView
                       apiClient={apiClient}
-                      apiBaseUrl={apiBaseUrlOverride ?? API_BASE_URL}
+                      apiBaseUrl={apiBaseUrl}
                       getToken={() => tokenRef.current}
                       flowId={selectedFlowId}
                       refreshToken={refreshToken}
