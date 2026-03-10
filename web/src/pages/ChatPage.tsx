@@ -7,8 +7,6 @@ import {
   User,
   MoreHorizontal,
   GitBranch,
-  CheckCircle2,
-  Loader2,
   ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";

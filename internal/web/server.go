@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/config"
+	"github.com/yoke233/ai-workflow/internal/configruntime"
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/mcpserver"
 	"github.com/yoke233/ai-workflow/internal/teamleader"
@@ -101,6 +102,14 @@ type WebhookDeliveryReplayer interface {
 	ReplayByDeliveryID(ctx context.Context, deliveryID string) (bool, error)
 }
 
+type RuntimeConfigManager interface {
+	Status() configruntime.ReloadStatus
+	ReadRawString() (string, error)
+	WriteRaw(ctx context.Context, raw string) (*configruntime.Snapshot, error)
+	GetV2Runtime() configruntime.V2RuntimeConfig
+	UpdateV2Runtime(ctx context.Context, next configruntime.V2RuntimeConfig) (*configruntime.Snapshot, error)
+}
+
 // Config controls web server behavior.
 type Config struct {
 	Addr                   string
@@ -134,6 +143,7 @@ type Config struct {
 	MCPDeps                MCPDeps
 	RoleResolver           *acpclient.RoleResolver
 	V2RouteRegistrar       func(chi.Router) // optional: registers v2 API routes under /api/v2
+	RuntimeConfig          RuntimeConfigManager
 }
 
 // MCPDeps carries business-layer dependencies for MCP write tools.
@@ -243,7 +253,7 @@ func NewServer(cfg Config) *Server {
 			issueManager := cfg.IssueManager
 			issueParserRoleID := strings.TrimSpace(cfg.IssueParserRoleID)
 			registerV1Routes(r, cfg.Store, issueManager, cfg.DecomposePlanner, cfg.ProposalIssueCreator, issueParserRoleID, cfg.RunExec, cfg.StageSessionMgr, cfg.RunstageRoles,
-				hub, projectRepoProvisioner, cfg.ChatAssistant, cfg.EventPublisher, webhookReplayer, cfg.RestartFunc, cfg.RoleResolver)
+				hub, projectRepoProvisioner, cfg.ChatAssistant, cfg.EventPublisher, webhookReplayer, cfg.RestartFunc, cfg.RoleResolver, cfg.RuntimeConfig)
 		})
 	})
 	if frontendFS != nil {

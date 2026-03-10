@@ -48,10 +48,12 @@ export function FlowsPage() {
           <h1 className="text-2xl font-bold tracking-tight">流程</h1>
           <p className="text-sm text-muted-foreground">管理和监控工作流程的执行</p>
         </div>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" />
-          新建流程
-        </Button>
+        <Link to="/flows/new">
+          <Button>
+            <Plus className="mr-2 h-4 w-4" />
+            新建流程
+          </Button>
+        </Link>
       </div>
 
       <Card>

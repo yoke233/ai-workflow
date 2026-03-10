@@ -79,10 +79,12 @@ export function DashboardPage() {
             运行 3 个流程 / 已完成 67 个流程 / 队列 1 个任务
           </p>
         </div>
-        <Button>
-          <Play className="mr-2 h-4 w-4" />
-          新建流程
-        </Button>
+        <Link to="/flows/new">
+          <Button>
+            <Play className="mr-2 h-4 w-4" />
+            新建流程
+          </Button>
+        </Link>
       </div>
 
       {/* Stats cards */}

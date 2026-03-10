@@ -456,6 +456,41 @@ export interface AdminSystemEventResponse {
   status: string;
 }
 
+export interface AdminConfigRuntimeStatus {
+  active_version: number;
+  last_success_at?: string;
+  last_error?: string;
+  last_error_at?: string;
+}
+
+export interface AdminConfigTomlResponse {
+  content: string;
+}
+
+export interface AdminConfigTomlRequest {
+  content: string;
+}
+
+export interface AdminConfigUpdateResponse {
+  status: string;
+  runtime_status: AdminConfigRuntimeStatus;
+}
+
+export interface AdminV2RuntimeConfig {
+  agents: {
+    drivers: Array<Record<string, unknown>>;
+    profiles: Array<Record<string, unknown>>;
+  };
+  mcp: {
+    servers: Array<Record<string, unknown>>;
+    profile_bindings: Array<Record<string, unknown>>;
+  };
+  prompts?: {
+    rework_followup?: string;
+    continue_followup?: string;
+  };
+}
+
 export interface RunCheckpoint {
   run_id: string;
   stage_name: string;

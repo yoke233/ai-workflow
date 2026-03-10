@@ -73,6 +73,7 @@ func registerV1Routes(
 	webhookReplayer WebhookDeliveryReplayer,
 	restartFunc func(),
 	roleResolver *acpclient.RoleResolver,
+	runtimeConfig RuntimeConfigManager,
 ) {
 	r.Get("/stats", handleStats)
 	r.Get("/ws", hub.HandleWS)
@@ -89,6 +90,7 @@ func registerV1Routes(
 	r.Group(func(r chi.Router) {
 		r.Use(RequireScope(ScopeAdmin))
 		registerAdminOpsRoutes(r, store, webhookReplayer, restartFunc, hub)
+		registerAdminConfigRoutes(r, runtimeConfig)
 	})
 
 	issueHandlers := &v2IssueHandlers{store: store}

@@ -16,6 +16,28 @@ func LoadFile(path string) (*Config, error) {
 	return LoadGlobal(path)
 }
 
+// LoadLayerFile loads a raw config layer file without applying defaults or env overrides.
+func LoadLayerFile(path string) (*ConfigLayer, error) {
+	return loadLayerFromFile(path)
+}
+
+// LoadLayerBytes loads a raw config layer from TOML bytes.
+func LoadLayerBytes(data []byte) (*ConfigLayer, error) {
+	return loadLayerFromBytes(data)
+}
+
+// MarshalLayerTOML serializes a config layer into TOML.
+func MarshalLayerTOML(layer *ConfigLayer) ([]byte, error) {
+	if layer == nil {
+		layer = &ConfigLayer{}
+	}
+	data, err := toml.Marshal(layer)
+	if err != nil {
+		return nil, fmt.Errorf("marshal config layer: %w", err)
+	}
+	return data, nil
+}
+
 // LoadGlobal loads config from a file (TOML or YAML), applies env overrides, and validates.
 // secretsPath is optional — if non-empty, secrets are loaded and merged before validation.
 func LoadGlobal(path string, secretsPaths ...string) (*Config, error) {

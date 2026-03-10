@@ -1,14 +1,24 @@
 import type { HTMLAttributes, PropsWithChildren } from "react";
 import { cn } from "@/lib/utils";
 
-type BadgeVariant = "default" | "secondary" | "success" | "warning" | "danger" | "outline";
+type BadgeVariant =
+  | "default"
+  | "secondary"
+  | "success"
+  | "warning"
+  | "danger"
+  | "destructive"
+  | "info"
+  | "outline";
 
 const VARIANT_CLASS: Record<BadgeVariant, string> = {
   default: "bg-slate-950 text-white",
   secondary: "bg-blue-50 text-blue-700",
+  info: "bg-sky-50 text-sky-700",
   success: "bg-emerald-50 text-emerald-700",
   warning: "bg-amber-50 text-amber-700",
   danger: "bg-rose-50 text-rose-700",
+  destructive: "bg-rose-50 text-rose-700",
   outline: "border border-slate-200 bg-white text-slate-600",
 };
 

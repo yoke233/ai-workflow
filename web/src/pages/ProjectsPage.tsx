@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Plus, Search, FolderOpen, GitBranch, Server, Cloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,10 +84,12 @@ export function ProjectsPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            新建项目
-          </Button>
+          <Link to="/projects/new">
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              新建项目
+            </Button>
+          </Link>
         </div>
       </div>
 
@@ -142,12 +145,14 @@ export function ProjectsPage() {
         ))}
 
         {/* New project card */}
-        <Card className="flex cursor-pointer items-center justify-center border-dashed transition-colors hover:border-primary hover:bg-muted/50">
-          <CardContent className="flex flex-col items-center gap-2 p-6 text-muted-foreground">
-            <FolderOpen className="h-8 w-8" />
-            <span className="text-sm font-medium">创建新项目</span>
-          </CardContent>
-        </Card>
+        <Link to="/projects/new">
+          <Card className="flex cursor-pointer items-center justify-center border-dashed transition-colors hover:border-primary hover:bg-muted/50">
+            <CardContent className="flex flex-col items-center gap-2 p-6 text-muted-foreground">
+              <FolderOpen className="h-8 w-8" />
+              <span className="text-sm font-medium">创建新项目</span>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
     </div>
   );

@@ -2,8 +2,13 @@ import type {
   AgentListResponse,
   AdminIssueOperationRequest,
   AdminIssueOperationResponse,
+  AdminConfigRuntimeStatus,
+  AdminConfigTomlRequest,
+  AdminConfigTomlResponse,
+  AdminConfigUpdateResponse,
   AdminSystemEventRequest,
   AdminSystemEventResponse,
+  AdminV2RuntimeConfig,
   ApiIssue,
   ApiRun,
   ApiWorkflowProfile,
@@ -687,6 +692,15 @@ export interface ApiClient {
   sendSystemEvent?(
     body: AdminSystemEventRequest,
   ): Promise<AdminSystemEventResponse>;
+  getAdminConfigRuntimeStatus?(): Promise<AdminConfigRuntimeStatus>;
+  getAdminConfigToml?(): Promise<AdminConfigTomlResponse>;
+  updateAdminConfigToml?(
+    body: AdminConfigTomlRequest,
+  ): Promise<AdminConfigUpdateResponse>;
+  getAdminV2RuntimeConfig?(): Promise<AdminV2RuntimeConfig>;
+  updateAdminV2RuntimeConfig?(
+    body: AdminV2RuntimeConfig,
+  ): Promise<AdminConfigUpdateResponse>;
   getRepoTree(projectId: string, dir?: string): Promise<RepoTreeResponse>;
   getRepoStatus(projectId: string): Promise<RepoStatusResponse>;
   getRepoDiff(projectId: string, filePath: string): Promise<RepoDiffResponse>;
@@ -1102,6 +1116,30 @@ export const createApiClient = (options: ApiClientOptions): ApiClient => {
       request<AdminSystemEventResponse, AdminSystemEventRequest>({
         path: "/api/v1/admin/ops/system-event",
         method: "POST",
+        body,
+      }),
+    getAdminConfigRuntimeStatus: () =>
+      request<AdminConfigRuntimeStatus>({
+        path: "/api/v1/admin/config/runtime-status",
+      }),
+    getAdminConfigToml: () =>
+      request<AdminConfigTomlResponse>({
+        path: "/api/v1/admin/config/toml",
+      }),
+    updateAdminConfigToml: (body) =>
+      request<AdminConfigUpdateResponse, AdminConfigTomlRequest>({
+        path: "/api/v1/admin/config/toml",
+        method: "PUT",
+        body,
+      }),
+    getAdminV2RuntimeConfig: () =>
+      request<AdminV2RuntimeConfig>({
+        path: "/api/v1/admin/config/v2-runtime",
+      }),
+    updateAdminV2RuntimeConfig: (body) =>
+      request<AdminConfigUpdateResponse, AdminV2RuntimeConfig>({
+        path: "/api/v1/admin/config/v2-runtime",
+        method: "PUT",
         body,
       }),
     getRepoTree: (projectId, dir) =>

@@ -6,7 +6,6 @@ import {
   GitBranch,
   Bot,
   FolderOpen,
-  Settings,
   ChevronsUpDown,
 } from "lucide-react";
 import { useState } from "react";
@@ -17,7 +16,6 @@ const navItems = [
   { to: "/flows", icon: GitBranch, label: "流程" },
   { to: "/agents", icon: Bot, label: "代理" },
   { to: "/projects", icon: FolderOpen, label: "项目" },
-  { to: "/settings", icon: Settings, label: "设置" },
 ];
 
 const mockProjects = [
