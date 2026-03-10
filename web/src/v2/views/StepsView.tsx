@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import type { ApiClientV2 } from "@/lib/apiClientV2";
 import type { Step, StepType } from "@/types/apiV2";
+import StepsDag from "@/v2/components/StepsDag";
 import { PageScaffold } from "@/v3/components/PageScaffold";
 
 interface StepsViewProps {
@@ -179,37 +180,49 @@ const StepsView = ({
           {createFeedback ? <p className="text-sm text-slate-600">{createFeedback}</p> : null}
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-          <div className="grid gap-3">
-            {loading ? <p className="text-sm text-slate-500">加载中...</p> : null}
-            {!loading && steps.length === 0 ? (
-              <p className="text-sm text-slate-500">暂无 Step。</p>
-            ) : null}
-            {steps.map((step) => (
-              <button
-                key={step.id}
-                type="button"
-                onClick={() => onSelectStep(step.id)}
-                className={[
-                  "flex w-full items-start justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition",
-                  step.id === selectedStepId ? "border-indigo-200 bg-indigo-50/40" : "border-slate-200 bg-white hover:bg-slate-50",
-                ].join(" ")}
-              >
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">
-                    #{step.id} · {step.name}
-                  </p>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    {step.type} · depends {Array.isArray(step.depends_on) ? step.depends_on.join(", ") : "-"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="bg-slate-50 text-slate-600">
-                    {step.type}
-                  </Badge>
-                  <Badge variant={statusTone(step.status)}>{step.status}</Badge>
-                </div>
-              </button>
-            ))}
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+            <div className="grid gap-3">
+              {loading ? <p className="text-sm text-slate-500">加载中...</p> : null}
+              {!loading && steps.length === 0 ? (
+                <p className="text-sm text-slate-500">暂无 Step。</p>
+              ) : null}
+              {steps.map((step) => (
+                <button
+                  key={step.id}
+                  type="button"
+                  onClick={() => onSelectStep(step.id)}
+                  className={[
+                    "flex w-full items-start justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition",
+                    step.id === selectedStepId
+                      ? "border-indigo-200 bg-indigo-50/40"
+                      : "border-slate-200 bg-white hover:bg-slate-50",
+                  ].join(" ")}
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">
+                      #{step.id} · {step.name}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {step.type} · depends{" "}
+                      {Array.isArray(step.depends_on) ? step.depends_on.join(", ") : "-"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="bg-slate-50 text-slate-600">
+                      {step.type}
+                    </Badge>
+                    <Badge variant={statusTone(step.status)}>{step.status}</Badge>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <StepsDag
+              flowId={flowId}
+              steps={steps}
+              selectedStepId={selectedStepId}
+              onSelectStep={onSelectStep}
+            />
           </div>
         </CardContent>
       </Card>
