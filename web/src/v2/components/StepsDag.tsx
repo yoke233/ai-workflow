@@ -183,6 +183,7 @@ export default function StepsDag({
 
   const nodes = useMemo(() => buildNodes(steps, selectedStepId, positions), [steps, selectedStepId, positions]);
   const edges = useMemo(() => buildEdges(steps), [steps]);
+  const byId = useMemo(() => new Map(steps.map((step) => [step.id, step] as const)), [steps]);
 
   if (steps.length === 0) {
     return (
@@ -193,15 +194,13 @@ export default function StepsDag({
     );
   }
 
-  const byId = useMemo(() => new Map(steps.map((step) => [step.id, step] as const)), [steps]);
-
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-slate-900">DAG 视图（编排预览）</p>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            可拖拽调整布局（仅本地保存）。依赖关系来自 Step 的 depends_on；后端暂未提供更新依赖的接口。
+            可拖拽调整布局（仅本地保存）。依赖关系来自 Step 的 depends_on；拖拽连线会更新 depends_on。
           </p>
         </div>
         <Button
