@@ -223,8 +223,16 @@ func (m *Manager) UpdateV2Runtime(ctx context.Context, next V2RuntimeConfig) (*S
 		ProfileBindings: cloneV2MCPBindings(next.MCP.ProfileBindings),
 	}
 	layer.V2.Prompts = &config.V2PromptsLayer{
-		ReworkFollowup:   stringPtr(next.Prompts.ReworkFollowup),
-		ContinueFollowup: stringPtr(next.Prompts.ContinueFollowup),
+		ReworkFollowup:        stringPtr(next.Prompts.ReworkFollowup),
+		ContinueFollowup:      stringPtr(next.Prompts.ContinueFollowup),
+		PRImplementObjective:  stringPtr(next.Prompts.PRImplementObjective),
+		PRGateObjective:       stringPtr(next.Prompts.PRGateObjective),
+		PRMergeReworkFeedback: stringPtr(next.Prompts.PRMergeReworkFeedback),
+		PRProviders: &config.V2PRPromptProvidersLayer{
+			GitHub: buildPRProviderPromptLayer(next.Prompts.PRProviders.GitHub),
+			CodeUp: buildPRProviderPromptLayer(next.Prompts.PRProviders.CodeUp),
+			GitLab: buildPRProviderPromptLayer(next.Prompts.PRProviders.GitLab),
+		},
 	}
 
 	raw, err := toml.Marshal(layer)
@@ -232,6 +240,22 @@ func (m *Manager) UpdateV2Runtime(ctx context.Context, next V2RuntimeConfig) (*S
 		return nil, fmt.Errorf("marshal v2 runtime config: %w", err)
 	}
 	return m.WriteRaw(ctx, string(raw))
+}
+
+func buildPRProviderPromptLayer(in config.V2PRProviderPromptConfig) *config.V2PRProviderPromptLayer {
+	return &config.V2PRProviderPromptLayer{
+		ImplementObjective:  stringPtr(in.ImplementObjective),
+		GateObjective:       stringPtr(in.GateObjective),
+		MergeReworkFeedback: stringPtr(in.MergeReworkFeedback),
+		MergeStates: &config.V2PRMergeStatePromptLayer{
+			Default:  stringPtr(in.MergeStates.Default),
+			Dirty:    stringPtr(in.MergeStates.Dirty),
+			Blocked:  stringPtr(in.MergeStates.Blocked),
+			Behind:   stringPtr(in.MergeStates.Behind),
+			Unstable: stringPtr(in.MergeStates.Unstable),
+			Draft:    stringPtr(in.MergeStates.Draft),
+		},
+	}
 }
 
 func (m *Manager) UpdateV2Config(ctx context.Context, agents config.V2AgentsConfig, mcp config.V2MCPConfig) (*Snapshot, error) {

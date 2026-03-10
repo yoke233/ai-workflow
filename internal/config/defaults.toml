@@ -213,6 +213,50 @@ continue_followup = """
 请继续完成本 step（复用已有上下文，不要重复粘贴大段背景）：{{.StepName}}
 """
 
+pr_implement_objective = """
+进行实现并在当前 worktree 中完成必要验证。必须直接修改代码/README，并执行与改动相关的实际检查（不要只做 smoke）。
+不要自行 git commit/push；后续步骤会处理。
+若 gate 或 merge 打回，请继续在当前分支修复，并在最终回复中明确列出你实际执行过的检查命令、结果，以及是否还存在阻塞。
+"""
+
+pr_gate_objective = """
+你是代码审查员。你会收到上游 implement / commit / PR step 的输出。请综合 worktree 当前状态与上游输出评审本次提交是否可合并。
+至少检查：1) 改动是否满足目标；2) implement 输出里是否明确给出实际执行过的验证命令与结果；3) 当前分支是否存在明显冲突或阻塞。
+若不通过，必须给出可执行的返工原因；若通过，系统会自动尝试 merge，merge 失败时你的反馈会回流给上游继续修复。
+最后必须输出一行：AI_WORKFLOW_GATE_JSON: {"verdict":"pass|reject","reason":"..."}
+"""
+
+pr_merge_rework_feedback = """
+自动合并失败。{{if .PRNumber}}PR #{{.PRNumber}}{{if .PRURL}}（{{.PRURL}}）{{end}} 当前未能合并。{{end}}{{if .MergeableState}} mergeable_state={{.MergeableState}}。{{end}}
+{{.Hint}}
+不要新开 PR；继续在当前分支修复，并保留实际执行过的检查命令与结果。
+"""
+
+  [v2.prompts.pr_providers.github]
+  merge_rework_feedback = ""
+    [v2.prompts.pr_providers.github.merge_states]
+    default = ""
+    dirty = ""
+    blocked = ""
+    behind = ""
+    unstable = ""
+    draft = ""
+
+  [v2.prompts.pr_providers.codeup]
+  merge_rework_feedback = ""
+    [v2.prompts.pr_providers.codeup.merge_states]
+    default = ""
+    dirty = ""
+    blocked = ""
+    behind = ""
+    unstable = ""
+    draft = ""
+
+  [v2.prompts.pr_providers.gitlab]
+  merge_rework_feedback = ""
+    [v2.prompts.pr_providers.gitlab.merge_states]
+    default = ""
+
 # ─── V2 Agent Drivers & Profiles ─────────────────────────────────
 # Driver = 进程启动配置（共享二进制）
 # Profile = 角色实例（绑定 driver + 能力 + 动作白名单）
@@ -268,6 +312,35 @@ continue_followup = """
 # role            = "gate"
 # capabilities    = ["code.review", "security.review"]
 # actions_allowed = ["read_context", "search_files", "approve", "reject", "submit"]
+#
+# [[v2.mcp.servers]]
+# id        = "internal-query"
+# name      = "AI Workflow Query"
+# kind      = "internal"
+# transport = "sse"
+# enabled   = true
+#
+# [[v2.mcp.servers]]
+# id              = "external-devops"
+# name            = "External DevOps"
+# kind            = "external"
+# transport       = "sse"
+# endpoint        = "http://127.0.0.1:9000/mcp"
+# auth_secret_ref = "tokens.devops"
+# enabled         = true
+#
+# [[v2.mcp.profile_bindings]]
+# profile   = "lead"
+# server    = "internal-query"
+# enabled   = true
+# tool_mode = "all"
+#
+# [[v2.mcp.profile_bindings]]
+# profile   = "worker-claude"
+# server    = "external-devops"
+# enabled   = true
+# tool_mode = "allow_list"
+# tools     = ["get_work_item", "create_merge_request"]
 
 # ─── Team Leader ─────────────────────────────────────────────────
 [team_leader]

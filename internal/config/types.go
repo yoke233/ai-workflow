@@ -50,12 +50,12 @@ type LLMFilterConfig struct {
 type V2Config struct {
 	// MockExecutor makes v2 step execution use an in-process stub instead of ACP agents.
 	// Useful for smoke tests and environments without LLM credentials.
-	MockExecutor bool              `toml:"mock_executor" yaml:"mock_executor"`
-	Collector    V2CollectorConfig `toml:"collector" yaml:"collector"`
-	Sandbox      V2SandboxConfig   `toml:"sandbox"   yaml:"sandbox"`
-	Agents       V2AgentsConfig    `toml:"agents"    yaml:"agents"`
-	MCP          V2MCPConfig       `toml:"mcp"       yaml:"mcp"`
-	Prompts      V2PromptsConfig   `toml:"prompts"   yaml:"prompts"`
+	MockExecutor bool              `toml:"mock_executor" yaml:"mock_executor" json:"mock_executor"`
+	Collector    V2CollectorConfig `toml:"collector" yaml:"collector" json:"collector"`
+	Sandbox      V2SandboxConfig   `toml:"sandbox"   yaml:"sandbox" json:"sandbox"`
+	Agents       V2AgentsConfig    `toml:"agents"    yaml:"agents" json:"agents"`
+	MCP          V2MCPConfig       `toml:"mcp"       yaml:"mcp" json:"mcp"`
+	Prompts      V2PromptsConfig   `toml:"prompts"   yaml:"prompts" json:"prompts"`
 }
 
 // V2SandboxConfig configures per-ACP-process sandbox isolation.
@@ -76,71 +76,97 @@ type V2LiteBoxConfig struct {
 // These prompts are used as incremental messages when reusing ACP sessions, so they
 // should be concise to preserve prompt caching and reuse existing context.
 type V2PromptsConfig struct {
-	ReworkFollowup   string `toml:"rework_followup"   yaml:"rework_followup"`
-	ContinueFollowup string `toml:"continue_followup" yaml:"continue_followup"`
+	ReworkFollowup        string                    `toml:"rework_followup"        yaml:"rework_followup"`
+	ContinueFollowup      string                    `toml:"continue_followup"      yaml:"continue_followup"`
+	PRImplementObjective  string                    `toml:"pr_implement_objective" yaml:"pr_implement_objective"`
+	PRGateObjective       string                    `toml:"pr_gate_objective"      yaml:"pr_gate_objective"`
+	PRMergeReworkFeedback string                    `toml:"pr_merge_rework_feedback" yaml:"pr_merge_rework_feedback"`
+	PRProviders           V2PRPromptProvidersConfig `toml:"pr_providers" yaml:"pr_providers"`
+}
+
+type V2PRPromptProvidersConfig struct {
+	GitHub V2PRProviderPromptConfig `toml:"github" yaml:"github"`
+	CodeUp V2PRProviderPromptConfig `toml:"codeup" yaml:"codeup"`
+	GitLab V2PRProviderPromptConfig `toml:"gitlab" yaml:"gitlab"`
+}
+
+type V2PRProviderPromptConfig struct {
+	ImplementObjective  string                     `toml:"implement_objective" yaml:"implement_objective"`
+	GateObjective       string                     `toml:"gate_objective" yaml:"gate_objective"`
+	MergeReworkFeedback string                     `toml:"merge_rework_feedback" yaml:"merge_rework_feedback"`
+	MergeStates         V2PRMergeStatePromptConfig `toml:"merge_states" yaml:"merge_states"`
+}
+
+type V2PRMergeStatePromptConfig struct {
+	Default  string `toml:"default" yaml:"default"`
+	Dirty    string `toml:"dirty" yaml:"dirty"`
+	Blocked  string `toml:"blocked" yaml:"blocked"`
+	Behind   string `toml:"behind" yaml:"behind"`
+	Unstable string `toml:"unstable" yaml:"unstable"`
+	Draft    string `toml:"draft" yaml:"draft"`
 }
 
 // V2AgentsConfig defines agent drivers and profiles for the v2 engine.
 type V2AgentsConfig struct {
-	Drivers  []V2DriverConfig  `toml:"drivers"  yaml:"drivers"`
-	Profiles []V2ProfileConfig `toml:"profiles" yaml:"profiles"`
+	Drivers  []V2DriverConfig  `toml:"drivers"  yaml:"drivers" json:"drivers"`
+	Profiles []V2ProfileConfig `toml:"profiles" yaml:"profiles" json:"profiles"`
 }
 
 // V2MCPConfig defines MCP servers and per-profile bindings for the v2 engine.
 type V2MCPConfig struct {
-	Servers         []V2MCPServerConfig         `toml:"servers"          yaml:"servers"`
-	ProfileBindings []V2MCPProfileBindingConfig `toml:"profile_bindings" yaml:"profile_bindings"`
+	Servers         []V2MCPServerConfig         `toml:"servers"          yaml:"servers" json:"servers"`
+	ProfileBindings []V2MCPProfileBindingConfig `toml:"profile_bindings" yaml:"profile_bindings" json:"profile_bindings"`
 }
 
 type V2MCPServerConfig struct {
-	ID            string            `toml:"id"              yaml:"id"`
-	Name          string            `toml:"name"            yaml:"name"`
-	Kind          string            `toml:"kind"            yaml:"kind"`
-	Transport     string            `toml:"transport"       yaml:"transport"`
-	Endpoint      string            `toml:"endpoint"        yaml:"endpoint"`
-	Command       string            `toml:"command"         yaml:"command"`
-	Args          []string          `toml:"args"            yaml:"args"`
-	Env           map[string]string `toml:"env"             yaml:"env"`
-	AuthSecretRef string            `toml:"auth_secret_ref" yaml:"auth_secret_ref"`
-	Enabled       bool              `toml:"enabled"         yaml:"enabled"`
+	ID            string            `toml:"id"              yaml:"id" json:"id"`
+	Name          string            `toml:"name"            yaml:"name" json:"name"`
+	Kind          string            `toml:"kind"            yaml:"kind" json:"kind"`
+	Transport     string            `toml:"transport"       yaml:"transport" json:"transport"`
+	Endpoint      string            `toml:"endpoint"        yaml:"endpoint" json:"endpoint"`
+	Command       string            `toml:"command"         yaml:"command" json:"command"`
+	Args          []string          `toml:"args"            yaml:"args" json:"args"`
+	Env           map[string]string `toml:"env"             yaml:"env" json:"env"`
+	AuthSecretRef string            `toml:"auth_secret_ref" yaml:"auth_secret_ref" json:"auth_secret_ref"`
+	Enabled       bool              `toml:"enabled"         yaml:"enabled" json:"enabled"`
 }
 
 type V2MCPProfileBindingConfig struct {
-	Profile  string   `toml:"profile"   yaml:"profile"`
-	Server   string   `toml:"server"    yaml:"server"`
-	Enabled  bool     `toml:"enabled"   yaml:"enabled"`
-	ToolMode string   `toml:"tool_mode" yaml:"tool_mode"`
-	Tools    []string `toml:"tools"     yaml:"tools"`
+	Profile  string   `toml:"profile"   yaml:"profile" json:"profile"`
+	Server   string   `toml:"server"    yaml:"server" json:"server"`
+	Enabled  bool     `toml:"enabled"   yaml:"enabled" json:"enabled"`
+	ToolMode string   `toml:"tool_mode" yaml:"tool_mode" json:"tool_mode"`
+	Tools    []string `toml:"tools"     yaml:"tools" json:"tools"`
 }
 
 // V2DriverConfig defines an ACP agent driver (process launch configuration).
 type V2DriverConfig struct {
-	ID              string             `toml:"id"               yaml:"id"`
-	LaunchCommand   string             `toml:"launch_command"   yaml:"launch_command"`
-	LaunchArgs      []string           `toml:"launch_args"      yaml:"launch_args"`
-	Env             map[string]string  `toml:"env"              yaml:"env"`
-	CapabilitiesMax CapabilitiesConfig `toml:"capabilities_max" yaml:"capabilities_max"`
+	ID              string             `toml:"id"               yaml:"id" json:"id"`
+	LaunchCommand   string             `toml:"launch_command"   yaml:"launch_command" json:"launch_command"`
+	LaunchArgs      []string           `toml:"launch_args"      yaml:"launch_args" json:"launch_args"`
+	Env             map[string]string  `toml:"env"              yaml:"env" json:"env"`
+	CapabilitiesMax CapabilitiesConfig `toml:"capabilities_max" yaml:"capabilities_max" json:"capabilities_max"`
 }
 
 // V2ProfileConfig defines an agent profile (role instance) for the v2 engine.
 type V2ProfileConfig struct {
-	ID             string          `toml:"id"              yaml:"id"`
-	Name           string          `toml:"name"            yaml:"name"`
-	Driver         string          `toml:"driver"          yaml:"driver"`
-	Role           string          `toml:"role"            yaml:"role"`
-	Capabilities   []string        `toml:"capabilities"    yaml:"capabilities"`
-	ActionsAllowed []string        `toml:"actions_allowed" yaml:"actions_allowed"`
-	PromptTemplate string          `toml:"prompt_template" yaml:"prompt_template"`
-	Skills         []string        `toml:"skills"          yaml:"skills"`
-	Session        V2SessionConfig `toml:"session"         yaml:"session"`
-	MCP            MCPConfig       `toml:"mcp"             yaml:"mcp"`
+	ID             string          `toml:"id"              yaml:"id" json:"id"`
+	Name           string          `toml:"name"            yaml:"name" json:"name"`
+	Driver         string          `toml:"driver"          yaml:"driver" json:"driver"`
+	Role           string          `toml:"role"            yaml:"role" json:"role"`
+	Capabilities   []string        `toml:"capabilities"    yaml:"capabilities" json:"capabilities"`
+	ActionsAllowed []string        `toml:"actions_allowed" yaml:"actions_allowed" json:"actions_allowed"`
+	PromptTemplate string          `toml:"prompt_template" yaml:"prompt_template" json:"prompt_template"`
+	Skills         []string        `toml:"skills"          yaml:"skills" json:"skills"`
+	Session        V2SessionConfig `toml:"session"         yaml:"session" json:"session"`
+	MCP            MCPConfig       `toml:"mcp"             yaml:"mcp" json:"mcp"`
 }
 
 // V2SessionConfig configures session management for a v2 profile.
 type V2SessionConfig struct {
-	Reuse    bool     `toml:"reuse"     yaml:"reuse"`
-	MaxTurns int      `toml:"max_turns" yaml:"max_turns"`
-	IdleTTL  Duration `toml:"idle_ttl"  yaml:"idle_ttl"`
+	Reuse    bool     `toml:"reuse"     yaml:"reuse" json:"reuse"`
+	MaxTurns int      `toml:"max_turns" yaml:"max_turns" json:"max_turns"`
+	IdleTTL  Duration `toml:"idle_ttl"  yaml:"idle_ttl" json:"idle_ttl"`
 }
 
 // V2CollectorConfig configures the v2 metadata collector.
@@ -306,8 +332,34 @@ type V2LiteBoxLayer struct {
 }
 
 type V2PromptsLayer struct {
-	ReworkFollowup   *string `toml:"rework_followup"   yaml:"rework_followup"`
-	ContinueFollowup *string `toml:"continue_followup" yaml:"continue_followup"`
+	ReworkFollowup        *string                   `toml:"rework_followup"         yaml:"rework_followup"`
+	ContinueFollowup      *string                   `toml:"continue_followup"       yaml:"continue_followup"`
+	PRImplementObjective  *string                   `toml:"pr_implement_objective"  yaml:"pr_implement_objective"`
+	PRGateObjective       *string                   `toml:"pr_gate_objective"       yaml:"pr_gate_objective"`
+	PRMergeReworkFeedback *string                   `toml:"pr_merge_rework_feedback" yaml:"pr_merge_rework_feedback"`
+	PRProviders           *V2PRPromptProvidersLayer `toml:"pr_providers" yaml:"pr_providers"`
+}
+
+type V2PRPromptProvidersLayer struct {
+	GitHub *V2PRProviderPromptLayer `toml:"github" yaml:"github"`
+	CodeUp *V2PRProviderPromptLayer `toml:"codeup" yaml:"codeup"`
+	GitLab *V2PRProviderPromptLayer `toml:"gitlab" yaml:"gitlab"`
+}
+
+type V2PRProviderPromptLayer struct {
+	ImplementObjective  *string                    `toml:"implement_objective" yaml:"implement_objective"`
+	GateObjective       *string                    `toml:"gate_objective" yaml:"gate_objective"`
+	MergeReworkFeedback *string                    `toml:"merge_rework_feedback" yaml:"merge_rework_feedback"`
+	MergeStates         *V2PRMergeStatePromptLayer `toml:"merge_states" yaml:"merge_states"`
+}
+
+type V2PRMergeStatePromptLayer struct {
+	Default  *string `toml:"default" yaml:"default"`
+	Dirty    *string `toml:"dirty" yaml:"dirty"`
+	Blocked  *string `toml:"blocked" yaml:"blocked"`
+	Behind   *string `toml:"behind" yaml:"behind"`
+	Unstable *string `toml:"unstable" yaml:"unstable"`
+	Draft    *string `toml:"draft" yaml:"draft"`
 }
 
 type V2AgentsLayerCfg struct {
@@ -429,9 +481,9 @@ type LogLayer struct {
 }
 
 type CapabilitiesConfig struct {
-	FSRead   bool `toml:"fs_read"   yaml:"fs_read"`
-	FSWrite  bool `toml:"fs_write"  yaml:"fs_write"`
-	Terminal bool `toml:"terminal"  yaml:"terminal"`
+	FSRead   bool `toml:"fs_read"   yaml:"fs_read" json:"fs_read"`
+	FSWrite  bool `toml:"fs_write"  yaml:"fs_write" json:"fs_write"`
+	Terminal bool `toml:"terminal"  yaml:"terminal" json:"terminal"`
 }
 
 type AgentProfileConfig struct {
@@ -466,8 +518,8 @@ type PermissionRule struct {
 }
 
 type MCPConfig struct {
-	Enabled bool     `toml:"enabled" yaml:"enabled"`
-	Tools   []string `toml:"tools"   yaml:"tools"`
+	Enabled bool     `toml:"enabled" yaml:"enabled" json:"enabled"`
+	Tools   []string `toml:"tools"   yaml:"tools" json:"tools"`
 }
 
 type RoleBindings struct {

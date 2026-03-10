@@ -83,6 +83,15 @@ func TestLoadDefaults(t *testing.T) {
 	if got := cfg.Scheduler.Watchdog.QueueStaleTTL.Duration; got != 60*time.Minute {
 		t.Fatalf("expected scheduler.watchdog.queue_stale_ttl 60m, got %s", got)
 	}
+	if strings.TrimSpace(cfg.V2.Prompts.PRImplementObjective) == "" {
+		t.Fatal("expected v2.prompts.pr_implement_objective default to be set")
+	}
+	if strings.TrimSpace(cfg.V2.Prompts.PRGateObjective) == "" {
+		t.Fatal("expected v2.prompts.pr_gate_objective default to be set")
+	}
+	if strings.TrimSpace(cfg.V2.Prompts.PRMergeReworkFeedback) == "" {
+		t.Fatal("expected v2.prompts.pr_merge_rework_feedback default to be set")
+	}
 }
 
 func TestLoadDefaults_UsesACPAgentProfiles(t *testing.T) {
@@ -533,6 +542,123 @@ role = "worker"
 	layer, err := loadLayerFromBytes([]byte(raw))
 	if err == nil || layer != nil {
 		t.Fatalf("expected strict unknown-field error for legacy role_bindings.TeamLeader, got layer=%v err=%v", layer, err)
+	}
+}
+
+func TestV2MCPConfig_ValidBindings(t *testing.T) {
+	cfg := loadTestConfig(t, `
+[[v2.agents.drivers]]
+id = "codex-acp"
+launch_command = "npx"
+launch_args = ["-y", "@zed-industries/codex-acp"]
+[v2.agents.drivers.capabilities_max]
+fs_read = true
+fs_write = true
+terminal = true
+
+[[v2.agents.profiles]]
+id = "worker-default"
+name = "Worker"
+driver = "codex-acp"
+role = "worker"
+actions_allowed = ["read_context", "search_files", "fs_write", "terminal", "submit"]
+
+[[v2.mcp.servers]]
+id = "internal-query"
+kind = "internal"
+transport = "sse"
+enabled = true
+
+[[v2.mcp.profile_bindings]]
+profile = "worker-default"
+server = "internal-query"
+enabled = true
+tool_mode = "allow_list"
+tools = ["query_projects"]
+`)
+	if len(cfg.V2.MCP.Servers) != 1 {
+		t.Fatalf("expected 1 mcp server, got %d", len(cfg.V2.MCP.Servers))
+	}
+	if len(cfg.V2.MCP.ProfileBindings) != 1 {
+		t.Fatalf("expected 1 profile binding, got %d", len(cfg.V2.MCP.ProfileBindings))
+	}
+}
+
+func TestV2MCPConfig_InvalidBindings(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr string
+	}{
+		{
+			name: "missing profile reference",
+			raw: `
+[[v2.agents.drivers]]
+id = "codex-acp"
+launch_command = "npx"
+[v2.agents.drivers.capabilities_max]
+fs_read = true
+fs_write = true
+terminal = true
+
+[[v2.mcp.servers]]
+id = "internal-query"
+kind = "internal"
+transport = "sse"
+enabled = true
+
+[[v2.mcp.profile_bindings]]
+profile = "worker-default"
+server = "internal-query"
+enabled = true
+tool_mode = "all"
+`,
+			wantErr: `references missing profile "worker-default"`,
+		},
+		{
+			name: "allow_list requires tools",
+			raw: `
+[[v2.agents.drivers]]
+id = "codex-acp"
+launch_command = "npx"
+[v2.agents.drivers.capabilities_max]
+fs_read = true
+fs_write = true
+terminal = true
+
+[[v2.agents.profiles]]
+id = "worker-default"
+name = "Worker"
+driver = "codex-acp"
+role = "worker"
+actions_allowed = ["read_context", "search_files", "fs_write", "terminal", "submit"]
+
+[[v2.mcp.servers]]
+id = "internal-query"
+kind = "internal"
+transport = "sse"
+enabled = true
+
+[[v2.mcp.profile_bindings]]
+profile = "worker-default"
+server = "internal-query"
+enabled = true
+tool_mode = "allow_list"
+`,
+			wantErr: "requires tools when tool_mode=allow_list",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := loadAndValidate(t, tt.raw)
+			if err == nil {
+				t.Fatalf("expected error containing %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+			}
+		})
 	}
 }
 

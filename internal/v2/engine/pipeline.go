@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/v2/core"
@@ -60,10 +61,98 @@ func (e *FlowEngine) prepare(ctx context.Context, step *core.Step) (agentID, bri
 		if _, err := e.store.CreateBriefing(ctx, briefing); err != nil {
 			return "", "", fmt.Errorf("store briefing for step %d: %w", step.ID, err)
 		}
-		briefingSnapshot = briefing.Objective
+		briefingSnapshot = renderBriefingSnapshot(briefing)
 	}
 
 	return agentID, briefingSnapshot, nil
+}
+
+const (
+	maxBriefingRefChars   = 4000
+	maxBriefingTotalChars = 12000
+)
+
+func renderBriefingSnapshot(briefing *core.Briefing) string {
+	if briefing == nil {
+		return ""
+	}
+
+	objective := truncateBriefingText(strings.TrimSpace(briefing.Objective), maxBriefingTotalChars)
+	var sb strings.Builder
+	sb.WriteString(objective)
+
+	if len(briefing.ContextRefs) == 0 {
+		return strings.TrimSpace(sb.String())
+	}
+
+	remaining := maxBriefingTotalChars - len(objective)
+	if remaining <= 0 {
+		return strings.TrimSpace(sb.String())
+	}
+
+	const contextHeader = "\n\n# Context\n"
+	wroteContextHeader := false
+	for _, ref := range briefing.ContextRefs {
+		content := strings.TrimSpace(ref.Inline)
+		if content == "" || remaining <= 0 {
+			continue
+		}
+		content = truncateBriefingText(content, maxBriefingRefChars)
+		if len(content) > remaining {
+			content = truncateBriefingText(content, remaining)
+		}
+		if strings.TrimSpace(content) == "" {
+			continue
+		}
+
+		label := strings.TrimSpace(ref.Label)
+		if label == "" {
+			label = fmt.Sprintf("%s:%d", ref.Type, ref.RefID)
+		}
+
+		sectionHeader := "\n\n## " + label + "\n\n"
+		available := remaining - len(sectionHeader)
+		if !wroteContextHeader {
+			available -= len(contextHeader)
+		}
+		if available <= 0 {
+			break
+		}
+		content = truncateBriefingText(content, minInt(maxBriefingRefChars, available))
+		if strings.TrimSpace(content) == "" {
+			continue
+		}
+
+		if !wroteContextHeader {
+			sb.WriteString(contextHeader)
+			remaining -= len(contextHeader)
+			wroteContextHeader = true
+		}
+		sb.WriteString(sectionHeader)
+		sb.WriteString(content)
+		remaining -= len(sectionHeader) + len(content)
+	}
+
+	return strings.TrimSpace(sb.String())
+}
+
+func truncateBriefingText(text string, maxChars int) string {
+	text = strings.TrimSpace(text)
+	if maxChars <= 0 || len(text) <= maxChars {
+		return text
+	}
+	const suffix = "\n\n[truncated]"
+	if maxChars <= len(suffix) {
+		return text[:maxChars]
+	}
+	return strings.TrimSpace(text[:maxChars-len(suffix)]) + suffix
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // finalize handles the execution result: failure path or success path.

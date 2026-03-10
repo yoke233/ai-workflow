@@ -379,6 +379,14 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 				cfg.V2.Agents.Profiles = cloneV2Profiles(*agents.Profiles)
 			}
 		}
+		if mcp := v2.MCP; mcp != nil {
+			if mcp.Servers != nil {
+				cfg.V2.MCP.Servers = cloneV2MCPServers(*mcp.Servers)
+			}
+			if mcp.ProfileBindings != nil {
+				cfg.V2.MCP.ProfileBindings = cloneV2MCPBindings(*mcp.ProfileBindings)
+			}
+		}
 		if prompts := v2.Prompts; prompts != nil {
 			if prompts.ReworkFollowup != nil {
 				cfg.V2.Prompts.ReworkFollowup = *prompts.ReworkFollowup
@@ -386,7 +394,66 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 			if prompts.ContinueFollowup != nil {
 				cfg.V2.Prompts.ContinueFollowup = *prompts.ContinueFollowup
 			}
+			if prompts.PRImplementObjective != nil {
+				cfg.V2.Prompts.PRImplementObjective = *prompts.PRImplementObjective
+			}
+			if prompts.PRGateObjective != nil {
+				cfg.V2.Prompts.PRGateObjective = *prompts.PRGateObjective
+			}
+			if prompts.PRMergeReworkFeedback != nil {
+				cfg.V2.Prompts.PRMergeReworkFeedback = *prompts.PRMergeReworkFeedback
+			}
+			mergeV2PromptProviders(&cfg.V2.Prompts.PRProviders, prompts.PRProviders)
 		}
+	}
+}
+
+func mergeV2PromptProviders(dst *V2PRPromptProvidersConfig, src *V2PRPromptProvidersLayer) {
+	if dst == nil || src == nil {
+		return
+	}
+	mergeV2PromptProvider(&dst.GitHub, src.GitHub)
+	mergeV2PromptProvider(&dst.CodeUp, src.CodeUp)
+	mergeV2PromptProvider(&dst.GitLab, src.GitLab)
+}
+
+func mergeV2PromptProvider(dst *V2PRProviderPromptConfig, src *V2PRProviderPromptLayer) {
+	if dst == nil || src == nil {
+		return
+	}
+	if src.ImplementObjective != nil {
+		dst.ImplementObjective = *src.ImplementObjective
+	}
+	if src.GateObjective != nil {
+		dst.GateObjective = *src.GateObjective
+	}
+	if src.MergeReworkFeedback != nil {
+		dst.MergeReworkFeedback = *src.MergeReworkFeedback
+	}
+	mergeV2PromptMergeStates(&dst.MergeStates, src.MergeStates)
+}
+
+func mergeV2PromptMergeStates(dst *V2PRMergeStatePromptConfig, src *V2PRMergeStatePromptLayer) {
+	if dst == nil || src == nil {
+		return
+	}
+	if src.Default != nil {
+		dst.Default = *src.Default
+	}
+	if src.Dirty != nil {
+		dst.Dirty = *src.Dirty
+	}
+	if src.Blocked != nil {
+		dst.Blocked = *src.Blocked
+	}
+	if src.Behind != nil {
+		dst.Behind = *src.Behind
+	}
+	if src.Unstable != nil {
+		dst.Unstable = *src.Unstable
+	}
+	if src.Draft != nil {
+		dst.Draft = *src.Draft
 	}
 }
 
@@ -455,6 +522,8 @@ func cloneV2Config(in V2Config) V2Config {
 	out.Sandbox.LiteBox.RunnerArgs = cloneStringSlice(in.Sandbox.LiteBox.RunnerArgs)
 	out.Agents.Drivers = cloneV2Drivers(in.Agents.Drivers)
 	out.Agents.Profiles = cloneV2Profiles(in.Agents.Profiles)
+	out.MCP.Servers = cloneV2MCPServers(in.MCP.Servers)
+	out.MCP.ProfileBindings = cloneV2MCPBindings(in.MCP.ProfileBindings)
 	return out
 }
 
@@ -494,6 +563,31 @@ func cloneV2Profiles(in []V2ProfileConfig) []V2ProfileConfig {
 		if in[i].MCP.Tools != nil {
 			out[i].MCP.Tools = cloneStringSlice(in[i].MCP.Tools)
 		}
+	}
+	return out
+}
+
+func cloneV2MCPServers(in []V2MCPServerConfig) []V2MCPServerConfig {
+	if in == nil {
+		return nil
+	}
+	out := make([]V2MCPServerConfig, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].Args = cloneStringSlice(in[i].Args)
+		out[i].Env = cloneStringMap(in[i].Env)
+	}
+	return out
+}
+
+func cloneV2MCPBindings(in []V2MCPProfileBindingConfig) []V2MCPProfileBindingConfig {
+	if in == nil {
+		return nil
+	}
+	out := make([]V2MCPProfileBindingConfig, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].Tools = cloneStringSlice(in[i].Tools)
 	}
 	return out
 }
