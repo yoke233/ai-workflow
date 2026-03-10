@@ -135,6 +135,9 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 			CommitPAT: strings.TrimSpace(ghTokens.CommitPAT),
 			MergePAT:  strings.TrimSpace(ghTokens.MergePAT),
 		}),
+		v2engine.WithPRFlowPromptsProvider(func() v2engine.PRFlowPrompts {
+			return currentV2PRFlowPrompts(runtimeManager, bootstrapCfg)
+		}),
 	}
 
 	if bootstrapCfg != nil {
@@ -190,7 +193,7 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 		dagGen = v2engine.NewDAGGenerator(llmClient, registry)
 	}
 
-	handler := v2api.NewHandler(v2Store, v2Bus, eng, buildV2APIOptions(bootstrapCfg, leadAgent, scheduler, registry, dagGen)...)
+	handler := v2api.NewHandler(v2Store, v2Bus, eng, buildV2APIOptions(bootstrapCfg, runtimeManager, leadAgent, scheduler, registry, dagGen)...)
 	registrar := func(r chi.Router) { handler.Register(r) }
 
 	var runtimeWatchCancel context.CancelFunc

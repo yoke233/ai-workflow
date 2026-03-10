@@ -22,6 +22,7 @@ type Handler struct {
 	dagGen     *engine.DAGGenerator
 	skillsRoot string
 	sandbox    v2sandbox.SupportInspector
+	prPrompts  engine.PRFlowPromptsProvider
 }
 
 // NewHandler creates the v2 API handler.
@@ -65,6 +66,11 @@ func WithSkillsRoot(root string) HandlerOption {
 // WithSandboxInspector sets the runtime sandbox support inspector.
 func WithSandboxInspector(inspector v2sandbox.SupportInspector) HandlerOption {
 	return func(h *Handler) { h.sandbox = inspector }
+}
+
+// WithPRFlowPromptsProvider sets a provider for built-in PR flow prompt text.
+func WithPRFlowPromptsProvider(provider engine.PRFlowPromptsProvider) HandlerOption {
+	return func(h *Handler) { h.prPrompts = provider }
 }
 
 // Register mounts all v2 routes onto the given chi router.

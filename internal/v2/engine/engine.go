@@ -19,11 +19,13 @@ type FlowEngine struct {
 	bus        core.EventBus
 	sem        *Semaphore
 	executor   StepExecutor
-	resolver   Resolver           // optional: agent selection
-	briefer    BriefingBuilder    // optional: briefing assembly
-	collector  Collector          // optional: metadata extraction
-	expander   CompositeExpander  // optional: composite decomposition
+	resolver   Resolver               // optional: agent selection
+	briefer    BriefingBuilder        // optional: briefing assembly
+	collector  Collector              // optional: metadata extraction
+	expander   CompositeExpander      // optional: composite decomposition
 	wsProvider core.WorkspaceProvider // optional: workspace isolation
+	ghTokens   GitHubTokens           // optional: PR automation tokens (commit/merge)
+	prPrompts  PRFlowPromptsProvider  // optional: configurable PR flow prompts
 }
 
 // Option configures the FlowEngine.
@@ -61,6 +63,16 @@ func WithWorkspaceProvider(p core.WorkspaceProvider) Option {
 	return func(e *FlowEngine) { e.wsProvider = p }
 }
 
+// WithGitHubTokens sets optional GitHub tokens used by builtin PR automation (push/open PR/merge).
+func WithGitHubTokens(t GitHubTokens) Option {
+	return func(e *FlowEngine) { e.ghTokens = t }
+}
+
+// WithPRFlowPromptsProvider sets a provider for configurable PR flow prompts.
+func WithPRFlowPromptsProvider(provider PRFlowPromptsProvider) Option {
+	return func(e *FlowEngine) { e.prPrompts = provider }
+}
+
 // New creates a FlowEngine.
 func New(store core.Store, bus core.EventBus, executor StepExecutor, opts ...Option) *FlowEngine {
 	e := &FlowEngine{
@@ -73,6 +85,13 @@ func New(store core.Store, bus core.EventBus, executor StepExecutor, opts ...Opt
 		opt(e)
 	}
 	return e
+}
+
+func (e *FlowEngine) getPRFlowPrompts() PRFlowPrompts {
+	if e != nil && e.prPrompts != nil {
+		return MergePRFlowPrompts(e.prPrompts())
+	}
+	return DefaultPRFlowPrompts()
 }
 
 // Run starts executing a Flow. It blocks until the Flow completes, fails, or the context is cancelled.

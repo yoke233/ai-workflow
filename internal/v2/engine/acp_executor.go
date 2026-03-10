@@ -26,6 +26,7 @@ type ACPExecutorConfig struct {
 	Bus                      core.EventBus
 	DefaultWorkDir           string
 	MCPEnv                   teamleader.MCPEnvConfig
+	MCPResolver              func(profileID string, agentSupportsSSE bool) []acpproto.McpServer
 	SessionPool              *ACPSessionPool
 	ReworkFollowupTemplate   string
 	ContinueFollowupTemplate string
@@ -84,11 +85,6 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) StepExecutor {
 		)
 
 		if reuse {
-			roleProfile := acpclient.RoleProfile{
-				ID:         profile.ID,
-				MCPEnabled: profile.MCP.Enabled,
-				MCPTools:   append([]string(nil), profile.MCP.Tools...),
-			}
 			sb := cfg.Sandbox
 			if sb == nil {
 				sb = v2sandbox.NoopSandbox{}
@@ -110,6 +106,14 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) StepExecutor {
 				Caps:    acpCaps,
 				WorkDir: workDir,
 				MCPFactory: func(agentSupportsSSE bool) []acpproto.McpServer {
+					if cfg.MCPResolver != nil {
+						return cfg.MCPResolver(profile.ID, agentSupportsSSE)
+					}
+					roleProfile := acpclient.RoleProfile{
+						ID:         profile.ID,
+						MCPEnabled: profile.MCP.Enabled,
+						MCPTools:   append([]string(nil), profile.MCP.Tools...),
+					}
 					return teamleader.MCPToolsFromRoleConfig(roleProfile, cfg.MCPEnv, agentSupportsSSE)
 				},
 				FlowID:   step.FlowID,
@@ -166,7 +170,9 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) StepExecutor {
 			}
 
 			var mcpServers []acpproto.McpServer
-			if profile.MCP.Enabled {
+			if cfg.MCPResolver != nil {
+				mcpServers = cfg.MCPResolver(profile.ID, client.SupportsSSEMCP())
+			} else if profile.MCP.Enabled {
 				roleProfile := acpclient.RoleProfile{
 					ID:         profile.ID,
 					MCPEnabled: true,

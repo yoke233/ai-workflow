@@ -18,6 +18,61 @@ import (
 	v2sqlite "github.com/yoke233/ai-workflow/internal/v2/store/sqlite"
 )
 
+func currentV2PRFlowPrompts(runtimeManager *configruntime.Manager, bootstrapCfg *config.Config) v2engine.PRFlowPrompts {
+	var prompts config.V2PromptsConfig
+	if runtimeManager != nil {
+		prompts = runtimeManager.GetV2Runtime().Prompts
+	} else if bootstrapCfg != nil {
+		prompts = bootstrapCfg.V2.Prompts
+	}
+	return v2engine.MergePRFlowPrompts(v2engine.PRFlowPrompts{
+		Global: v2engine.PRProviderPrompts{
+			ImplementObjective:  strings.TrimSpace(prompts.PRImplementObjective),
+			GateObjective:       strings.TrimSpace(prompts.PRGateObjective),
+			MergeReworkFeedback: strings.TrimSpace(prompts.PRMergeReworkFeedback),
+		},
+		GitHub: v2engine.PRProviderPrompts{
+			ImplementObjective:  strings.TrimSpace(prompts.PRProviders.GitHub.ImplementObjective),
+			GateObjective:       strings.TrimSpace(prompts.PRProviders.GitHub.GateObjective),
+			MergeReworkFeedback: strings.TrimSpace(prompts.PRProviders.GitHub.MergeReworkFeedback),
+			MergeStates: v2engine.PRMergeStatePrompts{
+				Default:  strings.TrimSpace(prompts.PRProviders.GitHub.MergeStates.Default),
+				Dirty:    strings.TrimSpace(prompts.PRProviders.GitHub.MergeStates.Dirty),
+				Blocked:  strings.TrimSpace(prompts.PRProviders.GitHub.MergeStates.Blocked),
+				Behind:   strings.TrimSpace(prompts.PRProviders.GitHub.MergeStates.Behind),
+				Unstable: strings.TrimSpace(prompts.PRProviders.GitHub.MergeStates.Unstable),
+				Draft:    strings.TrimSpace(prompts.PRProviders.GitHub.MergeStates.Draft),
+			},
+		},
+		CodeUp: v2engine.PRProviderPrompts{
+			ImplementObjective:  strings.TrimSpace(prompts.PRProviders.CodeUp.ImplementObjective),
+			GateObjective:       strings.TrimSpace(prompts.PRProviders.CodeUp.GateObjective),
+			MergeReworkFeedback: strings.TrimSpace(prompts.PRProviders.CodeUp.MergeReworkFeedback),
+			MergeStates: v2engine.PRMergeStatePrompts{
+				Default:  strings.TrimSpace(prompts.PRProviders.CodeUp.MergeStates.Default),
+				Dirty:    strings.TrimSpace(prompts.PRProviders.CodeUp.MergeStates.Dirty),
+				Blocked:  strings.TrimSpace(prompts.PRProviders.CodeUp.MergeStates.Blocked),
+				Behind:   strings.TrimSpace(prompts.PRProviders.CodeUp.MergeStates.Behind),
+				Unstable: strings.TrimSpace(prompts.PRProviders.CodeUp.MergeStates.Unstable),
+				Draft:    strings.TrimSpace(prompts.PRProviders.CodeUp.MergeStates.Draft),
+			},
+		},
+		GitLab: v2engine.PRProviderPrompts{
+			ImplementObjective:  strings.TrimSpace(prompts.PRProviders.GitLab.ImplementObjective),
+			GateObjective:       strings.TrimSpace(prompts.PRProviders.GitLab.GateObjective),
+			MergeReworkFeedback: strings.TrimSpace(prompts.PRProviders.GitLab.MergeReworkFeedback),
+			MergeStates: v2engine.PRMergeStatePrompts{
+				Default:  strings.TrimSpace(prompts.PRProviders.GitLab.MergeStates.Default),
+				Dirty:    strings.TrimSpace(prompts.PRProviders.GitLab.MergeStates.Dirty),
+				Blocked:  strings.TrimSpace(prompts.PRProviders.GitLab.MergeStates.Blocked),
+				Behind:   strings.TrimSpace(prompts.PRProviders.GitLab.MergeStates.Behind),
+				Unstable: strings.TrimSpace(prompts.PRProviders.GitLab.MergeStates.Unstable),
+				Draft:    strings.TrimSpace(prompts.PRProviders.GitLab.MergeStates.Draft),
+			},
+		},
+	})
+}
+
 func buildV2Sandbox(cfg *config.Config, dataDir string) v2sandbox.Sandbox {
 	if cfg == nil || !cfg.V2.Sandbox.Enabled {
 		return v2sandbox.NoopSandbox{}
@@ -74,6 +129,7 @@ func buildV2RuntimeManager(v2Store *v2sqlite.Store, mcpEnv teamleader.MCPEnvConf
 
 func buildV2APIOptions(
 	bootstrapCfg *config.Config,
+	runtimeManager *configruntime.Manager,
 	leadAgent *v2engine.LeadAgent,
 	scheduler *v2engine.FlowScheduler,
 	registry v2core.AgentRegistry,
@@ -96,5 +152,8 @@ func buildV2APIOptions(
 		v2api.WithDAGGenerator(dagGen),
 		v2api.WithSandboxInspector(v2sandbox.NewDefaultSupportInspector(enabled, provider)),
 		v2api.WithSkillsRoot(skillsRoot),
+		v2api.WithPRFlowPromptsProvider(func() v2engine.PRFlowPrompts {
+			return currentV2PRFlowPrompts(runtimeManager, bootstrapCfg)
+		}),
 	}
 }

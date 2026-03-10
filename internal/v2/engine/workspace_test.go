@@ -122,3 +122,36 @@ func TestCompositeProvider_Release(t *testing.T) {
 		t.Fatalf("release local_fs: %v", err)
 	}
 }
+
+func TestDefaultBranchFromBinding_PrefersBaseBranch(t *testing.T) {
+	binding := &core.ResourceBinding{
+		Kind: "git",
+		Config: map[string]any{
+			"default_branch": "main",
+			"base_branch":    "release/2026.03",
+		},
+	}
+	if got := defaultBranchFromBinding(binding); got != "release/2026.03" {
+		t.Fatalf("defaultBranchFromBinding = %q", got)
+	}
+}
+
+func TestMergeSCMBindingMetadata_CopiesCodeupDefaults(t *testing.T) {
+	dst := map[string]any{}
+	mergeSCMBindingMetadata(dst, map[string]any{
+		"provider":             "codeup",
+		"organization_id":      "5f6ea0829cffa29cfdd39a7f",
+		"project_id":           2369234,
+		"base_branch":          "main",
+		"remove_source_branch": true,
+	})
+	if dst["provider"] != "codeup" {
+		t.Fatalf("provider = %#v", dst["provider"])
+	}
+	if dst["organization_id"] != "5f6ea0829cffa29cfdd39a7f" {
+		t.Fatalf("organization_id = %#v", dst["organization_id"])
+	}
+	if dst["base_branch"] != "main" {
+		t.Fatalf("base_branch = %#v", dst["base_branch"])
+	}
+}
