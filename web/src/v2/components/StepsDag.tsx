@@ -11,6 +11,8 @@ import {
 import "@xyflow/react/dist/style.css";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import type { Step } from "@/types/apiV2";
 
 interface StepsDagProps {
@@ -19,6 +21,7 @@ interface StepsDagProps {
   selectedStepId: number | null;
   onSelectStep?: (stepId: number) => void;
   onUpdateStepDependsOn?: (stepId: number, dependsOn: number[]) => Promise<void> | void;
+  onCreateStep?: (input: { name: string; type: "exec" | "gate" | "composite"; depends_on?: number[] }) => Promise<void> | void;
 }
 
 const safeNumber = (value: unknown): number | null => {
@@ -150,8 +153,15 @@ export default function StepsDag({
   selectedStepId,
   onSelectStep,
   onUpdateStepDependsOn,
+  onCreateStep,
 }: StepsDagProps) {
   const [positions, setPositions] = useState<Record<number, { x: number; y: number }>>({});
+  const [addOpen, setAddOpen] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addType, setAddType] = useState<"exec" | "gate" | "composite">("exec");
+  const [addDependsOn, setAddDependsOn] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+  const [addFeedback, setAddFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -181,15 +191,120 @@ export default function StepsDag({
     }
   }, [flowId]);
 
+  useEffect(() => {
+    setAddOpen(false);
+    setAddName("");
+    setAddType("exec");
+    setAddDependsOn("");
+    setAddBusy(false);
+    setAddFeedback(null);
+  }, [flowId]);
+
   const nodes = useMemo(() => buildNodes(steps, selectedStepId, positions), [steps, selectedStepId, positions]);
   const edges = useMemo(() => buildEdges(steps), [steps]);
   const byId = useMemo(() => new Map(steps.map((step) => [step.id, step] as const)), [steps]);
+
+  const parseDependsOn = (raw: string): number[] =>
+    raw
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
+      .map((item) => Number.parseInt(item, 10))
+      .filter((num) => Number.isFinite(num) && num > 0);
+
+  const handleQuickCreate = async () => {
+    if (!onCreateStep) {
+      setAddFeedback("当前页面未启用快捷创建。");
+      return;
+    }
+    const name = addName.trim();
+    if (!name) {
+      setAddFeedback("Step 名称不能为空。");
+      return;
+    }
+    const dependsOn = parseDependsOn(addDependsOn);
+    setAddBusy(true);
+    setAddFeedback(null);
+    try {
+      await onCreateStep({
+        name,
+        type: addType,
+        depends_on: dependsOn.length > 0 ? dependsOn : undefined,
+      });
+      setAddName("");
+      setAddDependsOn("");
+      setAddFeedback("已创建。");
+      setAddOpen(false);
+    } catch (err) {
+      setAddFeedback(err instanceof Error && err.message.trim() ? err.message : "创建失败，请稍后重试");
+    } finally {
+      setAddBusy(false);
+    }
+  };
 
   if (steps.length === 0) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <p className="text-sm font-semibold text-slate-900">DAG 视图</p>
-        <p className="mt-2 text-sm text-slate-500">还没有 Step，先在左侧创建 Step。</p>
+        <p className="mt-2 text-sm text-slate-500">还没有 Step，先在左侧创建 Step，或使用右侧快捷创建。</p>
+        {onCreateStep ? (
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-slate-900">快捷添加节点</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAddOpen((v) => !v)}
+              >
+                {addOpen ? "收起" : "添加 Step"}
+              </Button>
+            </div>
+            {addOpen ? (
+              <div className="mt-3 grid gap-3">
+                <div className="grid gap-1">
+                  <label className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    名称
+                  </label>
+                  <Input value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="例如：implement-api-client" />
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      类型
+                    </label>
+                    <Select value={addType} onChange={(e) => setAddType(e.target.value as typeof addType)}>
+                      <option value="exec">exec</option>
+                      <option value="gate">gate</option>
+                      <option value="composite">composite</option>
+                    </Select>
+                  </div>
+                  <div className="grid gap-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      depends_on（可选）
+                    </label>
+                    <Input value={addDependsOn} onChange={(e) => setAddDependsOn(e.target.value)} placeholder="例如：12,13" />
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={() => void handleQuickCreate()} disabled={addBusy}>
+                    {addBusy ? "创建中..." : "创建"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setAddOpen(false);
+                      setAddFeedback(null);
+                    }}
+                    disabled={addBusy}
+                  >
+                    取消
+                  </Button>
+                </div>
+                {addFeedback ? <p className="text-sm text-slate-600">{addFeedback}</p> : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -203,17 +318,76 @@ export default function StepsDag({
             可拖拽调整布局（仅本地保存）。依赖关系来自 Step 的 depends_on；拖拽连线会更新 depends_on。
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setPositions({});
-            localStorage.removeItem(storageKey(flowId));
-          }}
-        >
-          重置布局
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {onCreateStep ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setAddOpen((v) => !v);
+                setAddFeedback(null);
+              }}
+            >
+              添加 Step
+            </Button>
+          ) : null}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setPositions({});
+              localStorage.removeItem(storageKey(flowId));
+            }}
+          >
+            重置布局
+          </Button>
+        </div>
       </div>
+
+      {addOpen && onCreateStep ? (
+        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,220px)_minmax(0,220px)_auto] md:items-end">
+            <div className="grid gap-1">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                名称
+              </label>
+              <Input value={addName} onChange={(e) => setAddName(e.target.value)} placeholder="例如：implement-api-client" />
+            </div>
+            <div className="grid gap-1">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                类型
+              </label>
+              <Select value={addType} onChange={(e) => setAddType(e.target.value as typeof addType)}>
+                <option value="exec">exec</option>
+                <option value="gate">gate</option>
+                <option value="composite">composite</option>
+              </Select>
+            </div>
+            <div className="grid gap-1">
+              <label className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                depends_on（可选）
+              </label>
+              <Input value={addDependsOn} onChange={(e) => setAddDependsOn(e.target.value)} placeholder="例如：12,13" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => void handleQuickCreate()} disabled={addBusy}>
+                {addBusy ? "创建中..." : "创建"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setAddOpen(false);
+                  setAddFeedback(null);
+                }}
+                disabled={addBusy}
+              >
+                取消
+              </Button>
+            </div>
+          </div>
+          {addFeedback ? <p className="mt-3 text-sm text-slate-600">{addFeedback}</p> : null}
+        </div>
+      ) : null}
 
       <div className="mt-3 h-[520px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
         <ReactFlow

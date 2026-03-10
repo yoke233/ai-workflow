@@ -386,7 +386,15 @@ const StepsView = ({
                 flowId={flowId}
                 steps={steps}
                 selectedStepId={selectedStepId}
-                onSelectStep={onSelectStep}
+                onSelectStep={(stepId) => onSelectStep(stepId)}
+                onCreateStep={async (input) => {
+                  const created = await apiClient.createStep(flowId, {
+                    name: input.name,
+                    type: input.type,
+                    depends_on: input.depends_on,
+                  });
+                  await refreshSteps(created.id);
+                }}
                 onUpdateStepDependsOn={async (stepId, dependsOn) => {
                   await apiClient.updateStep(stepId, { depends_on: dependsOn });
                   await refreshSteps(stepId);
