@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -825,8 +826,11 @@ func TestFlowE2E_ResolverBriefingCollector(t *testing.T) {
 	}
 
 	// Verify briefing was assembled with upstream artifact content.
-	if capturedBriefing != "Build login API" {
-		t.Fatalf("expected briefing snapshot 'Build login API', got %q", capturedBriefing)
+	if !strings.Contains(capturedBriefing, "Build login API") {
+		t.Fatalf("expected briefing snapshot to contain objective, got %q", capturedBriefing)
+	}
+	if !strings.Contains(capturedBriefing, "design output") {
+		t.Fatalf("expected briefing snapshot to contain upstream artifact content, got %q", capturedBriefing)
 	}
 
 	// Verify collector extracted metadata into both artifacts.

@@ -274,6 +274,47 @@ describe("apiClient", () => {
     );
   });
 
+  it("admin config 接口会命中正确路由", async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({
+      baseUrl: "http://localhost:8080/api/v1",
+    });
+
+    await client.getAdminConfigRuntimeStatus?.();
+    await client.getAdminConfigToml?.();
+    await client.updateAdminConfigToml?.({ content: "v2 = {}" });
+    await client.getAdminV2RuntimeConfig?.();
+    await client.updateAdminV2RuntimeConfig?.({
+      agents: { drivers: [], profiles: [] },
+      mcp: { servers: [], profile_bindings: [] },
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8080/api/v1/admin/config/runtime-status",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "http://localhost:8080/api/v1/admin/config/toml",
+    );
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      "http://localhost:8080/api/v1/admin/config/toml",
+    );
+    expect((fetchMock.mock.calls[2]?.[1] as RequestInit)?.method).toBe("PUT");
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      "http://localhost:8080/api/v1/admin/config/v2-runtime",
+    );
+    expect(fetchMock.mock.calls[4]?.[0]).toBe(
+      "http://localhost:8080/api/v1/admin/config/v2-runtime",
+    );
+    expect((fetchMock.mock.calls[4]?.[1] as RequestInit)?.method).toBe("PUT");
+  });
+
   it("issue timeline 接口会命中正确路由并返回分页事件列表", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
