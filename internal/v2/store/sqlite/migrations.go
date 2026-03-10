@@ -121,6 +121,35 @@ CREATE TABLE IF NOT EXISTS events (
     timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS agent_drivers (
+    id TEXT PRIMARY KEY,
+    launch_command TEXT NOT NULL,
+    launch_args TEXT,
+    env TEXT,
+    cap_fs_read INTEGER NOT NULL DEFAULT 0,
+    cap_fs_write INTEGER NOT NULL DEFAULT 0,
+    cap_terminal INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS agent_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    driver_id TEXT NOT NULL REFERENCES agent_drivers(id),
+    role TEXT NOT NULL,
+    capabilities TEXT,
+    actions_allowed TEXT,
+    prompt_template TEXT NOT NULL DEFAULT '',
+    session_reuse INTEGER NOT NULL DEFAULT 0,
+    session_max_turns INTEGER NOT NULL DEFAULT 0,
+    session_idle_ttl_ms INTEGER NOT NULL DEFAULT 0,
+    mcp_enabled INTEGER NOT NULL DEFAULT 0,
+    mcp_tools TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_steps_flow ON steps(flow_id);
 CREATE INDEX IF NOT EXISTS idx_executions_step ON executions(step_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_exec ON artifacts(execution_id);

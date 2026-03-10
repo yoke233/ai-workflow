@@ -544,24 +544,26 @@ func secretsFilePath(dataDir string) string {
 	return tomlPath // default to .toml for new installations
 }
 
-// buildV2Registry creates a v2 ConfigRegistry from config.
-// If v2.agents is configured in TOML, use that; otherwise fall back to v1 RoleResolver data.
-func buildV2Registry(cfg *config.Config, v1Resolver *acpclient.RoleResolver) *v2engine.ConfigRegistry {
-	// Primary: use v2-native agent config if present.
-	if cfg != nil && len(cfg.V2.Agents.Drivers) > 0 {
-		reg := v2engine.NewConfigRegistryFromConfig(cfg.V2.Agents)
-		slog.Info("v2 registry: loaded from v2.agents config",
-			"drivers", len(cfg.V2.Agents.Drivers),
-			"profiles", len(cfg.V2.Agents.Profiles))
-		return reg
+// seedV2Registry seeds agent drivers and profiles into the SQLite store from TOML config.
+// Uses upsert so TOML always acts as the source of truth for configured agents,
+// while runtime additions via API are also persisted.
+func seedV2Registry(ctx context.Context, store *v2sqlite.Store, cfg *config.Config, v1Resolver *acpclient.RoleResolver) {
+	if cfg == nil {
+		return
 	}
 
-	// Fallback: derive from v1 agents.profiles + roles config.
-	if cfg != nil && len(cfg.EffectiveAgentProfiles()) > 0 {
-		reg := v2engine.NewConfigRegistry()
-		// Convert v1 agent profiles → v2 drivers.
+	var drivers []*v2core.AgentDriver
+	var profiles []*v2core.AgentProfile
+
+	// Primary: use v2-native agent config if present.
+	if len(cfg.V2.Agents.Drivers) > 0 {
+		reg := v2engine.NewConfigRegistryFromConfig(cfg.V2.Agents)
+		drivers, _ = reg.ListDrivers(ctx)
+		profiles, _ = reg.ListProfiles(ctx)
+	} else if len(cfg.EffectiveAgentProfiles()) > 0 {
+		// Fallback: derive from v1 agents.profiles + roles config.
 		for _, ap := range cfg.EffectiveAgentProfiles() {
-			reg.LoadDrivers([]*v2core.AgentDriver{{
+			drivers = append(drivers, &v2core.AgentDriver{
 				ID:            ap.Name,
 				LaunchCommand: ap.LaunchCommand,
 				LaunchArgs:    ap.LaunchArgs,
@@ -571,9 +573,8 @@ func buildV2Registry(cfg *config.Config, v1Resolver *acpclient.RoleResolver) *v2
 					FSWrite:  ap.CapabilitiesMax.FSWrite,
 					Terminal: ap.CapabilitiesMax.Terminal,
 				},
-			}})
+			})
 		}
-		// Convert v1 roles → v2 profiles.
 		for _, rc := range cfg.Roles {
 			var actions []v2core.Action
 			if rc.Capabilities.FSRead {
@@ -586,7 +587,7 @@ func buildV2Registry(cfg *config.Config, v1Resolver *acpclient.RoleResolver) *v2
 				actions = append(actions, v2core.ActionTerminal)
 			}
 			role := inferV2Role(rc.Name)
-			reg.LoadProfiles([]*v2core.AgentProfile{{
+			profiles = append(profiles, &v2core.AgentProfile{
 				ID:             rc.Name,
 				Name:           rc.Name,
 				DriverID:       rc.Agent,
@@ -601,16 +602,27 @@ func buildV2Registry(cfg *config.Config, v1Resolver *acpclient.RoleResolver) *v2
 					Enabled: rc.MCP.Enabled,
 					Tools:   rc.MCP.Tools,
 				},
-			}})
+			})
 		}
-		slog.Info("v2 registry: derived from v1 config",
-			"drivers", len(cfg.EffectiveAgentProfiles()),
-			"profiles", len(cfg.Roles))
-		return reg
 	}
 
-	slog.Warn("v2 registry: no agent config available")
-	return nil
+	if len(drivers) == 0 {
+		slog.Warn("v2 registry: no agent config to seed")
+		return
+	}
+
+	// Upsert drivers first (profiles reference them).
+	for _, d := range drivers {
+		if err := store.UpsertDriver(ctx, d); err != nil {
+			slog.Warn("v2 registry: seed driver failed", "id", d.ID, "error", err)
+		}
+	}
+	for _, p := range profiles {
+		if err := store.UpsertProfile(ctx, p); err != nil {
+			slog.Warn("v2 registry: seed profile failed", "id", p.ID, "error", err)
+		}
+	}
+	slog.Info("v2 registry: seeded from config", "drivers", len(drivers), "profiles", len(profiles))
 }
 
 // inferV2Role maps v1 role names to v2 AgentRole.
@@ -629,7 +641,7 @@ func inferV2Role(name string) v2core.AgentRole {
 
 // bootstrapV2 creates the v2 store, event bus, engine, event persister, and API handler.
 // Returns the v2 store (for lifecycle), the agent registry, a cleanup func, and a route registrar for mounting.
-func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config) (*v2sqlite.Store, *v2engine.ConfigRegistry, func(), func(chi.Router)) {
+func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config) (*v2sqlite.Store, v2core.AgentRegistry, func(), func(chi.Router)) {
 	v2DBPath := strings.TrimSuffix(v1StorePath, filepath.Ext(v1StorePath)) + "_v2.db"
 	v2Store, err := v2sqlite.New(v2DBPath)
 	if err != nil {
@@ -647,24 +659,18 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 		return nil, nil, nil, nil
 	}
 
-	// Build v2 AgentRegistry from config (primary) with v1 RoleResolver fallback.
-	registry := buildV2Registry(bootstrapCfg, roleResolver)
+	// Seed agent drivers/profiles from TOML config into SQLite (upsert).
+	seedV2Registry(context.Background(), v2Store, bootstrapCfg, roleResolver)
+
+	// The store itself implements AgentRegistry (SQLite-backed).
+	var registry v2core.AgentRegistry = v2Store
 
 	// Step executor: ACP agent process spawning.
-	var executor v2engine.StepExecutor
-	if registry != nil {
-		executor = v2engine.NewACPStepExecutor(v2engine.ACPExecutorConfig{
-			Registry: registry,
-			Store:    v2Store,
-			Bus:      v2Bus,
-		})
-	} else {
-		// Fallback: no-op executor that just succeeds.
-		executor = func(ctx context.Context, step *v2core.Step, exec *v2core.Execution) error {
-			slog.Warn("v2: no agent registry configured, step execution is a no-op", "step_id", step.ID)
-			return nil
-		}
-	}
+	executor := v2engine.NewACPStepExecutor(v2engine.ACPExecutorConfig{
+		Registry: registry,
+		Store:    v2Store,
+		Bus:      v2Bus,
+	})
 
 	wsProvider := v2engine.NewCompositeProvider()
 
@@ -708,13 +714,10 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 	}
 
 	// Lead agent: direct chat entry point.
-	var leadAgent *v2engine.LeadAgent
-	if registry != nil {
-		leadAgent = v2engine.NewLeadAgent(v2engine.LeadAgentConfig{
-			Registry: registry,
-			Bus:      v2Bus,
-		})
-	}
+	leadAgent := v2engine.NewLeadAgent(v2engine.LeadAgentConfig{
+		Registry: registry,
+		Bus:      v2Bus,
+	})
 
 	// DAG generator: AI-powered step decomposition.
 	var dagGen *v2engine.DAGGenerator
