@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { WorkbenchProvider, useWorkbench } from "@/contexts/WorkbenchContext";
 import { AppLayout } from "@/layouts/AppLayout";
 import { AgentsPage } from "@/pages/AgentsPage";
+import { AnalyticsPage } from "@/pages/AnalyticsPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { CreateFlowPage } from "@/pages/CreateFlowPage";
 import { CreateProjectPage } from "@/pages/CreateProjectPage";
@@ -62,6 +63,7 @@ const WorkbenchRoutes = () => {
           <Route path="/flows/new" element={<CreateFlowPage />} />
           <Route path="/flows/:flowId" element={<FlowDetailPage />} />
           <Route path="/executions/:execId" element={<ExecutionDetailPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/new" element={<CreateProjectPage />} />

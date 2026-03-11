@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   GitBranch,
+  BarChart3,
   Bot,
   FolderOpen,
   ChevronsUpDown,
@@ -15,6 +16,7 @@ const navItems = [
   { to: "/", icon: LayoutDashboard, label: "仪表盘" },
   { to: "/chat", icon: MessageSquare, label: "对话" },
   { to: "/flows", icon: GitBranch, label: "流程" },
+  { to: "/analytics", icon: BarChart3, label: "运行分析" },
   { to: "/agents", icon: Bot, label: "代理" },
   { to: "/projects", icon: FolderOpen, label: "项目" },
 ];

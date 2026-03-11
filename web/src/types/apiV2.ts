@@ -410,3 +410,81 @@ export interface AdminSystemEventRequest {
 export interface AdminSystemEventResponse {
   status: string;
 }
+
+// Analytics types
+
+export interface ProjectErrorRank {
+  project_id: number;
+  project_name: string;
+  total_flows: number;
+  failed_flows: number;
+  failure_rate: number;
+  failed_execs: number;
+}
+
+export interface StepBottleneck {
+  step_id: number;
+  step_name: string;
+  flow_id: number;
+  flow_name: string;
+  project_id?: number | null;
+  avg_duration_s: number;
+  max_duration_s: number;
+  exec_count: number;
+  fail_count: number;
+  retry_count: number;
+  fail_rate: number;
+}
+
+export interface FlowDurationStat {
+  flow_id: number;
+  flow_name: string;
+  project_id?: number | null;
+  exec_count: number;
+  avg_duration_s: number;
+  min_duration_s: number;
+  max_duration_s: number;
+  p50_duration_s: number;
+}
+
+export interface ErrorKindCount {
+  error_kind: string;
+  count: number;
+  pct: number;
+}
+
+export interface FailureRecord {
+  exec_id: number;
+  step_id: number;
+  step_name: string;
+  flow_id: number;
+  flow_name: string;
+  project_id?: number | null;
+  project_name?: string;
+  error_message: string;
+  error_kind: string;
+  attempt: number;
+  duration_s: number;
+  failed_at: string;
+}
+
+export interface StatusCount {
+  status: string;
+  count: number;
+}
+
+export interface AnalyticsSummary {
+  project_errors: ProjectErrorRank[];
+  bottlenecks: StepBottleneck[];
+  duration_stats: FlowDurationStat[];
+  error_breakdown: ErrorKindCount[];
+  recent_failures: FailureRecord[];
+  status_distribution: StatusCount[];
+}
+
+export interface AnalyticsFilter {
+  project_id?: number;
+  since?: string;
+  until?: string;
+  limit?: number;
+}

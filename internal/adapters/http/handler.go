@@ -152,6 +152,15 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/events", h.listEvents)
 	r.Get("/flows/{flowID}/events", h.listFlowEvents)
 
+	// Analytics
+	r.Get("/analytics/summary", h.getAnalyticsSummary)
+	r.Get("/analytics/project-errors", h.getProjectErrorRanking)
+	r.Get("/analytics/bottlenecks", h.getFlowBottleneckSteps)
+	r.Get("/analytics/duration-stats", h.getExecutionDurationStats)
+	r.Get("/analytics/error-breakdown", h.getErrorBreakdown)
+	r.Get("/analytics/recent-failures", h.getRecentFailures)
+	r.Get("/analytics/status-distribution", h.getFlowStatusDistribution)
+
 	// WebSocket
 	r.Get("/ws", h.wsEvents)
 

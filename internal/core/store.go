@@ -106,6 +106,7 @@ type Store interface {
 	AgentContextStore
 	EventStore
 	ExecutionProbeStore
+	AnalyticsStore
 	Close() error
 }
 

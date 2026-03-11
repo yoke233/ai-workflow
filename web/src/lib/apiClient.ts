@@ -2,6 +2,8 @@ import type {
   CancelFlowResponse,
   AgentDriver,
   AgentProfile,
+  AnalyticsFilter,
+  AnalyticsSummary,
   CreateSkillRequest,
   Artifact,
   Briefing,
@@ -204,6 +206,8 @@ export interface ApiClient {
   getSkill(name: string): Promise<SkillDetail>;
   createSkill(body: CreateSkillRequest): Promise<SkillInfo>;
   importGitHubSkill(body: ImportGitHubSkillRequest): Promise<SkillInfo>;
+
+  getAnalyticsSummary(params?: AnalyticsFilter): Promise<AnalyticsSummary>;
 }
 
 export const createApiClient = (opts: ApiClientOptions): ApiClient => {
@@ -503,6 +507,17 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: "/skills/import/github",
         method: "POST",
         body,
+      }),
+
+    getAnalyticsSummary: (params) =>
+      request<AnalyticsSummary>({
+        path: "/analytics/summary",
+        query: {
+          project_id: params?.project_id,
+          since: params?.since,
+          until: params?.until,
+          limit: params?.limit,
+        },
       }),
   };
 };
