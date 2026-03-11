@@ -115,6 +115,7 @@ type Store interface {
 	AgentContextStore
 	EventStore
 	ExecutionProbeStore
+	AnalyticsStore
 	DAGTemplateStore
 	Close() error
 }

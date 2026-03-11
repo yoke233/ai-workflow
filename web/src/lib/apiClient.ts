@@ -2,6 +2,10 @@ import type {
   CancelFlowResponse,
   AgentDriver,
   AgentProfile,
+  AnalyticsFilter,
+  AnalyticsSummary,
+  CronStatus,
+  SetupCronRequest,
   CreateSkillRequest,
   Artifact,
   Briefing,
@@ -210,6 +214,13 @@ export interface ApiClient {
   getSkill(name: string): Promise<SkillDetail>;
   createSkill(body: CreateSkillRequest): Promise<SkillInfo>;
   importGitHubSkill(body: ImportGitHubSkillRequest): Promise<SkillInfo>;
+
+  getAnalyticsSummary(params?: AnalyticsFilter): Promise<AnalyticsSummary>;
+
+  listCronFlows(): Promise<CronStatus[]>;
+  getFlowCronStatus(flowId: number): Promise<CronStatus>;
+  setupFlowCron(flowId: number, body: SetupCronRequest): Promise<CronStatus>;
+  disableFlowCron(flowId: number): Promise<CronStatus>;
 
   // DAG Templates
   listDAGTemplates(params?: {
@@ -524,6 +535,37 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: "/skills/import/github",
         method: "POST",
         body,
+      }),
+
+    getAnalyticsSummary: (params) =>
+      request<AnalyticsSummary>({
+        path: "/analytics/summary",
+        query: {
+          project_id: params?.project_id,
+          since: params?.since,
+          until: params?.until,
+          limit: params?.limit,
+        },
+      }),
+
+    listCronFlows: () =>
+      request<CronStatus[]>({
+        path: "/cron/flows",
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    getFlowCronStatus: (flowId) =>
+      request<CronStatus>({
+        path: `/flows/${flowId}/cron`,
+      }),
+    setupFlowCron: (flowId, body) =>
+      request<CronStatus, SetupCronRequest>({
+        path: `/flows/${flowId}/cron`,
+        method: "POST",
+        body,
+      }),
+    disableFlowCron: (flowId) =>
+      request<CronStatus>({
+        path: `/flows/${flowId}/cron`,
+        method: "DELETE",
       }),
 
     // DAG Templates
