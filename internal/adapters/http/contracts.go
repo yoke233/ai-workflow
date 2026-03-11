@@ -40,6 +40,7 @@ type LeadChatService interface {
 	GetSession(ctx context.Context, sessionID string) (*chatapp.SessionDetail, error)
 	CancelChat(sessionID string) error
 	CloseSession(sessionID string)
+	DeleteSession(sessionID string)
 	IsSessionAlive(sessionID string) bool
 	IsSessionRunning(sessionID string) bool
 }

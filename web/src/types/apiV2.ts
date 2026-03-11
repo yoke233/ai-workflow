@@ -320,9 +320,17 @@ export interface SchedulerStats {
   stats?: Record<string, unknown>;
 }
 
+export interface ChatAttachment {
+  name: string;
+  mime_type: string;
+  /** Base64-encoded content. */
+  data: string;
+}
+
 export interface ChatRequest {
   session_id?: string;
   message: string;
+  attachments?: ChatAttachment[];
   work_dir?: string;
   project_id?: number;
   project_name?: string;

@@ -2,11 +2,13 @@ package acp
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
+	"regexp"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -28,10 +30,17 @@ const (
 	defaultSessionIdleTTL = 30 * time.Minute
 )
 
+// TextCompleter generates free-form text from a prompt (e.g. branch name
+// generation).  Implemented by *llm.Client.
+type TextCompleter interface {
+	CompleteText(ctx context.Context, prompt string) (string, error)
+}
+
 type LeadAgentConfig struct {
 	Registry             core.AgentRegistry
 	Bus                  core.EventBus
 	ResourceBindingStore core.ResourceBindingStore
+	LLM                  TextCompleter
 	ProfileID            string
 	Timeout              time.Duration
 	IdleTTL              time.Duration
@@ -156,7 +165,7 @@ func (l *LeadAgent) Chat(ctx context.Context, req chatapp.Request) (*chatapp.Res
 		return nil, err
 	}
 
-	reply, err := l.runPrompt(ctx, publicSessionID, sess, message)
+	reply, err := l.runPrompt(ctx, publicSessionID, sess, message, req.Attachments)
 	if err != nil {
 		return nil, err
 	}
@@ -174,8 +183,9 @@ func (l *LeadAgent) StartChat(ctx context.Context, req chatapp.Request) (*chatap
 		return nil, err
 	}
 
+	attachments := req.Attachments
 	go func() {
-		if _, runErr := l.runPrompt(context.Background(), publicSessionID, sess, message); runErr != nil {
+		if _, runErr := l.runPrompt(context.Background(), publicSessionID, sess, message, attachments); runErr != nil {
 			sess.bridge.PublishData(context.Background(), map[string]any{
 				"type":    "error",
 				"content": runErr.Error(),
@@ -240,7 +250,7 @@ func (l *LeadAgent) prepareChat(ctx context.Context, req chatapp.Request) (*lead
 	return sess, publicSessionID, message, nil
 }
 
-func (l *LeadAgent) runPrompt(ctx context.Context, publicSessionID string, sess *leadSession, message string) (string, error) {
+func (l *LeadAgent) runPrompt(ctx context.Context, publicSessionID string, sess *leadSession, message string, attachments []chatapp.Attachment) (string, error) {
 	if sess == nil {
 		return "", errors.New("session is not initialized")
 	}
@@ -256,11 +266,11 @@ func (l *LeadAgent) runPrompt(ctx context.Context, publicSessionID string, sess 
 
 	l.appendMessage(publicSessionID, "user", message)
 
+	promptBlocks := buildPromptBlocks(message, attachments, sess.workDir)
+
 	result, err := sess.client.Prompt(promptCtx, acpproto.PromptRequest{
 		SessionId: sess.sessionID,
-		Prompt: []acpproto.ContentBlock{
-			{Text: &acpproto.ContentBlockText{Text: message}},
-		},
+		Prompt:    promptBlocks,
 	})
 
 	sess.bridge.FlushPending(ctx)
@@ -396,6 +406,35 @@ func (l *LeadAgent) CancelChat(sessionID string) error {
 
 func (l *LeadAgent) CloseSession(sessionID string) {
 	l.removeSession(strings.TrimSpace(sessionID))
+}
+
+// DeleteSession permanently removes a session: terminates the agent process,
+// cleans up the isolated workspace (sandbox or worktree), and removes the
+// catalog entry so the session can no longer be resumed.
+func (l *LeadAgent) DeleteSession(sessionID string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+
+	// Remove agent from memory.
+	l.mu.Lock()
+	sess, ok := l.sessions[sessionID]
+	if ok {
+		delete(l.sessions, sessionID)
+	}
+	record := l.catalog[sessionID]
+	delete(l.catalog, sessionID)
+	_ = l.saveCatalogLocked()
+	l.mu.Unlock()
+
+	if sess != nil {
+		sess.close()
+		cleanupIsolatedDir(sess.isolation, sess.workDir, sess.repoPath)
+	} else if record != nil {
+		// Session not in memory but in catalog — clean up workspace.
+		cleanupIsolatedDir(record.Isolation, record.WorkDir, record.RepoPath)
+	}
 }
 
 func (l *LeadAgent) Shutdown() {
@@ -779,9 +818,6 @@ func (s *leadSession) close() {
 		s.idleTimer = nil
 	}
 	client := s.client
-	isolation := s.isolation
-	workDir := s.workDir
-	repoPath := s.repoPath
 	s.mu.Unlock()
 
 	if client != nil {
@@ -789,9 +825,10 @@ func (s *leadSession) close() {
 		defer cancel()
 		_ = client.Close(closeCtx)
 	}
-
-	// Clean up isolated working directory.
-	cleanupIsolatedDir(isolation, workDir, repoPath)
+	// NOTE: workspace (sandbox dir / worktree) is intentionally NOT cleaned
+	// up here.  The agent process is recycled but the workspace survives so
+	// the session can be resumed later.  Workspace cleanup only happens on
+	// explicit session deletion via DeleteSession.
 }
 
 func cloneEnv(in map[string]string) map[string]string {
@@ -849,8 +886,9 @@ func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Requ
 				continue
 			}
 			repoPath := b.URI
-			branchName := fmt.Sprintf("ai-chat/%s", strings.ReplaceAll(time.Now().UTC().Format("20060102-150405.000"), ".", ""))
-			worktreePath := filepath.Join(repoPath, ".worktrees", "chat-"+branchName[len("ai-chat/"):])
+			slug := l.generateBranchSlug(ctx, req.Message)
+			branchName := fmt.Sprintf("ai-chat/%s", slug)
+			worktreePath := filepath.Join(repoPath, ".worktrees", "chat-"+slug)
 
 			runner := workspacegit.NewRunner(repoPath)
 			if err := runner.WorktreeAdd(worktreePath, branchName); err != nil {
@@ -885,6 +923,56 @@ func (l *LeadAgent) createSandboxDir() (string, error) {
 	return dir, nil
 }
 
+// generateBranchSlug creates a short, git-safe branch slug from the user's
+// message.  If an LLM client is configured it asks the model to produce a
+// 2-4 word English slug; otherwise it falls back to a timestamp.
+func (l *LeadAgent) generateBranchSlug(ctx context.Context, message string) string {
+	fallback := strings.ReplaceAll(time.Now().UTC().Format("20060102-150405.000"), ".", "")
+
+	if l.cfg.LLM == nil || strings.TrimSpace(message) == "" {
+		return fallback
+	}
+
+	llmCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+
+	prompt := fmt.Sprintf(
+		"Generate a very short git branch slug (2-4 lowercase English words separated by hyphens, no special characters) that summarises the following task. "+
+			"Reply with ONLY the slug, nothing else.\n\nTask: %s", message)
+
+	raw, err := l.cfg.LLM.CompleteText(llmCtx, prompt)
+	if err != nil {
+		slog.Warn("lead chat: LLM branch slug generation failed, using timestamp", "error", err)
+		return fallback
+	}
+
+	slug := sanitizeBranchSlug(strings.TrimSpace(raw))
+	if slug == "" {
+		return fallback
+	}
+	// Append a short timestamp suffix to guarantee uniqueness.
+	return slug + "-" + time.Now().UTC().Format("0102-1504")
+}
+
+var branchSlugRe = regexp.MustCompile(`[^a-z0-9-]`)
+
+// sanitizeBranchSlug normalises a string into a valid git branch name component.
+func sanitizeBranchSlug(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = branchSlugRe.ReplaceAllString(s, "-")
+	// Collapse multiple hyphens.
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
+	}
+	s = strings.Trim(s, "-")
+	// Cap length.
+	if len(s) > 48 {
+		s = s[:48]
+		s = strings.TrimRight(s, "-")
+	}
+	return s
+}
+
 // cleanupIsolatedDir removes an isolated working directory that was provisioned
 // for a chat session.
 func cleanupIsolatedDir(isolation, workDir, repoPath string) {
@@ -901,6 +989,78 @@ func cleanupIsolatedDir(isolation, workDir, repoPath string) {
 			}
 		}
 	}
+}
+
+// buildPromptBlocks constructs ACP ContentBlock slice from the user message
+// and any attachments.  Images are sent as native image content blocks; other
+// files are saved to the workspace and referenced via resource_link.
+func buildPromptBlocks(message string, attachments []chatapp.Attachment, workDir string) []acpproto.ContentBlock {
+	blocks := []acpproto.ContentBlock{
+		{Text: &acpproto.ContentBlockText{Text: message}},
+	}
+
+	for _, att := range attachments {
+		if strings.TrimSpace(att.Data) == "" {
+			continue
+		}
+		if isImageMime(att.MimeType) {
+			blocks = append(blocks, acpproto.ContentBlock{
+				Image: &acpproto.ContentBlockImage{
+					Data:     att.Data,
+					MimeType: att.MimeType,
+				},
+			})
+			continue
+		}
+
+		// Non-image file: save to workspace and reference via resource_link.
+		filePath, err := saveAttachmentToWorkspace(att, workDir)
+		if err != nil {
+			slog.Warn("lead chat: save attachment failed, skipping", "name", att.Name, "error", err)
+			continue
+		}
+		fileURI := "file://" + filePath
+		blocks = append(blocks, acpproto.ContentBlock{
+			ResourceLink: &acpproto.ContentBlockResourceLink{
+				URI:      fileURI,
+				Name:     att.Name,
+				MimeType: att.MimeType,
+			},
+		})
+	}
+
+	return blocks
+}
+
+func isImageMime(mime string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(mime)), "image/")
+}
+
+// saveAttachmentToWorkspace decodes a base64 attachment and saves it under
+// {workDir}/.uploads/{name}.  Returns the absolute path of the saved file.
+func saveAttachmentToWorkspace(att chatapp.Attachment, workDir string) (string, error) {
+	uploadsDir := filepath.Join(workDir, ".uploads")
+	if err := os.MkdirAll(uploadsDir, 0o755); err != nil {
+		return "", fmt.Errorf("create uploads dir: %w", err)
+	}
+
+	data, err := base64.StdEncoding.DecodeString(att.Data)
+	if err != nil {
+		return "", fmt.Errorf("decode attachment %q: %w", att.Name, err)
+	}
+
+	name := strings.TrimSpace(att.Name)
+	if name == "" {
+		name = "upload"
+	}
+	// Sanitise filename to prevent path traversal.
+	name = filepath.Base(name)
+
+	dst := filepath.Join(uploadsDir, name)
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		return "", fmt.Errorf("write attachment %q: %w", name, err)
+	}
+	return dst, nil
 }
 
 func buildLeadTitle(message string) string {
