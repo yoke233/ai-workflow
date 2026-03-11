@@ -391,6 +391,9 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 			if sm.Mode != nil {
 				cfg.V2.SessionManager.Mode = *sm.Mode
 			}
+			if sm.ServerID != nil {
+				cfg.V2.SessionManager.ServerID = *sm.ServerID
+			}
 			if n := sm.NATS; n != nil {
 				if n.URL != nil {
 					cfg.V2.SessionManager.NATS.URL = *n.URL

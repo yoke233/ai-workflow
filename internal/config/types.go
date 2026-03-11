@@ -66,6 +66,10 @@ type V2SessionManagerConfig struct {
 	// NATS mode uses JetStream for crash-resilient, distributed execution.
 	Mode string `toml:"mode" yaml:"mode" json:"mode"`
 
+	// ServerID uniquely identifies this server instance in multi-server deployments.
+	// Used as a prefix in prompt IDs to avoid collisions. Auto-generated if empty.
+	ServerID string `toml:"server_id" yaml:"server_id" json:"server_id"`
+
 	// NATS holds configuration for the NATS session manager (only used when Mode == "nats").
 	NATS V2NATSConfig `toml:"nats" yaml:"nats" json:"nats"`
 }
@@ -350,8 +354,9 @@ type V2Layer struct {
 }
 
 type V2SessionManagerLayer struct {
-	Mode *string      `toml:"mode" yaml:"mode"`
-	NATS *V2NATSLayer `toml:"nats" yaml:"nats"`
+	Mode     *string      `toml:"mode"      yaml:"mode"`
+	ServerID *string      `toml:"server_id" yaml:"server_id"`
+	NATS     *V2NATSLayer `toml:"nats"      yaml:"nats"`
 }
 
 type V2NATSLayer struct {

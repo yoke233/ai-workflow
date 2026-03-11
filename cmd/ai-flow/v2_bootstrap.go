@@ -281,9 +281,12 @@ func buildNATSSessionManager(cfg *config.Config, store v2core.Store, dataDir str
 		prefix = "aiworkflow"
 	}
 
+	serverID := strings.TrimSpace(cfg.V2.SessionManager.ServerID)
+
 	return v2engine.NewNATSSessionManager(v2engine.NATSSessionManagerConfig{
 		NATSConn:     nc,
 		StreamPrefix: prefix,
+		ServerID:     serverID,
 		Store:        store,
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,6 +25,11 @@ type NATSSessionManagerConfig struct {
 	// StreamPrefix is the JetStream stream name prefix (default: "aiworkflow").
 	StreamPrefix string
 
+	// ServerID uniquely identifies this server in multi-server setups.
+	// Used as a prefix in prompt IDs to avoid collisions across servers.
+	// Auto-generated from hostname + PID if empty.
+	ServerID string
+
 	// Store is used for persisting prompt metadata.
 	Store core.Store
 }
@@ -39,10 +45,11 @@ type NATSSessionManagerConfig struct {
 //	{prefix}.prompt.events.{prompt_id}   — streaming events during execution
 //	{prefix}.executor.register           — executor heartbeat/registration
 type NATSSessionManager struct {
-	nc     *nats.Conn
-	js     jetstream.JetStream
-	prefix string
-	store  core.Store
+	nc       *nats.Conn
+	js       jetstream.JetStream
+	prefix   string
+	serverID string
+	store    core.Store
 
 	mu      sync.Mutex
 	handles map[string]*natsHandle
@@ -103,12 +110,22 @@ func NewNATSSessionManager(cfg NATSSessionManagerConfig) (*NATSSessionManager, e
 		return nil, fmt.Errorf("create JetStream context: %w", err)
 	}
 
+	serverID := strings.TrimSpace(cfg.ServerID)
+	if serverID == "" {
+		hostname, _ := os.Hostname()
+		if hostname == "" {
+			hostname = "unknown"
+		}
+		serverID = fmt.Sprintf("%s-%d", hostname, os.Getpid())
+	}
+
 	m := &NATSSessionManager{
-		nc:      cfg.NATSConn,
-		js:      js,
-		prefix:  prefix,
-		store:   cfg.Store,
-		handles: make(map[string]*natsHandle),
+		nc:       cfg.NATSConn,
+		js:       js,
+		prefix:   prefix,
+		serverID: serverID,
+		store:    cfg.Store,
+		handles:  make(map[string]*natsHandle),
 	}
 
 	if err := m.ensureStreams(context.Background()); err != nil {
@@ -182,7 +199,7 @@ func (m *NATSSessionManager) SubmitPrompt(ctx context.Context, handle *SessionHa
 		return "", fmt.Errorf("session handle %q not found", handle.ID)
 	}
 	m.nextID++
-	promptID := fmt.Sprintf("np-%d-%d", time.Now().UnixNano(), m.nextID)
+	promptID := fmt.Sprintf("np-%s-%d-%d", m.serverID, time.Now().UnixNano(), m.nextID)
 	m.mu.Unlock()
 
 	agentType := "default"
