@@ -17,6 +17,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	eventbridge "github.com/yoke233/ai-workflow/internal/adapters/events/bridge"
 	v2sandbox "github.com/yoke233/ai-workflow/internal/adapters/sandbox"
+	workspacegit "github.com/yoke233/ai-workflow/internal/adapters/workspace/git"
 	chatapp "github.com/yoke233/ai-workflow/internal/application/chat"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
@@ -28,14 +29,15 @@ const (
 )
 
 type LeadAgentConfig struct {
-	Registry  core.AgentRegistry
-	Bus       core.EventBus
-	ProfileID string
-	Timeout   time.Duration
-	IdleTTL   time.Duration
-	Sandbox   v2sandbox.Sandbox
-	DataDir   string
-	NewClient func(cfg acpclient.LaunchConfig, h acpproto.Client, opts ...acpclient.Option) (ChatACPClient, error)
+	Registry             core.AgentRegistry
+	Bus                  core.EventBus
+	ResourceBindingStore core.ResourceBindingStore
+	ProfileID            string
+	Timeout              time.Duration
+	IdleTTL              time.Duration
+	Sandbox              v2sandbox.Sandbox
+	DataDir              string
+	NewClient            func(cfg acpclient.LaunchConfig, h acpproto.Client, opts ...acpclient.Option) (ChatACPClient, error)
 }
 
 type LeadAgent struct {
@@ -57,6 +59,13 @@ type leadSession struct {
 	events    *suppressibleEventHandler
 	workDir   string
 	scope     string
+	// isolation tracks how the working directory was provisioned so we can
+	// clean it up when the session is closed.  Possible values:
+	//   ""          – workDir was supplied by the caller (no cleanup)
+	//   "sandbox"   – a temporary directory was created under DataDir
+	//   "worktree"  – a git worktree was created for a project
+	isolation    string
+	repoPath     string // original repo path; set when isolation == "worktree"
 
 	mu        sync.Mutex
 	idleTimer *time.Timer
@@ -187,17 +196,47 @@ func (l *LeadAgent) prepareChat(ctx context.Context, req chatapp.Request) (*lead
 		return nil, "", "", errors.New("message is required")
 	}
 
-	workDir, err := resolveLeadWorkDir(req.WorkDir)
+	// For existing sessions, skip workspace provisioning (already done).
+	if strings.TrimSpace(req.SessionID) != "" {
+		workDir, err := resolveLeadWorkDir(req.WorkDir)
+		if err != nil {
+			return nil, "", "", err
+		}
+		sess, publicSessionID, err := l.getOrCreateSession(ctx, req, workDir)
+		if err != nil {
+			return nil, "", "", err
+		}
+		sess.stopIdleTimer()
+		return sess, publicSessionID, message, nil
+	}
+
+	// New session — resolve an isolated working directory.
+	workDir, isolation, repoPath, err := l.resolveIsolatedWorkDir(ctx, req)
 	if err != nil {
 		return nil, "", "", err
 	}
 
-	sess, publicSessionID, err := l.getOrCreateSession(ctx, req, workDir)
+	sess, publicSessionID, err := l.createSession(ctx, workDir, req.ProjectID, req.ProjectName, req.ProfileID, req.DriverID)
 	if err != nil {
+		// Cleanup on failure.
+		cleanupIsolatedDir(isolation, workDir, repoPath)
 		return nil, "", "", err
 	}
+	sess.isolation = isolation
+	sess.repoPath = repoPath
+
+	// Persist isolation metadata in catalog.
+	if isolation != "" {
+		l.mu.Lock()
+		if record := l.catalog[publicSessionID]; record != nil {
+			record.Isolation = isolation
+			record.RepoPath = repoPath
+			_ = l.saveCatalogLocked()
+		}
+		l.mu.Unlock()
+	}
+
 	sess.stopIdleTimer()
-
 	return sess, publicSessionID, message, nil
 }
 
@@ -539,6 +578,8 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 		events:    events,
 		workDir:   workDir,
 		scope:     record.Scope,
+		isolation: record.Isolation,
+		repoPath:  record.RepoPath,
 	}
 
 	l.mu.Lock()
@@ -738,6 +779,9 @@ func (s *leadSession) close() {
 		s.idleTimer = nil
 	}
 	client := s.client
+	isolation := s.isolation
+	workDir := s.workDir
+	repoPath := s.repoPath
 	s.mu.Unlock()
 
 	if client != nil {
@@ -745,6 +789,9 @@ func (s *leadSession) close() {
 		defer cancel()
 		_ = client.Close(closeCtx)
 	}
+
+	// Clean up isolated working directory.
+	cleanupIsolatedDir(isolation, workDir, repoPath)
 }
 
 func cloneEnv(in map[string]string) map[string]string {
@@ -771,6 +818,89 @@ func resolveLeadWorkDir(workDir string) (string, error) {
 		return "", fmt.Errorf("resolve working directory %q: %w", workDir, err)
 	}
 	return abs, nil
+}
+
+// resolveIsolatedWorkDir provisions an isolated working directory for a new
+// chat session.  It returns (workDir, isolation, repoPath, error).
+//
+//   - If the caller provides an explicit WorkDir, it is used as-is (isolation="").
+//   - If a project with a git ResourceBinding is selected, a git worktree is
+//     created so the agent never touches the default branch (isolation="worktree").
+//   - Otherwise a temporary sandbox directory is created under DataDir
+//     (isolation="sandbox").
+func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Request) (string, string, string, error) {
+	// Caller-provided explicit path — honour it, no isolation.
+	if strings.TrimSpace(req.WorkDir) != "" {
+		abs, err := filepath.Abs(req.WorkDir)
+		if err != nil {
+			return "", "", "", fmt.Errorf("resolve working directory %q: %w", req.WorkDir, err)
+		}
+		return abs, "", "", nil
+	}
+
+	// Project with git binding → worktree isolation.
+	if req.ProjectID > 0 && l.cfg.ResourceBindingStore != nil {
+		bindings, err := l.cfg.ResourceBindingStore.ListResourceBindings(ctx, req.ProjectID)
+		if err != nil {
+			slog.Warn("lead chat: list resource bindings failed", "project_id", req.ProjectID, "error", err)
+		}
+		for _, b := range bindings {
+			if b.Kind != "git" || strings.TrimSpace(b.URI) == "" {
+				continue
+			}
+			repoPath := b.URI
+			branchName := fmt.Sprintf("ai-chat/%s", strings.ReplaceAll(time.Now().UTC().Format("20060102-150405.000"), ".", ""))
+			worktreePath := filepath.Join(repoPath, ".worktrees", "chat-"+branchName[len("ai-chat/"):])
+
+			runner := workspacegit.NewRunner(repoPath)
+			if err := runner.WorktreeAdd(worktreePath, branchName); err != nil {
+				return "", "", "", fmt.Errorf("create chat worktree for project %d: %w", req.ProjectID, err)
+			}
+			slog.Info("lead chat: created worktree", "project_id", req.ProjectID, "path", worktreePath, "branch", branchName)
+			return worktreePath, "worktree", repoPath, nil
+		}
+		// No git binding — fall through to sandbox.
+	}
+
+	// No project or no git binding → sandbox temp dir.
+	sandboxDir, err := l.createSandboxDir()
+	if err != nil {
+		return "", "", "", err
+	}
+	return sandboxDir, "sandbox", "", nil
+}
+
+// createSandboxDir creates a temporary directory under DataDir for chat sessions
+// that do not have a project context.
+func (l *LeadAgent) createSandboxDir() (string, error) {
+	base := filepath.Join(l.cfg.DataDir, "chat-sandboxes")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return "", fmt.Errorf("create chat sandbox base dir: %w", err)
+	}
+	dir, err := os.MkdirTemp(base, "sess-")
+	if err != nil {
+		return "", fmt.Errorf("create chat sandbox dir: %w", err)
+	}
+	slog.Info("lead chat: created sandbox dir", "path", dir)
+	return dir, nil
+}
+
+// cleanupIsolatedDir removes an isolated working directory that was provisioned
+// for a chat session.
+func cleanupIsolatedDir(isolation, workDir, repoPath string) {
+	switch isolation {
+	case "sandbox":
+		if err := os.RemoveAll(workDir); err != nil {
+			slog.Warn("lead chat: remove sandbox dir failed", "path", workDir, "error", err)
+		}
+	case "worktree":
+		if repoPath != "" {
+			runner := workspacegit.NewRunner(repoPath)
+			if err := runner.WorktreeRemove(workDir); err != nil {
+				slog.Warn("lead chat: remove worktree failed", "path", workDir, "error", err)
+			}
+		}
+	}
 }
 
 func buildLeadTitle(message string) string {

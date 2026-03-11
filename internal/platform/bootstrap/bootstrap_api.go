@@ -22,10 +22,11 @@ func buildAPIStack(
 ) *apiStack {
 	sb := buildSandbox(bootstrapCfg, base.runtimeManager, base.dataDir)
 	leadAgent := chatacp.NewLeadAgent(chatacp.LeadAgentConfig{
-		Registry: base.registry,
-		Bus:      base.bus,
-		Sandbox:  sb,
-		DataDir:  base.dataDir,
+		Registry:             base.registry,
+		Bus:                  base.bus,
+		ResourceBindingStore: base.store,
+		Sandbox:              sb,
+		DataDir:              base.dataDir,
 	})
 
 	var dagGen api.DAGGenerator
