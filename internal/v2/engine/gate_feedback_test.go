@@ -35,7 +35,7 @@ func TestRecordGateRework_AppendsHistoryAndLastFeedback(t *testing.T) {
 	}
 }
 
-func TestBuildPromptForStep_ReusedSessionUsesFollowupTemplates(t *testing.T) {
+func TestBuildExecutionInputForStep_ReusedSessionUsesFollowupTemplates(t *testing.T) {
 	step := &core.Step{
 		Name:   "implement",
 		Type:   core.StepExec,
@@ -53,7 +53,7 @@ func TestBuildPromptForStep_ReusedSessionUsesFollowupTemplates(t *testing.T) {
 	reworkTmpl := "REWORK {{.StepName}}: {{.Feedback}}"
 	continueTmpl := "CONTINUE {{.StepName}}"
 
-	out := buildPromptForStep(profile, "ignored", step, true, reworkTmpl, continueTmpl)
+	out := buildExecutionInputForStep(profile, "ignored", step, true, reworkTmpl, continueTmpl)
 	if !strings.Contains(out, "REWORK implement") {
 		t.Fatalf("expected rework followup template, got: %q", out)
 	}
@@ -64,7 +64,7 @@ func TestBuildPromptForStep_ReusedSessionUsesFollowupTemplates(t *testing.T) {
 	// If no feedback, should use continue template (and not re-send base snapshot).
 	step.Config["last_gate_feedback"] = nil
 	step.Config["rework_history"] = []any{}
-	out2 := buildPromptForStep(profile, "BASE-SNAPSHOT", step, true, reworkTmpl, continueTmpl)
+	out2 := buildExecutionInputForStep(profile, "BASE-SNAPSHOT", step, true, reworkTmpl, continueTmpl)
 	if strings.Contains(out2, "BASE-SNAPSHOT") {
 		t.Fatalf("expected not to include base snapshot when reusing session, got: %q", out2)
 	}
@@ -73,7 +73,7 @@ func TestBuildPromptForStep_ReusedSessionUsesFollowupTemplates(t *testing.T) {
 	}
 }
 
-func TestBuildPromptForStep_GateAlwaysFullPrompt(t *testing.T) {
+func TestBuildExecutionInputForStep_GateAlwaysFullPrompt(t *testing.T) {
 	step := &core.Step{
 		Name: "review_merge_gate",
 		Type: core.StepGate,
@@ -82,12 +82,12 @@ func TestBuildPromptForStep_GateAlwaysFullPrompt(t *testing.T) {
 		},
 	}
 	profile := &core.AgentProfile{Session: core.ProfileSession{Reuse: true}}
-	out := buildPromptForStep(profile, "SNAP", step, true, "REWORK", "CONTINUE")
+	out := buildExecutionInputForStep(profile, "SNAP", step, true, "REWORK", "CONTINUE")
 	if !strings.Contains(out, "SNAP") {
-		t.Fatalf("expected full prompt to include snapshot, got: %q", out)
+		t.Fatalf("expected full execution input to include snapshot, got: %q", out)
 	}
 	if !strings.Contains(out, "Acceptance Criteria") {
-		t.Fatalf("expected full prompt to include acceptance criteria, got: %q", out)
+		t.Fatalf("expected full execution input to include acceptance criteria, got: %q", out)
 	}
 }
 

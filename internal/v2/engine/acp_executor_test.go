@@ -9,15 +9,15 @@ import (
 	"github.com/yoke233/ai-workflow/internal/v2/core"
 )
 
-func TestBuildPromptFromBriefing(t *testing.T) {
-	t.Run("basic prompt", func(t *testing.T) {
+func TestBuildExecutionInputFromBriefing(t *testing.T) {
+	t.Run("basic execution input", func(t *testing.T) {
 		step := &core.Step{Name: "implement auth"}
-		prompt := buildPromptFromBriefing("Implement JWT authentication", step)
-		if !strings.Contains(prompt, "# Task") {
-			t.Error("prompt should start with # Task header")
+		executionInput := buildExecutionInputFromBriefing("Implement JWT authentication", step)
+		if !strings.Contains(executionInput, "# Task") {
+			t.Error("execution input should start with # Task header")
 		}
-		if !strings.Contains(prompt, "Implement JWT authentication") {
-			t.Error("prompt should contain briefing snapshot")
+		if !strings.Contains(executionInput, "Implement JWT authentication") {
+			t.Error("execution input should contain briefing snapshot")
 		}
 	})
 
@@ -29,23 +29,23 @@ func TestBuildPromptFromBriefing(t *testing.T) {
 				"No security vulnerabilities",
 			},
 		}
-		prompt := buildPromptFromBriefing("Implement JWT authentication", step)
-		if !strings.Contains(prompt, "# Acceptance Criteria") {
-			t.Error("prompt should contain acceptance criteria header")
+		executionInput := buildExecutionInputFromBriefing("Implement JWT authentication", step)
+		if !strings.Contains(executionInput, "# Acceptance Criteria") {
+			t.Error("execution input should contain acceptance criteria header")
 		}
-		if !strings.Contains(prompt, "- All tests pass") {
-			t.Error("prompt should contain first criterion")
+		if !strings.Contains(executionInput, "- All tests pass") {
+			t.Error("execution input should contain first criterion")
 		}
-		if !strings.Contains(prompt, "- No security vulnerabilities") {
-			t.Error("prompt should contain second criterion")
+		if !strings.Contains(executionInput, "- No security vulnerabilities") {
+			t.Error("execution input should contain second criterion")
 		}
 	})
 
 	t.Run("empty acceptance criteria", func(t *testing.T) {
 		step := &core.Step{Name: "simple task"}
-		prompt := buildPromptFromBriefing("Do something", step)
-		if strings.Contains(prompt, "Acceptance Criteria") {
-			t.Error("prompt should not contain acceptance criteria when empty")
+		executionInput := buildExecutionInputFromBriefing("Do something", step)
+		if strings.Contains(executionInput, "Acceptance Criteria") {
+			t.Error("execution input should not contain acceptance criteria when empty")
 		}
 	})
 }

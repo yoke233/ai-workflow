@@ -97,6 +97,8 @@ func runWithArgs(args []string) error {
 		default:
 			return fmt.Errorf("unknown config command: %s", args[1])
 		}
+	case "executor":
+		return cmdExecutor(args[1:])
 	case "mcp-serve":
 		return cmdMCPServe()
 	case "reset-db":
@@ -128,6 +130,7 @@ Usage:
   ai-flow config init [--force]
   ai-flow config validate
   ai-flow server [--port <port>]
+  ai-flow executor --nats-url <url> [--agents claude,codex] [--max-concurrent 2]
   ai-flow mcp-serve                  (MCP server over stdio, requires AI_WORKFLOW_DB_PATH)
   ai-flow reset-db --yes              (drop all tables and recreate schema)`)
 }

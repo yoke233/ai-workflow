@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/go-chi/chi/v5"
+	"github.com/nats-io/nats.go"
 	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/appdata"
 	"github.com/yoke233/ai-workflow/internal/config"
@@ -55,7 +58,7 @@ type v2GitHubTokens struct {
 
 // bootstrapV2 creates the v2 store, event bus, engine, event persister, and API handler.
 // Returns the v2 store (for lifecycle), the agent registry, runtime manager, cleanup func, and route registrar.
-func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config, mcpEnv teamleader.MCPEnvConfig, ghTokens v2GitHubTokens) (*v2sqlite.Store, v2core.AgentRegistry, *configruntime.Manager, func(), func(chi.Router)) {
+func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config, mcpEnv teamleader.MCPEnvConfig, ghTokens v2GitHubTokens, upgradeFn v2engine.UpgradeFunc) (*v2sqlite.Store, v2core.AgentRegistry, *configruntime.Manager, func(), func(chi.Router)) {
 	v2DBPath := strings.TrimSuffix(v1StorePath, filepath.Ext(v1StorePath)) + "_v2.db"
 	v2Store, err := v2sqlite.New(v2DBPath)
 	if err != nil {
@@ -84,6 +87,27 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 	}
 	sb := buildV2Sandbox(bootstrapCfg, dataDir)
 
+	// Build SessionManager based on config mode.
+	var sessionMgr v2engine.SessionManager
+	smMode := ""
+	if bootstrapCfg != nil {
+		smMode = strings.TrimSpace(strings.ToLower(bootstrapCfg.V2.SessionManager.Mode))
+	}
+	switch smMode {
+	case "nats":
+		natsMgr, natsErr := buildNATSSessionManager(bootstrapCfg, v2Store, dataDir)
+		if natsErr != nil {
+			slog.Error("v2 bootstrap: NATS session manager failed, falling back to local", "error", natsErr)
+			sessionMgr = v2engine.NewLocalSessionManager(acpPool, v2Store, sb)
+		} else {
+			sessionMgr = natsMgr
+			slog.Info("v2 bootstrap: using NATS session manager")
+		}
+	default:
+		sessionMgr = v2engine.NewLocalSessionManager(acpPool, v2Store, sb)
+		slog.Info("v2 bootstrap: using local session manager")
+	}
+
 	mockEnabled := bootstrapCfg != nil && bootstrapCfg.V2.MockExecutor
 	if !mockEnabled {
 		if raw := strings.TrimSpace(os.Getenv("AI_WORKFLOW_V2_MOCK_EXECUTOR")); raw != "" {
@@ -110,8 +134,7 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 				}
 				return runtimeManager.ResolveMCPServers(profileID, agentSupportsSSE)
 			},
-			SessionPool: acpPool,
-			Sandbox:     sb,
+			SessionManager: sessionMgr,
 			ReworkFollowupTemplate: func() string {
 				if bootstrapCfg == nil {
 					return ""
@@ -166,6 +189,7 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 			CommitPAT: strings.TrimSpace(ghTokens.CommitPAT),
 			MergePAT:  strings.TrimSpace(ghTokens.MergePAT),
 		},
+		UpgradeFunc: upgradeFn,
 		ACPExecutor: executor,
 	})
 
@@ -176,10 +200,17 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 	schedCtx, schedCancel := context.WithCancel(context.Background())
 	go scheduler.Start(schedCtx)
 
-	if n, err := v2engine.RecoverInterruptedFlows(context.Background(), v2Store, scheduler); err != nil {
+	recoverFlows := v2engine.RecoverInterruptedFlows
+	recoveryLogLabel := "interrupted flows"
+	if smMode == "nats" {
+		recoverFlows = v2engine.RecoverQueuedFlows
+		recoveryLogLabel = "queued flows"
+		slog.Warn("v2 bootstrap: skipping running-flow recovery in NATS mode until execution recovery is implemented")
+	}
+	if n, err := recoverFlows(context.Background(), v2Store, scheduler); err != nil {
 		slog.Warn("v2 bootstrap: flow recovery error", "error", err)
 	} else if n > 0 {
-		slog.Info("v2 bootstrap: recovered interrupted flows", "count", n)
+		slog.Info("v2 bootstrap: recovered flows", "kind", recoveryLogLabel, "count", n)
 	}
 
 	leadAgent := v2engine.NewLeadAgent(v2engine.LeadAgentConfig{
@@ -193,19 +224,31 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 		dagGen = v2engine.NewDAGGenerator(llmClient, registry)
 	}
 
-	handler := v2api.NewHandler(v2Store, v2Bus, eng, buildV2APIOptions(bootstrapCfg, runtimeManager, leadAgent, scheduler, registry, dagGen)...)
+	probeSvc := v2engine.NewExecutionProbeService(v2engine.ExecutionProbeServiceConfig{
+		Store:          v2Store,
+		Bus:            v2Bus,
+		SessionManager: sessionMgr,
+	})
+
+	apiOpts := buildV2APIOptions(bootstrapCfg, runtimeManager, leadAgent, scheduler, registry, dagGen)
+	apiOpts = append(apiOpts, v2api.WithExecutionProbeService(probeSvc))
+	handler := v2api.NewHandler(v2Store, v2Bus, eng, apiOpts...)
 	registrar := func(r chi.Router) { handler.Register(r) }
 
 	var runtimeWatchCancel context.CancelFunc
+	var probeWatchCancel context.CancelFunc
 	cleanup := func() {
 		if runtimeWatchCancel != nil {
 			runtimeWatchCancel()
 		}
+		if probeWatchCancel != nil {
+			probeWatchCancel()
+		}
 		if runtimeManager != nil {
 			_ = runtimeManager.Close()
 		}
-		if acpPool != nil {
-			acpPool.Close()
+		if sessionMgr != nil {
+			sessionMgr.Close()
 		}
 		if leadAgent != nil {
 			leadAgent.Shutdown()
@@ -224,6 +267,73 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 		}
 	}
 
+	if bootstrapCfg != nil && bootstrapCfg.V2.ExecutionProbe.Enabled {
+		probeWatchdog := v2engine.NewExecutionProbeWatchdog(v2Store, probeSvc, v2engine.ExecutionProbeWatchdogConfig{
+			Enabled:      bootstrapCfg.V2.ExecutionProbe.Enabled,
+			Interval:     bootstrapCfg.V2.ExecutionProbe.Interval.Duration,
+			ProbeAfter:   bootstrapCfg.V2.ExecutionProbe.After.Duration,
+			IdleAfter:    bootstrapCfg.V2.ExecutionProbe.IdleAfter.Duration,
+			ProbeTimeout: bootstrapCfg.V2.ExecutionProbe.Timeout.Duration,
+			MaxAttempts:  bootstrapCfg.V2.ExecutionProbe.MaxAttempts,
+		})
+		watchCtx, cancel := context.WithCancel(context.Background())
+		probeWatchCancel = cancel
+		go probeWatchdog.Start(watchCtx)
+	}
+
 	slog.Info("v2 engine bootstrapped", "db", v2DBPath)
 	return v2Store, registry, runtimeManager, cleanup, registrar
+}
+
+// buildNATSSessionManager creates a NATS-backed session manager from config.
+func buildNATSSessionManager(cfg *config.Config, store v2core.Store, dataDir string) (*v2engine.NATSSessionManager, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
+	natsCfg := cfg.V2.SessionManager.NATS
+
+	natsURL := strings.TrimSpace(natsCfg.URL)
+	if natsURL == "" && !natsCfg.Embedded {
+		return nil, fmt.Errorf("nats.url is required when mode=nats and embedded=false")
+	}
+
+	if natsCfg.Embedded {
+		// TODO: start embedded NATS server when github.com/nats-io/nats-server/v2 is available.
+		// For now, require an external NATS server.
+		if natsURL == "" {
+			return nil, fmt.Errorf("embedded NATS not yet implemented; provide nats.url")
+		}
+	}
+
+	nc, err := natsConnect(natsURL)
+	if err != nil {
+		return nil, fmt.Errorf("connect to NATS: %w", err)
+	}
+
+	prefix := strings.TrimSpace(natsCfg.StreamPrefix)
+	if prefix == "" {
+		prefix = "aiworkflow"
+	}
+
+	serverID := strings.TrimSpace(cfg.V2.SessionManager.ServerID)
+
+	return v2engine.NewNATSSessionManager(v2engine.NATSSessionManagerConfig{
+		NATSConn:     nc,
+		StreamPrefix: prefix,
+		ServerID:     serverID,
+		Store:        store,
+	})
+}
+
+// natsConnect connects to a NATS server with retry.
+func natsConnect(url string) (*nats.Conn, error) {
+	nc, err := nats.Connect(url,
+		nats.RetryOnFailedConnect(true),
+		nats.MaxReconnects(10),
+		nats.ReconnectWait(2*time.Second),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return nc, nil
 }

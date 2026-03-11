@@ -45,6 +45,10 @@ func (s *Store) ListEvents(ctx context.Context, filter core.EventFilter) ([]*cor
 		conditions = append(conditions, "step_id = ?")
 		args = append(args, *filter.StepID)
 	}
+	if filter.ExecID != nil {
+		conditions = append(conditions, "exec_id = ?")
+		args = append(args, *filter.ExecID)
+	}
 	if len(filter.Types) > 0 {
 		placeholders := make([]string, len(filter.Types))
 		for i, t := range filter.Types {
@@ -94,6 +98,34 @@ func (s *Store) ListEvents(ctx context.Context, filter core.EventFilter) ([]*cor
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+func (s *Store) GetLatestExecutionEventTime(ctx context.Context, execID int64, eventType core.EventType) (*time.Time, error) {
+	var raw sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT MAX(timestamp) FROM events WHERE exec_id = ? AND type = ?`,
+		execID, eventType,
+	).Scan(&raw)
+	if err != nil {
+		return nil, fmt.Errorf("get latest execution event time: %w", err)
+	}
+	if !raw.Valid || strings.TrimSpace(raw.String) == "" {
+		return nil, nil
+	}
+	value, err := time.Parse(time.RFC3339Nano, raw.String)
+	if err != nil {
+		value, err = time.Parse("2006-01-02 15:04:05Z07:00", raw.String)
+	}
+	if err != nil {
+		value, err = time.Parse("2006-01-02 15:04:05", raw.String)
+	}
+	if err != nil {
+		value, err = time.Parse("2006-01-02 15:04:05.999999999 -0700 MST", raw.String)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("parse latest execution event time %q: %w", raw.String, err)
+	}
+	return &value, nil
 }
 
 func nilIfZero(v int64) any {

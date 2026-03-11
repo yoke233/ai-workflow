@@ -140,6 +140,53 @@ func TestRecoverInterruptedFlows_NoInterrupted(t *testing.T) {
 	}
 }
 
+func TestRecoverQueuedFlows_SkipsRunningFlows(t *testing.T) {
+	store := newTestStore(t)
+	bus := NewMemBus()
+	ctx := context.Background()
+
+	queuedFlowID := createTestFlow(t, store, "queued-flow")
+	createTestStep(t, store, queuedFlowID, "queued-step", core.StepExec)
+	store.UpdateFlowStatus(ctx, queuedFlowID, core.FlowQueued)
+
+	runningFlowID := createTestFlow(t, store, "running-flow")
+	runningStepID := createTestStep(t, store, runningFlowID, "running-step", core.StepExec)
+	store.UpdateFlowStatus(ctx, runningFlowID, core.FlowRunning)
+	store.UpdateStepStatus(ctx, runningStepID, core.StepReady)
+	store.UpdateStepStatus(ctx, runningStepID, core.StepRunning)
+
+	var executed atomic.Int32
+	eng := New(store, bus, func(ctx context.Context, step *core.Step, exec *core.Execution) error {
+		executed.Add(1)
+		return nil
+	})
+	sched := NewFlowScheduler(eng, store, bus, FlowSchedulerConfig{MaxConcurrentFlows: 2})
+	schedCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go sched.Start(schedCtx)
+
+	n, err := RecoverQueuedFlows(ctx, store, sched)
+	if err != nil {
+		t.Fatalf("RecoverQueuedFlows: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("recovered = %d, want 1", n)
+	}
+
+	waitFor(t, func() bool {
+		f, _ := store.GetFlow(ctx, queuedFlowID)
+		return f.Status == core.FlowDone
+	}, 3*time.Second)
+
+	runningFlow, _ := store.GetFlow(ctx, runningFlowID)
+	if runningFlow.Status != core.FlowRunning {
+		t.Fatalf("running flow status = %s, want running", runningFlow.Status)
+	}
+	if executed.Load() != 1 {
+		t.Fatalf("executed = %d, want 1 queued flow execution", executed.Load())
+	}
+}
+
 func TestRecoverInterruptedFlows_MultipleFlows(t *testing.T) {
 	store := newTestStore(t)
 	bus := NewMemBus()

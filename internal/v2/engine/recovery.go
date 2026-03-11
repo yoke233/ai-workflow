@@ -14,9 +14,18 @@ import (
 //
 // Call this once during bootstrap, after the scheduler has been started.
 func RecoverInterruptedFlows(ctx context.Context, store core.Store, scheduler *FlowScheduler) (int, error) {
+	return recoverFlowsByStatus(ctx, store, scheduler, []core.FlowStatus{core.FlowQueued, core.FlowRunning})
+}
+
+// RecoverQueuedFlows re-enqueues flows that were queued before the process stopped.
+func RecoverQueuedFlows(ctx context.Context, store core.Store, scheduler *FlowScheduler) (int, error) {
+	return recoverFlowsByStatus(ctx, store, scheduler, []core.FlowStatus{core.FlowQueued})
+}
+
+func recoverFlowsByStatus(ctx context.Context, store core.Store, scheduler *FlowScheduler, statuses []core.FlowStatus) (int, error) {
 	recovered := 0
 
-	for _, status := range []core.FlowStatus{core.FlowQueued, core.FlowRunning} {
+	for _, status := range statuses {
 		flows, err := store.ListFlows(ctx, core.FlowFilter{Status: &status, Limit: 1000})
 		if err != nil {
 			return recovered, fmt.Errorf("list %s flows: %w", status, err)

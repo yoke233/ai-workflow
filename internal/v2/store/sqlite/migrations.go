@@ -108,6 +108,8 @@ CREATE TABLE IF NOT EXISTS agent_contexts (
     session_id TEXT,
     summary TEXT,
     turn_count INTEGER DEFAULT 0,
+    worker_id TEXT NOT NULL DEFAULT '',
+    worker_last_seen_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -120,6 +122,25 @@ CREATE TABLE IF NOT EXISTS events (
     exec_id INTEGER,
     data TEXT,
     timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS execution_probes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_id INTEGER NOT NULL REFERENCES executions(id),
+    flow_id INTEGER NOT NULL,
+    step_id INTEGER NOT NULL,
+    agent_context_id INTEGER,
+    session_id TEXT NOT NULL DEFAULT '',
+    owner_id TEXT NOT NULL DEFAULT '',
+    trigger_source TEXT NOT NULL,
+    question TEXT NOT NULL,
+    status TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    reply_text TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    sent_at DATETIME,
+    answered_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS agent_drivers (
@@ -160,6 +181,8 @@ CREATE INDEX IF NOT EXISTS idx_briefings_step ON briefings(step_id);
 CREATE INDEX IF NOT EXISTS idx_events_flow ON events(flow_id);
 CREATE INDEX IF NOT EXISTS idx_agent_contexts_lookup ON agent_contexts(agent_id, flow_id);
 CREATE INDEX IF NOT EXISTS idx_flows_project ON flows(project_id);
+CREATE INDEX IF NOT EXISTS idx_execution_probes_execution ON execution_probes(execution_id, id);
+CREATE INDEX IF NOT EXISTS idx_execution_probes_active ON execution_probes(execution_id, status, id);
 `
 
 func runMigrations(db *sql.DB) error {
@@ -195,6 +218,28 @@ func runMigrations(db *sql.DB) error {
 		`ALTER TABLE steps ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
 		// Add skills column to agent_profiles (v2 profile skills).
 		`ALTER TABLE agent_profiles ADD COLUMN skills TEXT`,
+		`ALTER TABLE agent_contexts ADD COLUMN worker_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE agent_contexts ADD COLUMN worker_last_seen_at DATETIME`,
+		`CREATE TABLE IF NOT EXISTS execution_probes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            execution_id INTEGER NOT NULL REFERENCES executions(id),
+            flow_id INTEGER NOT NULL,
+            step_id INTEGER NOT NULL,
+            agent_context_id INTEGER,
+            session_id TEXT NOT NULL DEFAULT '',
+            owner_id TEXT NOT NULL DEFAULT '',
+            trigger_source TEXT NOT NULL,
+            question TEXT NOT NULL,
+            status TEXT NOT NULL,
+            verdict TEXT NOT NULL,
+            reply_text TEXT NOT NULL DEFAULT '',
+            error TEXT NOT NULL DEFAULT '',
+            sent_at DATETIME,
+            answered_at DATETIME,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+		`CREATE INDEX IF NOT EXISTS idx_execution_probes_execution ON execution_probes(execution_id, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_execution_probes_active ON execution_probes(execution_id, status, id)`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			if strings.Contains(err.Error(), "duplicate column name") {
