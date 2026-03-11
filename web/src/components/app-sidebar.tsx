@@ -9,7 +9,7 @@ import {
   FolderOpen,
   ChevronsUpDown,
 } from "lucide-react";
-import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "仪表盘" },
@@ -20,7 +20,7 @@ const navItems = [
 ];
 
 export function AppSidebar() {
-  const { projects, selectedProjectId, setSelectedProjectId } = useV2Workbench();
+  const { projects, selectedProjectId, setSelectedProjectId } = useWorkbench();
   const [showPicker, setShowPicker] = useState(false);
   const currentProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null,
@@ -103,3 +103,4 @@ export function AppSidebar() {
     </aside>
   );
 }
+

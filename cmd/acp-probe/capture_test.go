@@ -18,7 +18,7 @@ import (
 	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
-	"github.com/yoke233/ai-workflow/internal/acpclient"
+	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 )
 
 // --- fixture data model ---
@@ -244,3 +244,4 @@ func captureNewSessionAndPrompt(
 	}
 	return client, sessionID
 }
+

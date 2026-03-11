@@ -26,7 +26,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
-import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { cn } from "@/lib/utils";
 import { formatFlowDuration, getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
 import type { Execution, Flow, Step } from "@/types/apiV2";
@@ -149,7 +149,7 @@ const buildGraph = (steps: Step[]): { nodes: Node<StepNodeData>[]; edges: Edge[]
 
 export function FlowDetailPage() {
   const { flowId } = useParams();
-  const { apiClient, projects } = useV2Workbench();
+  const { apiClient, projects } = useWorkbench();
   const numericFlowId = Number.parseInt(flowId ?? "", 10);
   const [flow, setFlow] = useState<Flow | null>(null);
   const [steps, setSteps] = useState<Step[]>([]);
@@ -408,3 +408,4 @@ export function FlowDetailPage() {
     </div>
   );
 }
+

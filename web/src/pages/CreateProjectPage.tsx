@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage } from "@/lib/v2Workbench";
 
 interface ResourceDraft {
@@ -20,7 +20,7 @@ interface ResourceDraft {
 
 export function CreateProjectPage() {
   const navigate = useNavigate();
-  const { apiClient, reloadProjects } = useV2Workbench();
+  const { apiClient, reloadProjects } = useWorkbench();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"dev" | "general">("dev");
   const [description, setDescription] = useState("");
@@ -93,7 +93,7 @@ export function CreateProjectPage() {
           <span className="font-medium text-foreground">新建项目</span>
         </div>
         <h1 className="text-2xl font-bold tracking-tight">新建项目</h1>
-        <p className="text-sm text-muted-foreground">真实写入 v2 项目表，并可同时创建资源绑定。</p>
+        <p className="text-sm text-muted-foreground">真实写入项目表，并可同时创建资源绑定。</p>
       </div>
 
       {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
@@ -224,3 +224,5 @@ export function CreateProjectPage() {
     </div>
   );
 }
+
+

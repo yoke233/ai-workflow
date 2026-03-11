@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
 import { cn } from "@/lib/utils";
 import type { Step } from "@/types/apiV2";
@@ -22,7 +22,7 @@ const stepColors: Record<string, { bg: string; text: string }> = {
 
 export function CreateFlowPage() {
   const navigate = useNavigate();
-  const { apiClient, projects, selectedProjectId } = useV2Workbench();
+  const { apiClient, projects, selectedProjectId } = useWorkbench();
   const [name, setName] = useState("");
   const [projectId, setProjectId] = useState<number | null>(selectedProjectId);
   const [description, setDescription] = useState("");
@@ -105,7 +105,7 @@ export function CreateFlowPage() {
           <span className="font-medium text-foreground">新建流程</span>
         </div>
         <h1 className="text-2xl font-bold tracking-tight">新建流程</h1>
-        <p className="text-sm text-muted-foreground">真实创建 v2 Flow，并支持调用后端 DAG 生成器。</p>
+        <p className="text-sm text-muted-foreground">真实创建 Flow，并支持调用后端 DAG 生成器。</p>
       </div>
 
       {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
@@ -265,3 +265,5 @@ export function CreateFlowPage() {
     </div>
   );
 }
+
+

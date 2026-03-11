@@ -1,7 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import SystemEventBanner from "@/components/SystemEventBanner";
 import { Badge } from "@/components/ui/badge";
-import { V2WorkbenchProvider, useV2Workbench } from "@/contexts/V2WorkbenchContext";
+import { WorkbenchProvider, useWorkbench } from "@/contexts/WorkbenchContext";
 import { AppLayout } from "@/layouts/AppLayout";
 import { AgentsPage } from "@/pages/AgentsPage";
 import { ChatPage } from "@/pages/ChatPage";
@@ -15,21 +15,20 @@ import { ProjectsPage } from "@/pages/ProjectsPage";
 
 interface AppProps {
   a2aEnabledOverride?: boolean;
-  uiVersionOverride?: "v2" | "v3";
 }
 
 const App = (_props: AppProps = {}) => {
   return (
     <BrowserRouter>
-      <V2WorkbenchProvider>
+      <WorkbenchProvider>
         <WorkbenchRoutes />
-      </V2WorkbenchProvider>
+      </WorkbenchProvider>
     </BrowserRouter>
   );
 };
 
 const WorkbenchRoutes = () => {
-  const { authStatus, authError, wsClient } = useV2Workbench();
+  const { authStatus, authError, wsClient } = useWorkbench();
 
   if (authStatus !== "ready") {
     return (
@@ -74,3 +73,4 @@ const WorkbenchRoutes = () => {
 };
 
 export default App;
+

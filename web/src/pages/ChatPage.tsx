@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { cn } from "@/lib/utils";
 import { getErrorMessage } from "@/lib/v2Workbench";
 
@@ -49,7 +49,7 @@ const readSessionsFromStorage = (): SessionRecord[] => {
 };
 
 export function ChatPage() {
-  const { apiClient, selectedProject, selectedProjectId } = useV2Workbench();
+  const { apiClient, selectedProject, selectedProjectId } = useWorkbench();
   const [sessions, setSessions] = useState<SessionRecord[]>(() => readSessionsFromStorage());
   const [activeSession, setActiveSession] = useState<string | null>(() => readSessionsFromStorage()[0]?.id ?? null);
   const [sessionSearch, setSessionSearch] = useState("");
@@ -308,7 +308,7 @@ export function ChatPage() {
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
           {currentMessages.length === 0 ? (
             <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-              还没有消息。当前页已接入真实 `/api/v2/chat`，但后端没有“会话列表”接口，所以左侧列表是浏览器本地保存的最近会话。
+              还没有消息。当前页已接入真实 `/api/chat`，但后端没有“会话列表”接口，所以左侧列表是浏览器本地保存的最近会话。
             </div>
           ) : (
             currentMessages.map((message) => (
@@ -378,3 +378,4 @@ export function ChatPage() {
     </div>
   );
 }
+

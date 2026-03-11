@@ -20,7 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
-import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { cn } from "@/lib/utils";
 import {
   formatFlowDuration,
@@ -39,7 +39,7 @@ interface StatCard {
 }
 
 export function DashboardPage() {
-  const { apiClient, selectedProject, selectedProjectId, projects } = useV2Workbench();
+  const { apiClient, selectedProject, selectedProjectId, projects } = useWorkbench();
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [flows, setFlows] = useState<Flow[]>([]);
   const [schedulerStats, setSchedulerStats] = useState<SchedulerStats | null>(null);
@@ -145,7 +145,7 @@ export function DashboardPage() {
                 创建第一个项目
               </Button>
             </Link>
-            <p className="text-sm text-muted-foreground">创建完成后，仪表盘会自动展示真实的 v2 Flow 数据。</p>
+            <p className="text-sm text-muted-foreground">创建完成后，仪表盘会自动展示真实 Flow 数据。</p>
           </CardContent>
         </Card>
       </div>
@@ -311,3 +311,5 @@ export function DashboardPage() {
     </div>
   );
 }
+
+

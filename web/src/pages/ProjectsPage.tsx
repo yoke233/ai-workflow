@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage } from "@/lib/v2Workbench";
 
 interface ProjectMetrics {
@@ -16,7 +16,7 @@ interface ProjectMetrics {
 }
 
 export function ProjectsPage() {
-  const { apiClient, projects, selectedProjectId, setSelectedProjectId, reloadProjects } = useV2Workbench();
+  const { apiClient, projects, selectedProjectId, setSelectedProjectId, reloadProjects } = useWorkbench();
   const [search, setSearch] = useState("");
   const [metrics, setMetrics] = useState<Record<number, ProjectMetrics>>({});
   const [loading, setLoading] = useState(false);
@@ -93,7 +93,7 @@ export function ProjectsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">项目</h1>
-          <p className="text-sm text-muted-foreground">真实读取 v2 项目与资源绑定，支持切换当前工作区。</p>
+          <p className="text-sm text-muted-foreground">真实读取项目与资源绑定，支持切换当前工作区。</p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="outline" onClick={() => void reloadProjects(selectedProjectId)}>
@@ -187,3 +187,5 @@ export function ProjectsPage() {
     </div>
   );
 }
+
+

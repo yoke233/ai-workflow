@@ -2,14 +2,22 @@ package core
 
 import "time"
 
-// Project represents a managed codebase that Runs operate on.
+// ProjectKind categorizes the type of project for workspace strategy selection.
+type ProjectKind string
+
+const (
+	ProjectDev     ProjectKind = "dev"
+	ProjectGeneral ProjectKind = "general"
+)
+
+// Project is a pure organizational container for grouping Flows.
+// It does NOT store repo/workspace info — use ResourceBinding for that.
 type Project struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	RepoPath      string    `json:"repo_path"`
-	GitHubOwner   string    `json:"github_owner,omitempty"`
-	GitHubRepo    string    `json:"github_repo,omitempty"`
-	DefaultBranch string    `json:"default_branch,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID          int64             `json:"id"`
+	Name        string            `json:"name"`
+	Kind        ProjectKind       `json:"kind"`
+	Description string            `json:"description,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
 }

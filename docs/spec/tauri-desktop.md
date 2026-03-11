@@ -20,7 +20,7 @@
 - 启动时：Tauri 先选择一个空闲端口，然后拉起 `ai-flow server --port <port>`。
 - 数据目录：sidecar 会使用 `AI_WORKFLOW_DATA_DIR`（由 Tauri 指向 app_data_dir 下的 `ai-workflow/`）存放 `config.toml` 与 `secrets.toml`。
 - 认证：前端通过 `desktop_bootstrap` 读取 `secrets.toml` 中的 `tokens.admin.token`，并保存到 `localStorage`。
-- API/WS：前端会把 baseUrl 切换为 `http://127.0.0.1:<port>/api/v1` / `/api/v2` 与对应 WS。
+- API/WS：当前桌面端注入 `api_base_url`，工作台统一使用 `http://127.0.0.1:<port>/api`。
 
 ## 开发与构建
 

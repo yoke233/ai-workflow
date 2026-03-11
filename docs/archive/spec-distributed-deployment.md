@@ -359,7 +359,7 @@ server:
 | `internal/plugins/workspace-cloud/cloud.go` | 新插件 |
 | `internal/plugins/factory/factory.go` | 注册 `workspace-cloud`，按配置选择 |
 | `internal/teamleader/tl_proxy.go` | 新组件 |
-| `internal/web/handlers_v3.go` | TL 注册 API（4 端点） |
+| `internal/web/handlers_v1_routes.go` | TL 注册 API（4 端点） |
 | `cmd/ai-flow/commands.go` | `local-tl` 子命令 + TLProxy 集成 |
 | `Dockerfile` | 新文件 |
 | `docker-compose.yml` | 新文件 |

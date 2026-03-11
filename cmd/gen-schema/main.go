@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/invopop/jsonschema"
-	"github.com/yoke233/ai-workflow/internal/config"
+	"github.com/yoke233/ai-workflow/internal/platform/config"
 )
 
 func main() {
@@ -50,18 +50,14 @@ func main() {
 
 func addDescriptions(schema *jsonschema.Schema) {
 	topDescs := map[string]string{
-		"agents":        "Agent 启动配置（ACP 启动命令、能力上限）",
-		"roles":         "角色定义（绑定 agent、能力、提示词模板）",
-		"role_bindings": "角色绑定（team_leader、run 阶段、review 分配）",
-		"run":           "Run 执行默认值（超时、模板、重试）",
-		"scheduler":     "并发调度限制（全局 agent 数、项目 run 数）",
-		"team_leader":   "Team Leader 编排设置（审核门、DAG 调度器）",
-		"a2a":           "Agent-to-Agent 协议设置",
-		"server":        "HTTP 服务器设置（监听地址、端口、认证）",
-		"github":        "GitHub 集成（App、Webhook、PR 自动化）",
-		"store":         "持久化后端（SQLite 驱动和路径）",
-		"context":       "上下文存储提供者设置",
-		"log":           "日志配置（级别、文件轮转）",
+		"run":       "Run 执行默认值（超时、模板、重试）",
+		"scheduler": "并发调度限制（全局 agent 数、项目 run 数）",
+		"server":    "HTTP 服务器设置（监听地址、端口）",
+		"github":    "GitHub 集成（App、Webhook、PR 自动化）",
+		"store":     "持久化后端（SQLite 驱动和路径）",
+		"context":   "上下文存储提供者设置",
+		"log":       "日志配置（级别、文件轮转）",
+		"runtime":   "运行时引擎配置（drivers、profiles、sandbox、mcp、prompts）",
 	}
 
 	if schema.Properties != nil {
@@ -73,18 +69,6 @@ func addDescriptions(schema *jsonschema.Schema) {
 	}
 
 	fieldDescs := map[string]map[string]string{
-		"AgentProfileConfig": {
-			"name": "Agent 标识符（唯一）", "launch_command": "启动命令（如 npx）",
-			"launch_args": "启动参数列表", "env": "注入的环境变量",
-			"capabilities_max": "能力上限（角色能力不能超出此上限）",
-		},
-		"RoleConfig": {
-			"name": "角色名称（唯一）", "agent": "引用的 agent 名称",
-			"prompt_template": "提示词模板名（对应 prompt_templates/{name}.tmpl）",
-			"capabilities":    "角色能力（必须 ≤ agent capabilities_max）",
-			"session":         "ACP 会话策略", "permission_policy": "文件/终端权限规则",
-			"mcp": "MCP 工具注入配置",
-		},
 		"RunConfig": {
 			"default_template": "默认 run 模板（standard / fast_release 等）",
 			"global_timeout":   "单次 run 全局超时", "auto_infer_template": "是否自动推断模板",
@@ -94,19 +78,8 @@ func addDescriptions(schema *jsonschema.Schema) {
 			"max_global_agents": "全局最多同时运行的 agent 数",
 			"max_project_runs":  "每个项目最多的并发 run 数",
 		},
-		"TeamLeaderConfig": {
-			"review_gate_plugin":  "审核门插件（review-ai-panel / review-local / review-github-pr）",
-			"review_orchestrator": "多 agent 审核编排设置",
-			"dag_scheduler":       "DAG 任务调度器设置",
-		},
-		"A2AConfig": {
-			"enabled": "是否启用 A2A 协议",
-			"token":   "认证 token（自动生成到 secrets.yaml）",
-			"version": "A2A 协议版本",
-		},
 		"ServerConfig": {
 			"host": "监听地址（127.0.0.1 = 仅本地）", "port": "监听端口",
-			"auth_enabled": "是否启用 API 认证", "auth_token": "API 认证 token",
 		},
 		"StoreConfig":   {"driver": "存储驱动（sqlite）", "path": "数据库文件路径（相对项目根目录）"},
 		"ContextConfig": {"provider": "上下文提供者（context-sqlite / mock / 空=禁用）", "path": "SQLite 文件路径"},
@@ -114,12 +87,28 @@ func addDescriptions(schema *jsonschema.Schema) {
 			"level": "日志级别（debug / info / warn / error）", "file": "日志文件路径",
 			"max_size_mb": "单个日志文件最大 MB", "max_age_days": "日志保留天数",
 		},
-		"SessionConfig": {
-			"reuse": "是否复用 ACP session", "prefer_load_session": "崩溃恢复优先 LoadSession",
-			"reset_prompt": "每次重发 system prompt", "max_turns": "单 session 最大交互轮数",
-		},
-		"MCPConfig":          {"enabled": "是否启用 MCP 工具注入", "tools": "注入的 MCP 工具名列表"},
 		"CapabilitiesConfig": {"fs_read": "文件系统读权限", "fs_write": "文件系统写权限", "terminal": "终端执行权限"},
+		"MCPConfig":          {"enabled": "是否启用 MCP 工具注入", "tools": "注入的 MCP 工具名列表"},
+		"RuntimeConfig": {
+			"mock_executor": "是否使用本地 stub 执行器",
+			"collector":     "运行时元数据采集配置",
+			"sandbox":       "运行时沙箱配置",
+			"agents":        "运行时 driver 和 profile 配置",
+			"mcp":           "运行时 MCP server 与绑定配置",
+			"prompts":       "运行时提示词模板",
+		},
+		"RuntimeDriverConfig": {
+			"id": "driver 唯一标识", "launch_command": "启动命令", "launch_args": "启动参数",
+			"env": "注入环境变量", "capabilities_max": "能力上限",
+		},
+		"RuntimeProfileConfig": {
+			"id": "profile 唯一标识", "name": "展示名称", "driver": "引用的 driver ID",
+			"role": "运行时角色", "capabilities": "能力标签", "actions_allowed": "允许动作",
+			"prompt_template": "提示词模板名", "skills": "启用 skill 列表", "session": "会话复用配置", "mcp": "MCP 配置",
+		},
+		"RuntimeSessionConfig": {
+			"reuse": "是否复用 session", "max_turns": "单 session 最大轮数", "idle_ttl": "空闲过期时间",
+		},
 		"GitHubConfig": {
 			"enabled": "是否启用 GitHub 集成", "token": "GitHub PAT（或通过 secrets.yaml）",
 			"app_id": "GitHub App ID", "private_key_path": "GitHub App 私钥路径",

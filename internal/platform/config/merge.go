@@ -1,0 +1,458 @@
+package config
+
+import "fmt"
+
+func MergeForRun(global *Config, project *ConfigLayer, override map[string]any) (*Config, error) {
+	merged := Defaults()
+	if global != nil {
+		merged = cloneConfig(*global)
+	}
+
+	ApplyConfigLayer(&merged, project)
+
+	if len(override) > 0 {
+		layer, err := decodeLayerFromMap(override)
+		if err != nil {
+			return nil, fmt.Errorf("decode Run override: %w", err)
+		}
+		ApplyConfigLayer(&merged, layer)
+	}
+
+	if err := ApplyEnvOverrides(&merged); err != nil {
+		return nil, err
+	}
+	if err := validateConfig(&merged); err != nil {
+		return nil, err
+	}
+	return &merged, nil
+}
+
+func cloneConfig(in Config) Config {
+	out := in
+	out.GitHub = cloneGitHubConfig(in.GitHub)
+	out.Runtime = cloneRuntimeConfig(in.Runtime)
+	return out
+}
+
+func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
+	if cfg == nil || layer == nil {
+		return
+	}
+
+	if run := layer.Run; run != nil {
+		if run.DefaultTemplate != nil {
+			cfg.Run.DefaultTemplate = *run.DefaultTemplate
+		}
+		if run.GlobalTimeout != nil {
+			cfg.Run.GlobalTimeout = *run.GlobalTimeout
+		}
+		if run.AutoInferTemplate != nil {
+			cfg.Run.AutoInferTemplate = *run.AutoInferTemplate
+		}
+		if run.MaxTotalRetries != nil {
+			cfg.Run.MaxTotalRetries = *run.MaxTotalRetries
+		}
+	}
+
+	if scheduler := layer.Scheduler; scheduler != nil {
+		if scheduler.MaxGlobalAgents != nil {
+			cfg.Scheduler.MaxGlobalAgents = *scheduler.MaxGlobalAgents
+		}
+		if scheduler.MaxProjectRuns != nil {
+			cfg.Scheduler.MaxProjectRuns = *scheduler.MaxProjectRuns
+		}
+		if watchdog := scheduler.Watchdog; watchdog != nil {
+			if watchdog.Enabled != nil {
+				cfg.Scheduler.Watchdog.Enabled = *watchdog.Enabled
+			}
+			if watchdog.Interval != nil {
+				cfg.Scheduler.Watchdog.Interval = *watchdog.Interval
+			}
+			if watchdog.StuckRunTTL != nil {
+				cfg.Scheduler.Watchdog.StuckRunTTL = *watchdog.StuckRunTTL
+			}
+			if watchdog.StuckMergeTTL != nil {
+				cfg.Scheduler.Watchdog.StuckMergeTTL = *watchdog.StuckMergeTTL
+			}
+			if watchdog.QueueStaleTTL != nil {
+				cfg.Scheduler.Watchdog.QueueStaleTTL = *watchdog.QueueStaleTTL
+			}
+		}
+	}
+
+	if server := layer.Server; server != nil {
+		if server.Host != nil {
+			cfg.Server.Host = *server.Host
+		}
+		if server.Port != nil {
+			cfg.Server.Port = *server.Port
+		}
+	}
+
+	if github := layer.GitHub; github != nil {
+		if github.Enabled != nil {
+			cfg.GitHub.Enabled = *github.Enabled
+		}
+		if github.Token != nil {
+			cfg.GitHub.Token = *github.Token
+		}
+		if github.AppID != nil {
+			cfg.GitHub.AppID = *github.AppID
+		}
+		if github.PrivateKeyPath != nil {
+			cfg.GitHub.PrivateKeyPath = *github.PrivateKeyPath
+		}
+		if github.InstallationID != nil {
+			cfg.GitHub.InstallationID = *github.InstallationID
+		}
+		if github.Owner != nil {
+			cfg.GitHub.Owner = *github.Owner
+		}
+		if github.Repo != nil {
+			cfg.GitHub.Repo = *github.Repo
+		}
+		if github.WebhookSecret != nil {
+			cfg.GitHub.WebhookSecret = *github.WebhookSecret
+		}
+		if github.WebhookEnabled != nil {
+			cfg.GitHub.WebhookEnabled = *github.WebhookEnabled
+		}
+		if github.PREnabled != nil {
+			cfg.GitHub.PREnabled = *github.PREnabled
+		}
+		if github.LabelMapping != nil {
+			cfg.GitHub.LabelMapping = cloneStringMap(*github.LabelMapping)
+		}
+		if github.AuthorizedUsernames != nil {
+			cfg.GitHub.AuthorizedUsernames = cloneStringSlice(*github.AuthorizedUsernames)
+		}
+		if github.AutoTrigger != nil {
+			cfg.GitHub.AutoTrigger = *github.AutoTrigger
+		}
+		if github.AllowPATFallback != nil {
+			cfg.GitHub.AllowPATFallback = *github.AllowPATFallback
+		}
+		if pr := github.PR; pr != nil {
+			if pr.AutoCreate != nil {
+				cfg.GitHub.PR.AutoCreate = *pr.AutoCreate
+			}
+			if pr.Draft != nil {
+				cfg.GitHub.PR.Draft = *pr.Draft
+			}
+			if pr.AutoMerge != nil {
+				cfg.GitHub.PR.AutoMerge = *pr.AutoMerge
+			}
+			if pr.Reviewers != nil {
+				cfg.GitHub.PR.Reviewers = cloneStringSlice(*pr.Reviewers)
+			}
+			if pr.Labels != nil {
+				cfg.GitHub.PR.Labels = cloneStringSlice(*pr.Labels)
+			}
+			if pr.BranchPrefix != nil {
+				cfg.GitHub.PR.BranchPrefix = *pr.BranchPrefix
+			}
+		}
+	}
+
+	if store := layer.Store; store != nil {
+		if store.Driver != nil {
+			cfg.Store.Driver = *store.Driver
+		}
+		if store.Path != nil {
+			cfg.Store.Path = *store.Path
+		}
+	}
+
+	if ctx := layer.Context; ctx != nil {
+		if ctx.Provider != nil {
+			cfg.Context.Provider = *ctx.Provider
+		}
+		if ctx.Path != nil {
+			cfg.Context.Path = *ctx.Path
+		}
+	}
+
+	if log := layer.Log; log != nil {
+		if log.Level != nil {
+			cfg.Log.Level = *log.Level
+		}
+		if log.File != nil {
+			cfg.Log.File = *log.File
+		}
+		if log.MaxSizeMB != nil {
+			cfg.Log.MaxSizeMB = *log.MaxSizeMB
+		}
+		if log.MaxAgeDays != nil {
+			cfg.Log.MaxAgeDays = *log.MaxAgeDays
+		}
+	}
+
+	if runtime := layer.Runtime; runtime != nil {
+		if collector := runtime.Collector; collector != nil {
+			if collector.MaxRetries != nil {
+				cfg.Runtime.Collector.MaxRetries = *collector.MaxRetries
+			}
+			if openaiCfg := collector.OpenAI; openaiCfg != nil {
+				if openaiCfg.BaseURL != nil {
+					cfg.Runtime.Collector.OpenAI.BaseURL = *openaiCfg.BaseURL
+				}
+				if openaiCfg.APIKey != nil {
+					cfg.Runtime.Collector.OpenAI.APIKey = *openaiCfg.APIKey
+				}
+				if openaiCfg.Model != nil {
+					cfg.Runtime.Collector.OpenAI.Model = *openaiCfg.Model
+				}
+			}
+		}
+		if sandbox := runtime.Sandbox; sandbox != nil {
+			if sandbox.Enabled != nil {
+				cfg.Runtime.Sandbox.Enabled = *sandbox.Enabled
+			}
+			if sandbox.Provider != nil {
+				cfg.Runtime.Sandbox.Provider = *sandbox.Provider
+			}
+			if litebox := sandbox.LiteBox; litebox != nil {
+				if litebox.BridgeCommand != nil {
+					cfg.Runtime.Sandbox.LiteBox.BridgeCommand = *litebox.BridgeCommand
+				}
+				if litebox.BridgeArgs != nil {
+					cfg.Runtime.Sandbox.LiteBox.BridgeArgs = cloneStringSlice(*litebox.BridgeArgs)
+				}
+				if litebox.RunnerPath != nil {
+					cfg.Runtime.Sandbox.LiteBox.RunnerPath = *litebox.RunnerPath
+				}
+				if litebox.RunnerArgs != nil {
+					cfg.Runtime.Sandbox.LiteBox.RunnerArgs = cloneStringSlice(*litebox.RunnerArgs)
+				}
+			}
+		}
+		if agents := runtime.Agents; agents != nil {
+			if agents.Drivers != nil {
+				cfg.Runtime.Agents.Drivers = cloneRuntimeDrivers(*agents.Drivers)
+			}
+			if agents.Profiles != nil {
+				cfg.Runtime.Agents.Profiles = cloneRuntimeProfiles(*agents.Profiles)
+			}
+		}
+		if mcp := runtime.MCP; mcp != nil {
+			if mcp.Servers != nil {
+				cfg.Runtime.MCP.Servers = cloneRuntimeMCPServers(*mcp.Servers)
+			}
+			if mcp.ProfileBindings != nil {
+				cfg.Runtime.MCP.ProfileBindings = cloneRuntimeMCPBindings(*mcp.ProfileBindings)
+			}
+		}
+		if sm := runtime.SessionManager; sm != nil {
+			if sm.Mode != nil {
+				cfg.Runtime.SessionManager.Mode = *sm.Mode
+			}
+			if sm.ServerID != nil {
+				cfg.Runtime.SessionManager.ServerID = *sm.ServerID
+			}
+			if n := sm.NATS; n != nil {
+				if n.URL != nil {
+					cfg.Runtime.SessionManager.NATS.URL = *n.URL
+				}
+				if n.Embedded != nil {
+					cfg.Runtime.SessionManager.NATS.Embedded = *n.Embedded
+				}
+				if n.EmbeddedDataDir != nil {
+					cfg.Runtime.SessionManager.NATS.EmbeddedDataDir = *n.EmbeddedDataDir
+				}
+				if n.StreamPrefix != nil {
+					cfg.Runtime.SessionManager.NATS.StreamPrefix = *n.StreamPrefix
+				}
+			}
+		}
+		if probe := runtime.ExecutionProbe; probe != nil {
+			if probe.Enabled != nil {
+				cfg.Runtime.ExecutionProbe.Enabled = *probe.Enabled
+			}
+			if probe.Interval != nil {
+				cfg.Runtime.ExecutionProbe.Interval = *probe.Interval
+			}
+			if probe.After != nil {
+				cfg.Runtime.ExecutionProbe.After = *probe.After
+			}
+			if probe.IdleAfter != nil {
+				cfg.Runtime.ExecutionProbe.IdleAfter = *probe.IdleAfter
+			}
+			if probe.Timeout != nil {
+				cfg.Runtime.ExecutionProbe.Timeout = *probe.Timeout
+			}
+			if probe.MaxAttempts != nil {
+				cfg.Runtime.ExecutionProbe.MaxAttempts = *probe.MaxAttempts
+			}
+		}
+		if prompts := runtime.Prompts; prompts != nil {
+			if prompts.ReworkFollowup != nil {
+				cfg.Runtime.Prompts.ReworkFollowup = *prompts.ReworkFollowup
+			}
+			if prompts.ContinueFollowup != nil {
+				cfg.Runtime.Prompts.ContinueFollowup = *prompts.ContinueFollowup
+			}
+			if prompts.PRImplementObjective != nil {
+				cfg.Runtime.Prompts.PRImplementObjective = *prompts.PRImplementObjective
+			}
+			if prompts.PRGateObjective != nil {
+				cfg.Runtime.Prompts.PRGateObjective = *prompts.PRGateObjective
+			}
+			if prompts.PRMergeReworkFeedback != nil {
+				cfg.Runtime.Prompts.PRMergeReworkFeedback = *prompts.PRMergeReworkFeedback
+			}
+			mergeRuntimePromptProviders(&cfg.Runtime.Prompts.PRProviders, prompts.PRProviders)
+		}
+	}
+}
+
+func mergeRuntimePromptProviders(dst *RuntimePRPromptProvidersConfig, src *RuntimePRPromptProvidersLayer) {
+	if dst == nil || src == nil {
+		return
+	}
+	mergeRuntimePromptProvider(&dst.GitHub, src.GitHub)
+	mergeRuntimePromptProvider(&dst.CodeUp, src.CodeUp)
+	mergeRuntimePromptProvider(&dst.GitLab, src.GitLab)
+}
+
+func mergeRuntimePromptProvider(dst *RuntimePRProviderPromptConfig, src *RuntimePRProviderPromptLayer) {
+	if dst == nil || src == nil {
+		return
+	}
+	if src.ImplementObjective != nil {
+		dst.ImplementObjective = *src.ImplementObjective
+	}
+	if src.GateObjective != nil {
+		dst.GateObjective = *src.GateObjective
+	}
+	if src.MergeReworkFeedback != nil {
+		dst.MergeReworkFeedback = *src.MergeReworkFeedback
+	}
+	mergeRuntimePromptMergeStates(&dst.MergeStates, src.MergeStates)
+}
+
+func mergeRuntimePromptMergeStates(dst *RuntimePRMergeStatePromptConfig, src *RuntimePRMergeStatePromptLayer) {
+	if dst == nil || src == nil {
+		return
+	}
+	if src.Default != nil {
+		dst.Default = *src.Default
+	}
+	if src.Dirty != nil {
+		dst.Dirty = *src.Dirty
+	}
+	if src.Blocked != nil {
+		dst.Blocked = *src.Blocked
+	}
+	if src.Behind != nil {
+		dst.Behind = *src.Behind
+	}
+	if src.Unstable != nil {
+		dst.Unstable = *src.Unstable
+	}
+	if src.Draft != nil {
+		dst.Draft = *src.Draft
+	}
+}
+
+func cloneGitHubConfig(in GitHubConfig) GitHubConfig {
+	out := in
+	out.LabelMapping = cloneStringMap(in.LabelMapping)
+	out.AuthorizedUsernames = cloneStringSlice(in.AuthorizedUsernames)
+	out.PR.Reviewers = cloneStringSlice(in.PR.Reviewers)
+	out.PR.Labels = cloneStringSlice(in.PR.Labels)
+	return out
+}
+
+func cloneStringSlice(in []string) []string {
+	if in == nil {
+		return nil
+	}
+	return append([]string(nil), in...)
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneRuntimeConfig(in RuntimeConfig) RuntimeConfig {
+	out := in
+	out.Sandbox.LiteBox.BridgeArgs = cloneStringSlice(in.Sandbox.LiteBox.BridgeArgs)
+	out.Sandbox.LiteBox.RunnerArgs = cloneStringSlice(in.Sandbox.LiteBox.RunnerArgs)
+	out.Agents.Drivers = cloneRuntimeDrivers(in.Agents.Drivers)
+	out.Agents.Profiles = cloneRuntimeProfiles(in.Agents.Profiles)
+	out.MCP.Servers = cloneRuntimeMCPServers(in.MCP.Servers)
+	out.MCP.ProfileBindings = cloneRuntimeMCPBindings(in.MCP.ProfileBindings)
+	return out
+}
+
+func cloneRuntimeDrivers(in []RuntimeDriverConfig) []RuntimeDriverConfig {
+	if in == nil {
+		return nil
+	}
+	out := make([]RuntimeDriverConfig, len(in))
+	for i := range in {
+		out[i] = in[i]
+		if in[i].LaunchArgs != nil {
+			out[i].LaunchArgs = append([]string(nil), in[i].LaunchArgs...)
+		}
+		if in[i].Env != nil {
+			out[i].Env = cloneStringMap(in[i].Env)
+		}
+	}
+	return out
+}
+
+func cloneRuntimeProfiles(in []RuntimeProfileConfig) []RuntimeProfileConfig {
+	if in == nil {
+		return nil
+	}
+	out := make([]RuntimeProfileConfig, len(in))
+	for i := range in {
+		out[i] = in[i]
+		if in[i].Capabilities != nil {
+			out[i].Capabilities = cloneStringSlice(in[i].Capabilities)
+		}
+		if in[i].ActionsAllowed != nil {
+			out[i].ActionsAllowed = cloneStringSlice(in[i].ActionsAllowed)
+		}
+		if in[i].Skills != nil {
+			out[i].Skills = cloneStringSlice(in[i].Skills)
+		}
+		if in[i].MCP.Tools != nil {
+			out[i].MCP.Tools = cloneStringSlice(in[i].MCP.Tools)
+		}
+	}
+	return out
+}
+
+func cloneRuntimeMCPServers(in []RuntimeMCPServerConfig) []RuntimeMCPServerConfig {
+	if in == nil {
+		return nil
+	}
+	out := make([]RuntimeMCPServerConfig, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].Args = cloneStringSlice(in[i].Args)
+		out[i].Env = cloneStringMap(in[i].Env)
+	}
+	return out
+}
+
+func cloneRuntimeMCPBindings(in []RuntimeMCPProfileBindingConfig) []RuntimeMCPProfileBindingConfig {
+	if in == nil {
+		return nil
+	}
+	out := make([]RuntimeMCPProfileBindingConfig, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].Tools = cloneStringSlice(in[i].Tools)
+	}
+	return out
+}

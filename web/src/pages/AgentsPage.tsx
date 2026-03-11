@@ -10,7 +10,7 @@ import {
 import {
   Dialog, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter,
 } from "@/components/ui/dialog";
-import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { cn } from "@/lib/utils";
 import { getErrorMessage } from "@/lib/v2Workbench";
 import type { AgentDriver, AgentProfile } from "@/types/apiV2";
@@ -25,7 +25,7 @@ const roleBadgeVariant: Record<string, "info" | "warning" | "default" | "seconda
 const ALL_CAPS = ["fs_read", "fs_write", "terminal"] as const;
 
 export function AgentsPage() {
-  const { apiClient } = useV2Workbench();
+  const { apiClient } = useWorkbench();
   const [drivers, setDrivers] = useState<AgentDriver[]>([]);
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -123,7 +123,7 @@ export function AgentsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">代理管理</h1>
-          <p className="text-sm text-muted-foreground">读取和写入 v2 registry 中的 drivers 与 profiles。</p>
+          <p className="text-sm text-muted-foreground">读取和写入 runtime registry 中的 drivers 与 profiles。</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setDriverDialogOpen(true)}>
@@ -240,7 +240,7 @@ export function AgentsPage() {
       <Dialog open={driverDialogOpen} onClose={() => setDriverDialogOpen(false)} className="max-w-md">
         <DialogHeader>
           <DialogTitle>新建驱动</DialogTitle>
-          <DialogDescription>创建后直接写入 `/api/v2/agents/drivers`。</DialogDescription>
+          <DialogDescription>创建后直接写入 `/api/agents/drivers`。</DialogDescription>
         </DialogHeader>
         <DialogBody>
           <div className="space-y-1.5">
@@ -342,3 +342,5 @@ export function AgentsPage() {
     </div>
   );
 }
+
+

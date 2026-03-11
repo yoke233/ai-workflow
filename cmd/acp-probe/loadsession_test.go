@@ -16,8 +16,8 @@ import (
 	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
-	"github.com/yoke233/ai-workflow/internal/acpclient"
 	"github.com/yoke233/ai-workflow/internal/teamleader"
+	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 )
 
 // codexLaunchConfig returns a LaunchConfig that spawns a real codex-acp process.
@@ -223,3 +223,4 @@ func TestLoadSessionReplaysEvents(t *testing.T) {
 
 	t.Log("=== Test complete ===")
 }
+

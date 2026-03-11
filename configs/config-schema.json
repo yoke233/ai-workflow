@@ -2,138 +2,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$ref": "#/$defs/Config",
   "$defs": {
-    "A2AConfig": {
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "是否启用 A2A 协议"
-        },
-        "token": {
-          "type": "string",
-          "description": "认证 token（自动生成到 secrets.yaml）"
-        },
-        "version": {
-          "type": "string",
-          "description": "A2A 协议版本"
-        }
-      },
-      "type": "object",
-      "required": [
-        "enabled",
-        "token",
-        "version"
-      ]
-    },
-    "AgentConfig": {
-      "properties": {
-        "plugin": {
-          "type": "string"
-        },
-        "binary": {
-          "type": "string"
-        },
-        "default_max_turns": {
-          "type": "integer"
-        },
-        "default_tools": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "model": {
-          "type": "string"
-        },
-        "reasoning": {
-          "type": "string"
-        },
-        "sandbox": {
-          "type": "string"
-        },
-        "approval": {
-          "type": "string"
-        },
-        "capabilities_max": {
-          "$ref": "#/$defs/CapabilitiesConfig"
-        }
-      },
-      "type": "object",
-      "required": [
-        "plugin",
-        "binary",
-        "default_max_turns",
-        "default_tools",
-        "model",
-        "reasoning",
-        "sandbox",
-        "approval",
-        "capabilities_max"
-      ]
-    },
-    "AgentProfileConfig": {
-      "properties": {
-        "name": {
-          "type": "string",
-          "description": "Agent 标识符（唯一）"
-        },
-        "launch_command": {
-          "type": "string",
-          "description": "启动命令（如 npx）"
-        },
-        "launch_args": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array",
-          "description": "启动参数列表"
-        },
-        "env": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": "object",
-          "description": "注入的环境变量"
-        },
-        "capabilities_max": {
-          "$ref": "#/$defs/CapabilitiesConfig",
-          "description": "能力上限（角色能力不能超出此上限）"
-        }
-      },
-      "type": "object",
-      "required": [
-        "name",
-        "launch_command",
-        "launch_args",
-        "env",
-        "capabilities_max"
-      ]
-    },
-    "AgentsConfig": {
-      "properties": {
-        "claude": {
-          "$ref": "#/$defs/AgentConfig"
-        },
-        "codex": {
-          "$ref": "#/$defs/AgentConfig"
-        },
-        "openspec": {
-          "$ref": "#/$defs/AgentConfig"
-        },
-        "profiles": {
-          "items": {
-            "$ref": "#/$defs/AgentProfileConfig"
-          },
-          "type": "array"
-        }
-      },
-      "type": "object",
-      "required": [
-        "claude",
-        "codex",
-        "openspec",
-        "profiles"
-      ]
-    },
     "CapabilitiesConfig": {
       "properties": {
         "fs_read": {
@@ -158,29 +26,11 @@
     },
     "Config": {
       "properties": {
-        "agents": {
-          "$ref": "#/$defs/AgentsConfig"
-        },
-        "roles": {
-          "items": {
-            "$ref": "#/$defs/RoleConfig"
-          },
-          "type": "array"
-        },
-        "role_bindings": {
-          "$ref": "#/$defs/RoleBindings"
-        },
         "run": {
           "$ref": "#/$defs/RunConfig"
         },
         "scheduler": {
           "$ref": "#/$defs/SchedulerConfig"
-        },
-        "team_leader": {
-          "$ref": "#/$defs/TeamLeaderConfig"
-        },
-        "a2a": {
-          "$ref": "#/$defs/A2AConfig"
         },
         "server": {
           "$ref": "#/$defs/ServerConfig"
@@ -200,26 +50,21 @@
         "llm_filter": {
           "$ref": "#/$defs/LLMFilterConfig"
         },
-        "v2": {
-          "$ref": "#/$defs/V2Config"
+        "runtime": {
+          "$ref": "#/$defs/RuntimeConfig"
         }
       },
       "type": "object",
       "required": [
-        "agents",
-        "roles",
-        "role_bindings",
         "run",
         "scheduler",
-        "team_leader",
-        "a2a",
         "server",
         "github",
         "store",
         "context",
         "log",
         "llm_filter",
-        "v2"
+        "runtime"
       ]
     },
     "ContextConfig": {
@@ -237,17 +82,6 @@
       "required": [
         "provider",
         "path"
-      ]
-    },
-    "DAGSchedulerConfig": {
-      "properties": {
-        "max_concurrent_tasks": {
-          "type": "integer"
-        }
-      },
-      "type": "object",
-      "required": [
-        "max_concurrent_tasks"
       ]
     },
     "GitHubConfig": {
@@ -445,122 +279,6 @@
         "tools"
       ]
     },
-    "PermissionRule": {
-      "properties": {
-        "pattern": {
-          "type": "string"
-        },
-        "action": {
-          "type": "string"
-        },
-        "scope": {
-          "type": "string"
-        }
-      },
-      "type": "object",
-      "required": [
-        "pattern",
-        "action",
-        "scope"
-      ]
-    },
-    "ReviewOrchestratorConfig": {
-      "properties": {
-        "max_rounds": {
-          "type": "integer"
-        }
-      },
-      "type": "object",
-      "required": [
-        "max_rounds"
-      ]
-    },
-    "ReviewRoleBindings": {
-      "properties": {
-        "reviewers": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": "object"
-        },
-        "aggregator": {
-          "type": "string"
-        }
-      },
-      "type": "object",
-      "required": [
-        "reviewers",
-        "aggregator"
-      ]
-    },
-    "RoleBindings": {
-      "properties": {
-        "team_leader": {
-          "$ref": "#/$defs/SingleRoleBinding"
-        },
-        "run": {
-          "$ref": "#/$defs/RunRoleBindings"
-        },
-        "review_orchestrator": {
-          "$ref": "#/$defs/ReviewRoleBindings"
-        },
-        "plan_parser": {
-          "$ref": "#/$defs/SingleRoleBinding"
-        }
-      },
-      "type": "object",
-      "required": [
-        "team_leader",
-        "run",
-        "review_orchestrator",
-        "plan_parser"
-      ]
-    },
-    "RoleConfig": {
-      "properties": {
-        "name": {
-          "type": "string",
-          "description": "角色名称（唯一）"
-        },
-        "agent": {
-          "type": "string",
-          "description": "引用的 agent 名称"
-        },
-        "prompt_template": {
-          "type": "string",
-          "description": "提示词模板名（对应 prompt_templates/{name}.tmpl）"
-        },
-        "capabilities": {
-          "$ref": "#/$defs/CapabilitiesConfig",
-          "description": "角色能力（必须 ≤ agent capabilities_max）"
-        },
-        "session": {
-          "$ref": "#/$defs/SessionConfig",
-          "description": "ACP 会话策略"
-        },
-        "permission_policy": {
-          "items": {
-            "$ref": "#/$defs/PermissionRule"
-          },
-          "type": "array",
-          "description": "文件/终端权限规则"
-        },
-        "mcp": {
-          "$ref": "#/$defs/MCPConfig",
-          "description": "MCP 工具注入配置"
-        }
-      },
-      "type": "object",
-      "required": [
-        "name",
-        "agent",
-        "prompt_template",
-        "capabilities",
-        "session",
-        "permission_policy",
-        "mcp"
-      ]
-    },
     "RunConfig": {
       "properties": {
         "default_template": {
@@ -594,18 +312,589 @@
         "max_total_retries"
       ]
     },
-    "RunRoleBindings": {
+    "RuntimeAgentsConfig": {
       "properties": {
-        "stage_roles": {
-          "additionalProperties": {
-            "type": "string"
+        "drivers": {
+          "items": {
+            "$ref": "#/$defs/RuntimeDriverConfig"
           },
-          "type": "object"
+          "type": "array"
+        },
+        "profiles": {
+          "items": {
+            "$ref": "#/$defs/RuntimeProfileConfig"
+          },
+          "type": "array"
         }
       },
       "type": "object",
       "required": [
-        "stage_roles"
+        "drivers",
+        "profiles"
+      ]
+    },
+    "RuntimeCollectorConfig": {
+      "properties": {
+        "max_retries": {
+          "type": "integer"
+        },
+        "openai": {
+          "$ref": "#/$defs/RuntimeOpenAIConfig"
+        }
+      },
+      "type": "object",
+      "required": [
+        "max_retries",
+        "openai"
+      ]
+    },
+    "RuntimeConfig": {
+      "properties": {
+        "mock_executor": {
+          "type": "boolean",
+          "description": "是否使用本地 stub 执行器"
+        },
+        "collector": {
+          "$ref": "#/$defs/RuntimeCollectorConfig",
+          "description": "运行时元数据采集配置"
+        },
+        "sandbox": {
+          "$ref": "#/$defs/RuntimeSandboxConfig",
+          "description": "运行时沙箱配置"
+        },
+        "agents": {
+          "$ref": "#/$defs/RuntimeAgentsConfig",
+          "description": "运行时 driver 和 profile 配置"
+        },
+        "mcp": {
+          "$ref": "#/$defs/RuntimeMCPConfig",
+          "description": "运行时 MCP server 与绑定配置"
+        },
+        "prompts": {
+          "$ref": "#/$defs/RuntimePromptsConfig",
+          "description": "运行时提示词模板"
+        },
+        "session_manager": {
+          "$ref": "#/$defs/RuntimeSessionManagerConfig"
+        },
+        "execution_probe": {
+          "$ref": "#/$defs/RuntimeExecutionProbeConfig"
+        }
+      },
+      "type": "object",
+      "required": [
+        "mock_executor",
+        "collector",
+        "sandbox",
+        "agents",
+        "mcp",
+        "prompts",
+        "session_manager",
+        "execution_probe"
+      ]
+    },
+    "RuntimeDriverConfig": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "driver 唯一标识"
+        },
+        "launch_command": {
+          "type": "string",
+          "description": "启动命令"
+        },
+        "launch_args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "启动参数"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "注入环境变量"
+        },
+        "capabilities_max": {
+          "$ref": "#/$defs/CapabilitiesConfig",
+          "description": "能力上限"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "launch_command",
+        "launch_args",
+        "env",
+        "capabilities_max"
+      ]
+    },
+    "RuntimeExecutionProbeConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "interval": {
+          "type": "string",
+          "examples": [
+            "2h",
+            "30m",
+            "10s",
+            "500ms"
+          ]
+        },
+        "after": {
+          "type": "string",
+          "examples": [
+            "2h",
+            "30m",
+            "10s",
+            "500ms"
+          ]
+        },
+        "idle_after": {
+          "type": "string",
+          "examples": [
+            "2h",
+            "30m",
+            "10s",
+            "500ms"
+          ]
+        },
+        "timeout": {
+          "type": "string",
+          "examples": [
+            "2h",
+            "30m",
+            "10s",
+            "500ms"
+          ]
+        },
+        "max_attempts": {
+          "type": "integer"
+        }
+      },
+      "type": "object",
+      "required": [
+        "enabled",
+        "interval",
+        "after",
+        "idle_after",
+        "timeout",
+        "max_attempts"
+      ]
+    },
+    "RuntimeLiteBoxConfig": {
+      "properties": {
+        "bridge_command": {
+          "type": "string"
+        },
+        "bridge_args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "runner_path": {
+          "type": "string"
+        },
+        "runner_args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object",
+      "required": [
+        "bridge_command",
+        "bridge_args",
+        "runner_path",
+        "runner_args"
+      ]
+    },
+    "RuntimeMCPConfig": {
+      "properties": {
+        "servers": {
+          "items": {
+            "$ref": "#/$defs/RuntimeMCPServerConfig"
+          },
+          "type": "array"
+        },
+        "profile_bindings": {
+          "items": {
+            "$ref": "#/$defs/RuntimeMCPProfileBindingConfig"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object",
+      "required": [
+        "servers",
+        "profile_bindings"
+      ]
+    },
+    "RuntimeMCPProfileBindingConfig": {
+      "properties": {
+        "profile": {
+          "type": "string"
+        },
+        "server": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "tool_mode": {
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object",
+      "required": [
+        "profile",
+        "server",
+        "enabled",
+        "tool_mode",
+        "tools"
+      ]
+    },
+    "RuntimeMCPServerConfig": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "transport": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "auth_secret_ref": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "transport",
+        "endpoint",
+        "command",
+        "args",
+        "env",
+        "auth_secret_ref",
+        "enabled"
+      ]
+    },
+    "RuntimeNATSConfig": {
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "embedded": {
+          "type": "boolean"
+        },
+        "embedded_data_dir": {
+          "type": "string"
+        },
+        "stream_prefix": {
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "required": [
+        "url",
+        "embedded",
+        "embedded_data_dir",
+        "stream_prefix"
+      ]
+    },
+    "RuntimeOpenAIConfig": {
+      "properties": {
+        "base_url": {
+          "type": "string"
+        },
+        "api_key": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "required": [
+        "base_url",
+        "api_key",
+        "model"
+      ]
+    },
+    "RuntimePRMergeStatePromptConfig": {
+      "properties": {
+        "default": {
+          "type": "string"
+        },
+        "dirty": {
+          "type": "string"
+        },
+        "blocked": {
+          "type": "string"
+        },
+        "behind": {
+          "type": "string"
+        },
+        "unstable": {
+          "type": "string"
+        },
+        "draft": {
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "required": [
+        "default",
+        "dirty",
+        "blocked",
+        "behind",
+        "unstable",
+        "draft"
+      ]
+    },
+    "RuntimePRPromptProvidersConfig": {
+      "properties": {
+        "github": {
+          "$ref": "#/$defs/RuntimePRProviderPromptConfig"
+        },
+        "codeup": {
+          "$ref": "#/$defs/RuntimePRProviderPromptConfig"
+        },
+        "gitlab": {
+          "$ref": "#/$defs/RuntimePRProviderPromptConfig"
+        }
+      },
+      "type": "object",
+      "required": [
+        "github",
+        "codeup",
+        "gitlab"
+      ]
+    },
+    "RuntimePRProviderPromptConfig": {
+      "properties": {
+        "implement_objective": {
+          "type": "string"
+        },
+        "gate_objective": {
+          "type": "string"
+        },
+        "merge_rework_feedback": {
+          "type": "string"
+        },
+        "merge_states": {
+          "$ref": "#/$defs/RuntimePRMergeStatePromptConfig"
+        }
+      },
+      "type": "object",
+      "required": [
+        "implement_objective",
+        "gate_objective",
+        "merge_rework_feedback",
+        "merge_states"
+      ]
+    },
+    "RuntimeProfileConfig": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "profile 唯一标识"
+        },
+        "name": {
+          "type": "string",
+          "description": "展示名称"
+        },
+        "driver": {
+          "type": "string",
+          "description": "引用的 driver ID"
+        },
+        "role": {
+          "type": "string",
+          "description": "运行时角色"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "能力标签"
+        },
+        "actions_allowed": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "允许动作"
+        },
+        "prompt_template": {
+          "type": "string",
+          "description": "提示词模板名"
+        },
+        "skills": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "启用 skill 列表"
+        },
+        "session": {
+          "$ref": "#/$defs/RuntimeSessionConfig",
+          "description": "会话复用配置"
+        },
+        "mcp": {
+          "$ref": "#/$defs/MCPConfig",
+          "description": "MCP 配置"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "driver",
+        "role",
+        "capabilities",
+        "actions_allowed",
+        "prompt_template",
+        "skills",
+        "session",
+        "mcp"
+      ]
+    },
+    "RuntimePromptsConfig": {
+      "properties": {
+        "rework_followup": {
+          "type": "string"
+        },
+        "continue_followup": {
+          "type": "string"
+        },
+        "pr_implement_objective": {
+          "type": "string"
+        },
+        "pr_gate_objective": {
+          "type": "string"
+        },
+        "pr_merge_rework_feedback": {
+          "type": "string"
+        },
+        "pr_providers": {
+          "$ref": "#/$defs/RuntimePRPromptProvidersConfig"
+        }
+      },
+      "type": "object",
+      "required": [
+        "rework_followup",
+        "continue_followup",
+        "pr_implement_objective",
+        "pr_gate_objective",
+        "pr_merge_rework_feedback",
+        "pr_providers"
+      ]
+    },
+    "RuntimeSandboxConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "litebox": {
+          "$ref": "#/$defs/RuntimeLiteBoxConfig"
+        }
+      },
+      "type": "object",
+      "required": [
+        "enabled",
+        "provider",
+        "litebox"
+      ]
+    },
+    "RuntimeSessionConfig": {
+      "properties": {
+        "reuse": {
+          "type": "boolean",
+          "description": "是否复用 session"
+        },
+        "max_turns": {
+          "type": "integer",
+          "description": "单 session 最大轮数"
+        },
+        "idle_ttl": {
+          "type": "string",
+          "description": "空闲过期时间",
+          "examples": [
+            "2h",
+            "30m",
+            "10s",
+            "500ms"
+          ]
+        }
+      },
+      "type": "object",
+      "required": [
+        "reuse",
+        "max_turns",
+        "idle_ttl"
+      ]
+    },
+    "RuntimeSessionManagerConfig": {
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "server_id": {
+          "type": "string"
+        },
+        "nats": {
+          "$ref": "#/$defs/RuntimeNATSConfig"
+        }
+      },
+      "type": "object",
+      "required": [
+        "mode",
+        "server_id",
+        "nats"
       ]
     },
     "SchedulerConfig": {
@@ -646,44 +935,6 @@
         "port"
       ]
     },
-    "SessionConfig": {
-      "properties": {
-        "reuse": {
-          "type": "boolean",
-          "description": "是否复用 ACP session"
-        },
-        "prefer_load_session": {
-          "type": "boolean",
-          "description": "崩溃恢复优先 LoadSession"
-        },
-        "reset_prompt": {
-          "type": "boolean",
-          "description": "每次重发 system prompt"
-        },
-        "max_turns": {
-          "type": "integer",
-          "description": "单 session 最大交互轮数"
-        }
-      },
-      "type": "object",
-      "required": [
-        "reuse",
-        "prefer_load_session",
-        "reset_prompt",
-        "max_turns"
-      ]
-    },
-    "SingleRoleBinding": {
-      "properties": {
-        "role": {
-          "type": "string"
-        }
-      },
-      "type": "object",
-      "required": [
-        "role"
-      ]
-    },
     "StoreConfig": {
       "properties": {
         "driver": {
@@ -699,250 +950,6 @@
       "required": [
         "driver",
         "path"
-      ]
-    },
-    "TeamLeaderConfig": {
-      "properties": {
-        "review_gate_plugin": {
-          "type": "string",
-          "description": "审核门插件（review-ai-panel / review-local / review-github-pr）"
-        },
-        "review_orchestrator": {
-          "$ref": "#/$defs/ReviewOrchestratorConfig",
-          "description": "多 agent 审核编排设置"
-        },
-        "dag_scheduler": {
-          "$ref": "#/$defs/DAGSchedulerConfig",
-          "description": "DAG 任务调度器设置"
-        }
-      },
-      "type": "object",
-      "required": [
-        "review_gate_plugin",
-        "review_orchestrator",
-        "dag_scheduler"
-      ]
-    },
-    "V2AgentsConfig": {
-      "properties": {
-        "drivers": {
-          "items": {
-            "$ref": "#/$defs/V2DriverConfig"
-          },
-          "type": "array"
-        },
-        "profiles": {
-          "items": {
-            "$ref": "#/$defs/V2ProfileConfig"
-          },
-          "type": "array"
-        }
-      },
-      "type": "object",
-      "required": [
-        "drivers",
-        "profiles"
-      ]
-    },
-    "V2CollectorConfig": {
-      "properties": {
-        "max_retries": {
-          "type": "integer"
-        },
-        "openai": {
-          "$ref": "#/$defs/V2OpenAIConfig"
-        }
-      },
-      "type": "object",
-      "required": [
-        "max_retries",
-        "openai"
-      ]
-    },
-    "V2Config": {
-      "properties": {
-        "mock_executor": {
-          "type": "boolean"
-        },
-        "collector": {
-          "$ref": "#/$defs/V2CollectorConfig"
-        },
-        "sandbox": {
-          "$ref": "#/$defs/V2SandboxConfig"
-        },
-        "agents": {
-          "$ref": "#/$defs/V2AgentsConfig"
-        },
-        "prompts": {
-          "$ref": "#/$defs/V2PromptsConfig"
-        }
-      },
-      "type": "object",
-      "required": [
-        "mock_executor",
-        "collector",
-        "sandbox",
-        "agents",
-        "prompts"
-      ]
-    },
-    "V2DriverConfig": {
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "launch_command": {
-          "type": "string"
-        },
-        "launch_args": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "env": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": "object"
-        },
-        "capabilities_max": {
-          "$ref": "#/$defs/CapabilitiesConfig"
-        }
-      },
-      "type": "object",
-      "required": [
-        "id",
-        "launch_command",
-        "launch_args",
-        "env",
-        "capabilities_max"
-      ]
-    },
-    "V2OpenAIConfig": {
-      "properties": {
-        "base_url": {
-          "type": "string"
-        },
-        "api_key": {
-          "type": "string"
-        },
-        "model": {
-          "type": "string"
-        }
-      },
-      "type": "object",
-      "required": [
-        "base_url",
-        "api_key",
-        "model"
-      ]
-    },
-    "V2ProfileConfig": {
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "driver": {
-          "type": "string"
-        },
-        "role": {
-          "type": "string"
-        },
-        "capabilities": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "actions_allowed": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "prompt_template": {
-          "type": "string"
-        },
-        "skills": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "session": {
-          "$ref": "#/$defs/V2SessionConfig"
-        },
-        "mcp": {
-          "$ref": "#/$defs/MCPConfig"
-        }
-      },
-      "type": "object",
-      "required": [
-        "id",
-        "name",
-        "driver",
-        "role",
-        "capabilities",
-        "actions_allowed",
-        "prompt_template",
-        "skills",
-        "session",
-        "mcp"
-      ]
-    },
-    "V2PromptsConfig": {
-      "properties": {
-        "rework_followup": {
-          "type": "string"
-        },
-        "continue_followup": {
-          "type": "string"
-        }
-      },
-      "type": "object",
-      "required": [
-        "rework_followup",
-        "continue_followup"
-      ]
-    },
-    "V2SandboxConfig": {
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        }
-      },
-      "type": "object",
-      "required": [
-        "enabled"
-      ]
-    },
-    "V2SessionConfig": {
-      "properties": {
-        "reuse": {
-          "type": "boolean"
-        },
-        "max_turns": {
-          "type": "integer"
-        },
-        "idle_ttl": {
-          "type": "string",
-          "examples": [
-            "2h",
-            "30m",
-            "10s",
-            "500ms"
-          ]
-        }
-      },
-      "type": "object",
-      "required": [
-        "reuse",
-        "max_turns",
-        "idle_ttl"
       ]
     },
     "WatchdogConfig": {

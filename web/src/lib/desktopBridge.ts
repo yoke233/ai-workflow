@@ -1,9 +1,10 @@
 export interface DesktopBootstrap {
   token: string;
+  // Legacy compatibility base URL retained for legacy API integrations.
   api_v1_base_url: string;
-  api_v2_base_url: string;
+  api_base_url: string;
+  // Compatibility field: desktop websocket still points at the legacy v1 endpoint.
   ws_base_url: string;
-  a2a_base_url: string;
 }
 
 export const isTauri = (): boolean => {
@@ -53,3 +54,4 @@ export const fetchDesktopBootstrap = async (options?: {
   }
   throw new Error("desktop bootstrap timed out");
 };
+

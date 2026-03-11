@@ -1,108 +1,66 @@
 # AI Workflow 配置技能
 
-你正在操作 ai-workflow 编排器的配置。配置格式为 **TOML**，文件位于 `.ai-workflow/config.toml`。
+你正在操作 ai-workflow 编排器配置。配置格式为 **TOML**，文件位于 `.ai-workflow/config.toml`。
 
 ## 配置文件位置
 
-- **项目配置**: `.ai-workflow/config.toml`（每个项目独立）
-- **机密文件**: `.ai-workflow/secrets.yaml`（token 等敏感数据，自动生成）
-- **JSON Schema**: 可通过 `go run ./cmd/gen-schema` 生成最新 schema
+- 项目配置: `.ai-workflow/config.toml`
+- 机密文件: `.ai-workflow/secrets.yaml`
+- JSON Schema: `go run ./cmd/gen-schema > configs/config-schema.json`
 
-## 核心概念
+## 当前主线配置
 
-### Agents（agents.profiles）
-ACP agent 启动配置，定义如何启动外部 agent 进程。
-
-```toml
-[[agents.profiles]]
-name            = "claude"
-launch_command  = "npx"
-launch_args     = ["-y", "@zed-industries/claude-agent-acp"]
-[agents.profiles.capabilities_max]
-fs_read  = true
-fs_write = true
-terminal = true
-```
-
-### Roles（roles）
-角色绑定 agent + 能力 + 提示词模板。角色的 capabilities 不能超过 agent 的 capabilities_max。
-
-```toml
-[[roles]]
-name             = "worker"
-agent            = "codex"          # 引用 agents.profiles 中的 name
-prompt_template  = "implement"      # 对应 prompt_templates/implement.tmpl
-[roles.capabilities]
-fs_read  = true
-fs_write = true
-terminal = true
-[roles.session]
-reuse     = true
-max_turns = 12
-[roles.mcp]
-enabled = true
-tools   = ["query_projects", "query_issues"]
-```
-
-### Role Bindings（role_bindings）
-将系统功能映射到角色名。
-
-```toml
-[role_bindings.team_leader]
-role = "team_leader"
-
-[role_bindings.run.stage_roles]
-requirements = "worker"
-implement    = "worker"
-review       = "reviewer"
-fixup        = "worker"
-test         = "worker"
-
-[role_bindings.review_orchestrator]
-aggregator = "aggregator"
-[role_bindings.review_orchestrator.reviewers]
-completeness = "reviewer"
-dependency   = "reviewer"
-feasibility  = "reviewer"
-
-[role_bindings.plan_parser]
-role = "plan_parser"
-```
-
-### Run（run）
-Run 执行默认值。
+### Run
 
 ```toml
 [run]
-default_template    = "standard"    # standard / fast_release
-global_timeout      = "2h"          # 支持 Go duration 格式
+default_template = "standard"
+global_timeout = "2h"
 auto_infer_template = true
-max_total_retries   = 5
+max_total_retries = 5
 ```
 
-### Scheduler（scheduler）
-并发调度。
+### Scheduler
 
 ```toml
 [scheduler]
-max_global_agents = 3     # 全局最多同时运行的 agent
-max_project_runs  = 2     # 每个项目最多并发 run
+max_global_agents = 3
+max_project_runs = 2
+
+  [scheduler.watchdog]
+  enabled = true
+  interval = "5m"
 ```
 
-### Team Leader（team_leader）
+### Runtime
+
+`runtime` 是当前主线。agent driver、profile、sandbox、mcp、prompt 都从这里读取。
 
 ```toml
-[team_leader]
-review_gate_plugin = "review-ai-panel"   # review-ai-panel / review-local / review-github-pr
+[[runtime.agents.drivers]]
+id = "codex-acp"
+launch_command = "npx"
+launch_args = ["-y", "@zed-industries/codex-acp"]
+  [runtime.agents.drivers.capabilities_max]
+  fs_read = true
+  fs_write = true
+  terminal = true
 
-[team_leader.review_orchestrator]
-max_rounds = 2                           # 审核-修正最大循环次数
-
-[team_leader.dag_scheduler]
-max_concurrent_tasks = 2
+[[runtime.agents.profiles]]
+id = "worker"
+name = "Worker (Codex)"
+driver = "codex-acp"
+role = "worker"
+capabilities = ["dev.backend", "dev.frontend", "test"]
+actions_allowed = ["read_context", "search_files", "fs_write", "terminal", "submit"]
+prompt_template = "implement"
+  [runtime.agents.profiles.session]
+  reuse = true
+  max_turns = 24
+  idle_ttl = "15m"
 ```
 
-### Server（server）
+### Server
 
 ```toml
 [server]
@@ -110,61 +68,47 @@ host = "127.0.0.1"
 port = 8080
 ```
 
-### Store（store）
+### GitHub
+
+```toml
+[github]
+enabled = true
+owner = "your-org"
+repo = "your-repo"
+webhook_enabled = true
+pr_enabled = true
+
+  [github.pr]
+  auto_create = true
+  branch_prefix = "flow/"
+```
+
+### Store
 
 ```toml
 [store]
 driver = "sqlite"
-path   = ".ai-workflow/data.db"
+path = ".ai-workflow/data.db"
 ```
 
-### GitHub（github）
-完整的 GitHub 集成配置（默认关闭）。
-
-```toml
-[github]
-enabled          = true
-owner            = "your-org"
-repo             = "your-repo"
-webhook_enabled  = true
-pr_enabled       = true
-auto_trigger     = true
-
-[github.pr]
-auto_create   = true
-draft         = true
-branch_prefix = "ai/"
-```
-
-### A2A（a2a）
-
-```toml
-[a2a]
-enabled = true
-token   = ""        # 自动生成到 secrets.yaml
-version = "0.3"
-```
-
-### Log（log）
+### Log
 
 ```toml
 [log]
-level        = "info"       # debug / info / warn / error
-file         = ".ai-workflow/logs/app.log"
-max_size_mb  = 100
+level = "info"
+file = ".ai-workflow/logs/app.log"
+max_size_mb = 100
 max_age_days = 30
 ```
 
 ## 验证规则
 
-1. 角色的 `capabilities` 不能超过所引用 agent 的 `capabilities_max`
-2. `a2a.enabled = true` 时 `a2a.token` 不能为空（secrets.yaml 自动生成）
-3. `role_bindings` 引用的角色名必须在 `roles` 中定义
-4. agent 名称必须唯一，role 名称必须唯一
-5. 未知字段会报错并终止启动（strict parsing）
+1. 仅支持当前 schema 中定义的字段，未知字段直接报错。
+2. `runtime.mcp.profile_bindings` 必须引用存在的 `runtime.agents.profiles.id` 和 `runtime.mcp.servers.id`。
+3. `runtime.mcp.profile_bindings.tool_mode = "allow_list"` 时，`tools` 不能为空。
+4. `scheduler.watchdog.enabled = true` 时，各种 TTL/interval 必须大于 0。
 
-## 常见操作
+## 说明
 
-- **初始化**: `ai-flow config init`（生成默认 config.toml）
-- **重置**: `ai-flow config init --force`
-- **环境变量覆盖**: `AI_WORKFLOW_SERVER_PORT=9090` 等
+- `agents`、`roles`、`role_bindings`、`team_leader`、`a2a` 已不再属于现行配置模型。
+- 需要新增 agent 或调整角色，请直接修改 `runtime.agents.drivers` / `runtime.agents.profiles`。

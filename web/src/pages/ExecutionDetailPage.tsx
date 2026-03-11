@@ -13,7 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
-import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { formatRelativeTime, getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
 import type { Artifact, Briefing, Event, Execution, Flow, Step } from "@/types/apiV2";
 
@@ -55,7 +55,7 @@ const eventToLogLine = (event: Event): LogLine | null => {
 
 export function ExecutionDetailPage() {
   const { execId } = useParams();
-  const { apiClient } = useV2Workbench();
+  const { apiClient } = useWorkbench();
   const numericExecId = Number.parseInt(execId ?? "", 10);
   const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -309,3 +309,4 @@ export function ExecutionDetailPage() {
     </div>
   );
 }
+

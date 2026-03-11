@@ -1,0 +1,201 @@
+# AI Workflow 默认配置
+
+[run]
+default_template = "standard"
+global_timeout = "2h"
+auto_infer_template = true
+max_total_retries = 5
+
+[scheduler]
+max_global_agents = 3
+max_project_runs = 2
+
+  [scheduler.watchdog]
+  enabled = true
+  interval = "5m"
+  stuck_run_ttl = "30m"
+  stuck_merge_ttl = "15m"
+  queue_stale_ttl = "60m"
+
+[runtime.collector]
+max_retries = 2
+
+  [runtime.collector.openai]
+  base_url = "https://api.openai.com/v1"
+  api_key = "xxxxxxxxxxxx"
+  model = "deepseek-v3.2"
+
+[runtime.sandbox]
+enabled = false
+provider = "home_dir"
+
+  [runtime.sandbox.litebox]
+  bridge_command = "litebox-acp"
+  bridge_args = []
+  runner_path = ""
+  runner_args = []
+
+[runtime.execution_probe]
+enabled = false
+interval = "1m"
+after = "20m"
+idle_after = "10m"
+timeout = "45s"
+max_attempts = 1
+
+[runtime.prompts]
+rework_followup = """
+# Rework Requested
+
+上一轮提交未通过 gate，请根据反馈继续修改并在本地跑必要测试（不要只做 smoke）。
+
+反馈：
+{{.Feedback}}
+
+请回复：你改了什么、怎么验证的、以及是否需要进一步协助。
+"""
+
+continue_followup = """
+# Continue
+
+请继续完成本 step（复用已有上下文，不要重复粘贴大段背景）：{{.StepName}}
+"""
+
+pr_implement_objective = """
+进行实现并在当前 worktree 中完成必要验证。必须直接修改代码/README，并执行与改动相关的实际检查（不要只做 smoke）。
+不要自行 git commit/push；后续步骤会处理。
+若 gate 或 merge 打回，请继续在当前分支修复，并在最终回复中明确列出你实际执行过的检查命令、结果，以及是否还存在阻塞。
+"""
+
+pr_gate_objective = """
+你是代码审查员。你会收到上游 implement / commit / PR step 的输出。请综合 worktree 当前状态与上游输出评审本次提交是否可合并。
+至少检查：1) 改动是否满足目标；2) implement 输出里是否明确给出实际执行过的验证命令与结果；3) 当前分支是否存在明显冲突或阻塞。
+若不通过，必须给出可执行的返工原因；若通过，系统会自动尝试 merge，merge 失败时你的反馈会回流给上游继续修复。
+最后必须输出一行：AI_WORKFLOW_GATE_JSON: {"verdict":"pass|reject","reason":"..."}
+"""
+
+pr_merge_rework_feedback = """
+自动合并失败。{{if .PRNumber}}PR #{{.PRNumber}}{{if .PRURL}}（{{.PRURL}}）{{end}} 当前未能合并。{{end}}{{if .MergeableState}} mergeable_state={{.MergeableState}}。{{end}}
+{{.Hint}}
+不要新开 PR；继续在当前分支修复，并保留实际执行过的检查命令与结果。
+"""
+
+  [runtime.prompts.pr_providers.github]
+  merge_rework_feedback = ""
+    [runtime.prompts.pr_providers.github.merge_states]
+    default = ""
+    dirty = ""
+    blocked = ""
+    behind = ""
+    unstable = ""
+    draft = ""
+
+  [runtime.prompts.pr_providers.codeup]
+  merge_rework_feedback = ""
+    [runtime.prompts.pr_providers.codeup.merge_states]
+    default = ""
+    dirty = ""
+    blocked = ""
+    behind = ""
+    unstable = ""
+    draft = ""
+
+  [runtime.prompts.pr_providers.gitlab]
+  merge_rework_feedback = ""
+    [runtime.prompts.pr_providers.gitlab.merge_states]
+    default = ""
+    dirty = ""
+    blocked = ""
+    behind = ""
+    unstable = ""
+    draft = ""
+
+[[runtime.agents.drivers]]
+id = "claude-acp"
+launch_command = "npx"
+launch_args = ["-y", "@zed-industries/claude-agent-acp"]
+  [runtime.agents.drivers.capabilities_max]
+  fs_read = true
+  fs_write = true
+  terminal = true
+
+[[runtime.agents.drivers]]
+id = "codex-acp"
+launch_command = "npx"
+launch_args = ["-y", "@zed-industries/codex-acp"]
+  [runtime.agents.drivers.capabilities_max]
+  fs_read = true
+  fs_write = true
+  terminal = true
+
+[[runtime.agents.profiles]]
+id = "lead"
+name = "Lead Agent"
+driver = "claude-acp"
+role = "lead"
+capabilities = ["planning", "code.review", "dev.fullstack"]
+skills = ["writing-wave-plans", "executing-wave-plans"]
+actions_allowed = ["read_context", "search_files", "fs_write", "terminal", "create_step", "expand_flow", "submit"]
+prompt_template = "team_leader"
+  [runtime.agents.profiles.session]
+  reuse = true
+  max_turns = 50
+  idle_ttl = "30m"
+  [runtime.agents.profiles.mcp]
+  enabled = true
+
+[[runtime.agents.profiles]]
+id = "worker"
+name = "Worker (Codex)"
+driver = "codex-acp"
+role = "worker"
+capabilities = ["dev.backend", "dev.frontend", "test"]
+actions_allowed = ["read_context", "search_files", "fs_write", "terminal", "submit"]
+prompt_template = "implement"
+  [runtime.agents.profiles.session]
+  reuse = true
+  max_turns = 24
+  idle_ttl = "15m"
+
+[[runtime.agents.profiles]]
+id = "reviewer"
+name = "Reviewer (Claude)"
+driver = "claude-acp"
+role = "gate"
+capabilities = ["code.review", "security.review"]
+actions_allowed = ["read_context", "search_files", "approve", "reject", "submit"]
+prompt_template = "review"
+  [runtime.agents.profiles.session]
+  reuse = true
+  max_turns = 16
+  idle_ttl = "15m"
+
+[[runtime.agents.profiles]]
+id = "support"
+name = "Support Agent"
+driver = "claude-acp"
+role = "support"
+capabilities = ["planning", "analysis"]
+actions_allowed = ["read_context", "search_files", "submit"]
+prompt_template = "plan_parser"
+  [runtime.agents.profiles.session]
+  reuse = true
+  max_turns = 12
+  idle_ttl = "10m"
+
+[server]
+host = "127.0.0.1"
+port = 8080
+
+[github]
+enabled = false
+
+[store]
+driver = "sqlite"
+path = ".ai-workflow/data.db"
+
+[log]
+level = "info"
+file = ".ai-workflow/logs/app.log"
+max_size_mb = 100
+max_age_days = 30

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
-	"github.com/yoke233/ai-workflow/internal/acpclient"
+	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 )
 
 type debugHandler struct {
@@ -168,3 +168,4 @@ func main() {
 		}
 	}
 }
+

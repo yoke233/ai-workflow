@@ -13,12 +13,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/status-badge";
-import { useV2Workbench } from "@/contexts/V2WorkbenchContext";
+import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { formatFlowDuration, formatRelativeTime, getErrorMessage } from "@/lib/v2Workbench";
 import type { Flow } from "@/types/apiV2";
 
 export function FlowsPage() {
-  const { apiClient, selectedProject, selectedProjectId } = useV2Workbench();
+  const { apiClient, selectedProject, selectedProjectId } = useWorkbench();
   const [search, setSearch] = useState("");
   const [flows, setFlows] = useState<Flow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -144,3 +144,4 @@ export function FlowsPage() {
     </div>
   );
 }
+

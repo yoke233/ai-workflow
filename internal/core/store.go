@@ -1,130 +1,128 @@
 package core
 
-type ProjectFilter struct {
-	NameContains string
-	Query        string // Natural language query; currently falls back to keyword matching
+import (
+	"context"
+	"time"
+)
+
+// FlowStore persists Flow aggregates.
+type FlowStore interface {
+	CreateFlow(ctx context.Context, f *Flow) (int64, error)
+	GetFlow(ctx context.Context, id int64) (*Flow, error)
+	ListFlows(ctx context.Context, filter FlowFilter) ([]*Flow, error)
+	UpdateFlowStatus(ctx context.Context, id int64, status FlowStatus) error
+	PrepareFlowRun(ctx context.Context, id int64, queuedStatus FlowStatus) error
+	SetFlowArchived(ctx context.Context, id int64, archived bool) error
 }
 
-type RunFilter struct {
-	Status     RunStatus
-	Conclusion RunConclusion
-	IssueID    string
-	Limit      int
-	Offset     int
+// ProjectStore persists Project aggregates.
+type ProjectStore interface {
+	CreateProject(ctx context.Context, p *Project) (int64, error)
+	GetProject(ctx context.Context, id int64) (*Project, error)
+	ListProjects(ctx context.Context, limit, offset int) ([]*Project, error)
+	UpdateProject(ctx context.Context, p *Project) error
+	DeleteProject(ctx context.Context, id int64) error
 }
 
-type IssueFilter struct {
-	Status    string
-	SessionID string
-	State     string
-	ParentID  string
-	Query     string // Natural language query; currently falls back to keyword matching
+// ResourceBindingStore persists ResourceBinding records.
+type ResourceBindingStore interface {
+	CreateResourceBinding(ctx context.Context, rb *ResourceBinding) (int64, error)
+	GetResourceBinding(ctx context.Context, id int64) (*ResourceBinding, error)
+	ListResourceBindings(ctx context.Context, projectID int64) ([]*ResourceBinding, error)
+	DeleteResourceBinding(ctx context.Context, id int64) error
+}
+
+// StepStore persists Step aggregates.
+type StepStore interface {
+	CreateStep(ctx context.Context, s *Step) (int64, error)
+	GetStep(ctx context.Context, id int64) (*Step, error)
+	ListStepsByFlow(ctx context.Context, flowID int64) ([]*Step, error)
+	UpdateStepStatus(ctx context.Context, id int64, status StepStatus) error
+	UpdateStep(ctx context.Context, s *Step) error
+	DeleteStep(ctx context.Context, id int64) error
+}
+
+// ExecutionStore persists Execution aggregates.
+type ExecutionStore interface {
+	CreateExecution(ctx context.Context, e *Execution) (int64, error)
+	GetExecution(ctx context.Context, id int64) (*Execution, error)
+	ListExecutionsByStep(ctx context.Context, stepID int64) ([]*Execution, error)
+	ListExecutionsByStatus(ctx context.Context, status ExecutionStatus) ([]*Execution, error)
+	UpdateExecution(ctx context.Context, e *Execution) error
+}
+
+// ArtifactStore persists Artifact records.
+type ArtifactStore interface {
+	CreateArtifact(ctx context.Context, a *Artifact) (int64, error)
+	GetArtifact(ctx context.Context, id int64) (*Artifact, error)
+	GetLatestArtifactByStep(ctx context.Context, stepID int64) (*Artifact, error)
+	ListArtifactsByExecution(ctx context.Context, execID int64) ([]*Artifact, error)
+	UpdateArtifact(ctx context.Context, a *Artifact) error
+}
+
+// BriefingStore persists Briefing records.
+type BriefingStore interface {
+	CreateBriefing(ctx context.Context, b *Briefing) (int64, error)
+	GetBriefing(ctx context.Context, id int64) (*Briefing, error)
+	GetBriefingByStep(ctx context.Context, stepID int64) (*Briefing, error)
+}
+
+// AgentContextStore persists AgentContext records.
+type AgentContextStore interface {
+	CreateAgentContext(ctx context.Context, ac *AgentContext) (int64, error)
+	GetAgentContext(ctx context.Context, id int64) (*AgentContext, error)
+	FindAgentContext(ctx context.Context, agentID string, flowID int64) (*AgentContext, error)
+	UpdateAgentContext(ctx context.Context, ac *AgentContext) error
+}
+
+// EventStore persists domain events.
+type EventStore interface {
+	CreateEvent(ctx context.Context, e *Event) (int64, error)
+	ListEvents(ctx context.Context, filter EventFilter) ([]*Event, error)
+	GetLatestExecutionEventTime(ctx context.Context, execID int64, eventType EventType) (*time.Time, error)
+}
+
+// ExecutionProbeStore persists probe records and execution routing metadata.
+type ExecutionProbeStore interface {
+	CreateExecutionProbe(ctx context.Context, probe *ExecutionProbe) (int64, error)
+	GetExecutionProbe(ctx context.Context, id int64) (*ExecutionProbe, error)
+	ListExecutionProbesByExecution(ctx context.Context, executionID int64) ([]*ExecutionProbe, error)
+	GetLatestExecutionProbe(ctx context.Context, executionID int64) (*ExecutionProbe, error)
+	GetActiveExecutionProbe(ctx context.Context, executionID int64) (*ExecutionProbe, error)
+	UpdateExecutionProbe(ctx context.Context, probe *ExecutionProbe) error
+	GetExecutionProbeRoute(ctx context.Context, executionID int64) (*ExecutionProbeRoute, error)
+}
+
+// Store is the aggregate interface combining all sub-stores.
+type Store interface {
+	ProjectStore
+	ResourceBindingStore
+	FlowStore
+	StepStore
+	ExecutionStore
+	ArtifactStore
+	BriefingStore
+	AgentContextStore
+	EventStore
+	ExecutionProbeStore
+	Close() error
+}
+
+// FlowFilter constrains Flow queries.
+type FlowFilter struct {
+	ProjectID *int64
+	Status    *FlowStatus
+	Archived  *bool
 	Limit     int
 	Offset    int
 }
 
-type IssueAttachment struct {
-	ID        string `json:"id"`
-	IssueID   string `json:"issue_id"`
-	Path      string `json:"path"`
-	Content   string `json:"content"`
-	SourceURL string `json:"source_url,omitempty"`
-	MediaType string `json:"media_type,omitempty"`
-	CreatedAt string `json:"created_at"`
-}
-
-type IssueChange struct {
-	ID        string `json:"id"`
-	IssueID   string `json:"issue_id"`
-	Field     string `json:"field"`
-	OldValue  string `json:"old_value"`
-	NewValue  string `json:"new_value"`
-	Reason    string `json:"reason"`
-	ChangedBy string `json:"changed_by"`
-	CreatedAt string `json:"created_at"`
-}
-
-type HumanAction struct {
-	ID        int64  `json:"id"`
-	RunID     string `json:"run_id"`
-	Stage     string `json:"stage"`
-	Action    string `json:"action"`
-	Message   string `json:"message"`
-	Source    string `json:"source"`
-	UserID    string `json:"user_id"`
-	CreatedAt string `json:"created_at"`
-}
-
-type Store interface {
-	ListProjects(filter ProjectFilter) ([]Project, error)
-	GetProject(id string) (*Project, error)
-	CreateProject(p *Project) error
-	UpdateProject(p *Project) error
-	DeleteProject(id string) error
-
-	ListRuns(projectID string, filter RunFilter) ([]Run, error)
-	GetRun(id string) (*Run, error)
-	SaveRun(p *Run) error
-	GetActiveRuns() ([]Run, error)
-	ListRunnableRuns(limit int) ([]Run, error)
-	CountInProgressRunsByProject(projectID string) (int, error)
-	TryMarkRunInProgress(id string, from ...RunStatus) (bool, error)
-
-	SaveCheckpoint(cp *Checkpoint) error
-	GetCheckpoints(RunID string) ([]Checkpoint, error)
-	GetLastSuccessCheckpoint(RunID string) (*Checkpoint, error)
-	InvalidateCheckpointsFromStage(RunID string, stage StageID) error
-
-	RecordAction(action HumanAction) error
-	GetActions(RunID string) ([]HumanAction, error)
-
-	CreateChatSession(s *ChatSession) error
-	GetChatSession(id string) (*ChatSession, error)
-	UpdateChatSession(s *ChatSession) error
-	ListChatSessions(projectID string) ([]ChatSession, error)
-
-	CreateIssue(i *Issue) error
-	GetIssue(id string) (*Issue, error)
-	SaveIssue(i *Issue) error
-	ListIssues(projectID string, filter IssueFilter) ([]Issue, int, error)
-	GetActiveIssues(projectID string) ([]Issue, error)
-	GetIssueByRun(RunID string) (*Issue, error)
-	GetChildIssues(parentID string) ([]Issue, error)
-	SaveIssueAttachment(att *IssueAttachment) error
-	GetIssueAttachments(issueID string) ([]IssueAttachment, error)
-	SaveIssueChange(change *IssueChange) error
-	GetIssueChanges(issueID string) ([]IssueChange, error)
-
-	SaveReviewRecord(r *ReviewRecord) error
-	GetReviewRecords(issueID string) ([]ReviewRecord, error)
-
-	// Decision versioning.
-	SaveDecision(d *Decision) error
-	GetDecision(id string) (*Decision, error)
-	ListDecisions(issueID string) ([]Decision, error)
-
-	// Gate checks.
-	SaveGateCheck(gc *GateCheck) error
-	GetGateChecks(issueID string) ([]GateCheck, error)
-	GetLatestGateCheck(issueID, gateName string) (*GateCheck, error)
-
-	AppendChatRunEvent(event ChatRunEvent) error
-	ListChatRunEvents(sessionID string) ([]ChatRunEvent, error)
-
-	SaveRunEvent(event RunEvent) error
-	ListRunEvents(runID string) ([]RunEvent, error)
-
-	// TaskStep event sourcing.
-	// SaveTaskStep persists a step and atomically updates Issue.Status if the
-	// action implies a state transition. Returns the (possibly new) IssueStatus.
-	SaveTaskStep(step *TaskStep) (IssueStatus, error)
-	ListTaskSteps(issueID string) ([]TaskStep, error)
-	RebuildIssueStatus(issueID string) (IssueStatus, error)
-
-	// ListEvents queries the unified events table with scope/entity filtering.
-	ListEvents(filter EventFilter) ([]UnifiedEvent, error)
-	// SaveEvent persists an event to the unified events table.
-	SaveEvent(event UnifiedEvent) error
-
-	Close() error
+// EventFilter constrains Event queries.
+type EventFilter struct {
+	FlowID *int64
+	StepID *int64
+	ExecID *int64
+	Types  []EventType
+	Limit  int
+	Offset int
 }

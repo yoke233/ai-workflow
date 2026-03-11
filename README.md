@@ -1,7 +1,12 @@
-# AI Workflow（Wave4 / V2）
+# AI Workflow
 
 本项目为 Go 后端 + React 前端协作系统。
-当前统一模型：**issue / profile / run / Team Leader**。
+
+当前主线已经收敛到单一路径：
+
+- 后端 API 基线：`/api/*`
+- 后端主实现：`internal/backend`、`internal/engine`、`internal/core`、`internal/support`
+- 历史设计与旧实现：统一归档在 `archive-src/` 与 `docs/archive/`
 
 ## 核心术语
 
@@ -26,7 +31,7 @@
 go run ./cmd/ai-flow config init
 ```
 
-这会创建 `./.ai-workflow/config.yaml`，后续按需修改该文件即可。
+这会创建 `./.ai-workflow/config.toml`，后续按需修改该文件即可。
 
 如需覆盖已存在配置：
 
@@ -86,23 +91,19 @@ npm run tauri:build
 
 更多说明见：`docs/spec/tauri-desktop.md`。
 
-## V2 API 主链路
+## 当前接口状态
 
-1. 创建项目：`POST /api/v1/projects`
-2. 启动 Team Leader 对话（携带 profile）：`POST /api/v1/projects/{projectID}/chat`
-3. 生成 issue：`POST /api/v1/projects/{projectID}/issues/from-files`
-4. 查询 run 事件：`GET /api/v1/projects/{projectID}/chat/{sessionID}/events`
-5. 查询 issue review 事件：`GET /api/v1/projects/{projectID}/issues/{issueID}/timeline?kinds=review`
+当前后端统一使用 `/api/*`，以 Flow / Step / Execution 为核心模型。
 
 ## 测试与 Smoke
 
-Wave4-T3 基线脚本：
+基线脚本：
 
 ```powershell
-pwsh -NoProfile -File .\scripts\test\v2-smoke.ps1
+pwsh -NoProfile -File .\scripts\test\smoke.ps1
 ```
 
-聚合入口（当前收敛到 V2 smoke）：
+聚合入口：
 
 ```powershell
 pwsh -NoProfile -File .\scripts\test\p3-integration.ps1
@@ -112,4 +113,5 @@ pwsh -NoProfile -File .\scripts\test\p3-integration.ps1
 
 - 当前计划入口：`docs/plans/README.md`
 - 历史计划归档：`docs/archive/plans/README.md`
+- 历史 `v3` 设计归档：`docs/archive/v3/README.md`
 - 规格与学习资料：`docs/spec/`、`docs/thinking/`、`docs/learning/`

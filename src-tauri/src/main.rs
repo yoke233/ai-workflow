@@ -12,10 +12,11 @@ use tauri_plugin_shell::ShellExt;
 #[derive(Clone, serde::Serialize)]
 struct DesktopBootstrap {
   token: String,
+  // Legacy compatibility base URL retained for legacy API integrations.
   api_v1_base_url: String,
-  api_v2_base_url: String,
-  ws_base_url: String,
-  a2a_base_url: String
+  api_base_url: String,
+  // Current desktop workbench still consumes the v1 websocket endpoint.
+  ws_base_url: String
 }
 
 struct DesktopState {
@@ -31,9 +32,8 @@ fn desktop_bootstrap(state: State<'_, DesktopState>) -> Result<DesktopBootstrap,
   Ok(DesktopBootstrap {
     token,
     api_v1_base_url: format!("{}/api/v1", host),
-    api_v2_base_url: format!("{}/api/v2", host),
+    api_base_url: format!("{}/api", host),
     ws_base_url: format!("{}/api/v1", host),
-    a2a_base_url: format!("{}/api/v1", host),
   })
 }
 
@@ -152,3 +152,5 @@ fn read_admin_token_from_toml(path: &Path) -> Result<String, String> {
   }
   Ok(token)
 }
+
+

@@ -79,7 +79,7 @@ start_backend() {
 # ── 前端 ──
 start_frontend() {
     echo "==> Starting frontend dev server on :$FRONTEND_PORT"
-    VITE_API_BASE_URL="http://127.0.0.1:$PORT/api/v1" \
+    VITE_API_BASE_URL="http://127.0.0.1:$PORT/api" \
         npm --prefix web run dev -- --port "$FRONTEND_PORT" --strictPort &
     FRONTEND_PID=$!
 }

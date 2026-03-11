@@ -2,31 +2,15 @@ package core
 
 import "context"
 
-// WorkspaceSetupRequest defines inputs for provisioning Run workspace.
-type WorkspaceSetupRequest struct {
-	RepoPath      string `json:"repo_path"`
-	RunID         string `json:"run_id"`
-	BranchName    string `json:"branch_name"`
-	WorktreePath  string `json:"worktree_path"`
-	DefaultBranch string `json:"default_branch,omitempty"`
+// Workspace represents the prepared execution environment for a Flow.
+type Workspace struct {
+	Path     string            // agent working directory
+	Env      map[string]string // extra environment variables
+	Metadata map[string]any    // provider-specific data (branch name, repo path, etc.)
 }
 
-// WorkspaceSetupResult captures effective workspace details after setup.
-type WorkspaceSetupResult struct {
-	BranchName   string `json:"branch_name"`
-	WorktreePath string `json:"worktree_path"`
-	BaseBranch   string `json:"base_branch"`
-}
-
-// WorkspaceCleanupRequest defines inputs for cleaning up Run workspace.
-type WorkspaceCleanupRequest struct {
-	RepoPath     string `json:"repo_path"`
-	WorktreePath string `json:"worktree_path"`
-}
-
-// WorkspacePlugin provisions and cleans stage execution workspaces.
-type WorkspacePlugin interface {
-	Plugin
-	Setup(ctx context.Context, req WorkspaceSetupRequest) (WorkspaceSetupResult, error)
-	Cleanup(ctx context.Context, req WorkspaceCleanupRequest) error
+// WorkspaceProvider prepares and releases execution workspaces for Flows.
+type WorkspaceProvider interface {
+	Prepare(ctx context.Context, project *Project, bindings []*ResourceBinding, flowID int64) (*Workspace, error)
+	Release(ctx context.Context, ws *Workspace) error
 }

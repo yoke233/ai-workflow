@@ -19,7 +19,7 @@ import (
 	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
-	"github.com/yoke233/ai-workflow/internal/acpclient"
+	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 )
 
 // bootstrapTestSetup creates a codex ACP client with our MCP dev tools configured.
@@ -172,3 +172,4 @@ func logEvents(t *testing.T, rec *captureRecorder, label string) {
 		}
 	}
 }
+

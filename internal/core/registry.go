@@ -1,56 +1,40 @@
 package core
 
 import (
-	"fmt"
-	"sync"
+	"context"
+	"errors"
 )
 
-// Registry stores plugin modules by slot/name.
-type Registry struct {
-	mu      sync.RWMutex
-	modules map[PluginSlot]map[string]PluginModule
-}
+var (
+	ErrDriverNotFound     = errors.New("agent driver not found")
+	ErrProfileNotFound    = errors.New("agent profile not found")
+	ErrDuplicateDriver    = errors.New("duplicate agent driver ID")
+	ErrDuplicateProfile   = errors.New("duplicate agent profile ID")
+	ErrCapabilityOverflow = errors.New("profile capabilities exceed driver capabilities_max")
+	ErrDriverInUse        = errors.New("driver is referenced by one or more profiles")
+)
 
-func NewRegistry() *Registry {
-	return &Registry{
-		modules: make(map[PluginSlot]map[string]PluginModule),
-	}
-}
+// AgentRegistry manages agent drivers and profiles with CRUD and resolution.
+type AgentRegistry interface {
+	// Driver CRUD
+	GetDriver(ctx context.Context, id string) (*AgentDriver, error)
+	ListDrivers(ctx context.Context) ([]*AgentDriver, error)
+	CreateDriver(ctx context.Context, d *AgentDriver) error
+	UpdateDriver(ctx context.Context, d *AgentDriver) error
+	DeleteDriver(ctx context.Context, id string) error
 
-func (r *Registry) Register(module PluginModule) error {
-	if module.Name == "" {
-		return fmt.Errorf("plugin name is required")
-	}
-	if module.Slot == "" {
-		return fmt.Errorf("plugin slot is required")
-	}
-	if module.Factory == nil {
-		return fmt.Errorf("plugin factory is required")
-	}
+	// Profile CRUD
+	GetProfile(ctx context.Context, id string) (*AgentProfile, error)
+	ListProfiles(ctx context.Context) ([]*AgentProfile, error)
+	CreateProfile(ctx context.Context, p *AgentProfile) error
+	UpdateProfile(ctx context.Context, p *AgentProfile) error
+	DeleteProfile(ctx context.Context, id string) error
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// Resolution
+	// ResolveForStep picks the best profile matching the step's AgentRole + RequiredCapabilities,
+	// and returns the resolved profile together with its driver.
+	ResolveForStep(ctx context.Context, step *Step) (*AgentProfile, *AgentDriver, error)
 
-	slotModules, ok := r.modules[module.Slot]
-	if !ok {
-		slotModules = make(map[string]PluginModule)
-		r.modules[module.Slot] = slotModules
-	}
-	if _, exists := slotModules[module.Name]; exists {
-		return fmt.Errorf("plugin already registered: slot=%s name=%s", module.Slot, module.Name)
-	}
-	slotModules[module.Name] = module
-	return nil
-}
-
-func (r *Registry) Get(slot PluginSlot, name string) (PluginModule, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	slotModules, ok := r.modules[slot]
-	if !ok {
-		return PluginModule{}, false
-	}
-	module, ok := slotModules[name]
-	return module, ok
+	// ResolveByID returns a specific profile and its driver by profile ID.
+	ResolveByID(ctx context.Context, profileID string) (*AgentProfile, *AgentDriver, error)
 }
