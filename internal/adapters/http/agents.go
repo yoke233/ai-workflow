@@ -2,10 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/core"
+	skillset "github.com/yoke233/ai-workflow/internal/skills"
 )
 
 func registerAgentRoutes(r chi.Router, registry core.AgentRegistry) {
@@ -178,6 +180,15 @@ func (a *agentsHandler) deleteProfile(w http.ResponseWriter, r *http.Request) {
 // writeRegistryError maps registry errors to HTTP status codes.
 func writeRegistryError(w http.ResponseWriter, err error) {
 	msg := err.Error()
+	var invalidSkills *skillset.InvalidSkillsError
+	if errors.As(err, &invalidSkills) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":  msg,
+			"code":   "invalid_skills",
+			"skills": invalidSkills.Issues,
+		})
+		return
+	}
 	switch {
 	case isErrorType(err, core.ErrDriverNotFound),
 		isErrorType(err, core.ErrProfileNotFound),
@@ -211,4 +222,3 @@ func unwrapError(err error) error {
 	}
 	return nil
 }
-

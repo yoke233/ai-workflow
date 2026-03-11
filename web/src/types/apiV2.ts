@@ -242,6 +242,36 @@ export interface AgentProfile {
   mcp?: AgentProfileMCP;
 }
 
+export interface SkillMetadata {
+  name: string;
+  description: string;
+  assign_when: string;
+  version: number;
+}
+
+export interface SkillInfo {
+  name: string;
+  has_skill_md: boolean;
+  valid: boolean;
+  metadata?: SkillMetadata;
+  validation_errors?: string[];
+  profiles_using?: string[];
+}
+
+export interface SkillDetail extends SkillInfo {
+  skill_md: string;
+}
+
+export interface CreateSkillRequest {
+  name: string;
+  skill_md?: string;
+}
+
+export interface ImportGitHubSkillRequest {
+  repo_url: string;
+  skill_name: string;
+}
+
 export interface SchedulerStats {
   enabled: boolean;
   message?: string;
@@ -255,6 +285,7 @@ export interface ChatRequest {
   project_id?: number;
   project_name?: string;
   profile_id?: string;
+  driver_id?: string;
 }
 
 export interface ChatResponse {
@@ -278,6 +309,7 @@ export interface ChatSessionSummary {
   project_name?: string;
   profile_id?: string;
   profile_name?: string;
+  driver_id?: string;
   created_at: string;
   updated_at: string;
   status: "running" | "alive" | "closed" | string;

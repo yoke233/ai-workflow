@@ -2,6 +2,7 @@ import type {
   CancelFlowResponse,
   AgentDriver,
   AgentProfile,
+  CreateSkillRequest,
   Artifact,
   Briefing,
   StatsResponse,
@@ -9,6 +10,8 @@ import type {
   AdminSystemEventResponse,
   ChatRequest,
   ChatResponse,
+  ChatSessionDetail,
+  ChatSessionSummary,
   ChatStatusResponse,
   CreateResourceBindingRequest,
   CreateProjectRequest,
@@ -18,10 +21,13 @@ import type {
   Event,
   Execution,
   Flow,
+  ImportGitHubSkillRequest,
   Project,
   ResourceBinding,
   RunFlowResponse,
   SchedulerStats,
+  SkillDetail,
+  SkillInfo,
   Step,
   UpdateStepRequest,
   UpdateProjectRequest,
@@ -149,6 +155,8 @@ export interface ApiClient {
   getBriefingByStep(stepId: number): Promise<Briefing>;
 
   chat(body: ChatRequest): Promise<ChatResponse>;
+  listChatSessions(): Promise<ChatSessionSummary[]>;
+  getChatSession(sessionId: string): Promise<ChatSessionDetail>;
   cancelChat(sessionId: string): Promise<{ session_id: string; status: string }>;
   closeChat(sessionId: string): Promise<{ session_id: string; status: string }>;
   getChatStatus(sessionId: string): Promise<ChatStatusResponse>;
@@ -178,6 +186,7 @@ export interface ApiClient {
   listEvents(params?: {
     flow_id?: number;
     step_id?: number;
+    session_id?: string;
     types?: string[];
     limit?: number;
     offset?: number;
@@ -191,6 +200,10 @@ export interface ApiClient {
   createDriver(body: AgentDriver): Promise<AgentDriver>;
   listProfiles(): Promise<AgentProfile[]>;
   createProfile(body: AgentProfile): Promise<AgentProfile>;
+  listSkills(): Promise<SkillInfo[]>;
+  getSkill(name: string): Promise<SkillDetail>;
+  createSkill(body: CreateSkillRequest): Promise<SkillInfo>;
+  importGitHubSkill(body: ImportGitHubSkillRequest): Promise<SkillInfo>;
 }
 
 export const createApiClient = (opts: ApiClientOptions): ApiClient => {
@@ -335,6 +348,14 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         method: "POST",
         body,
       }),
+    listChatSessions: () =>
+      request<ChatSessionSummary[]>({
+        path: "/chat/sessions",
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    getChatSession: (sessionId) =>
+      request<ChatSessionDetail>({
+        path: `/chat/${encodeURIComponent(sessionId)}`,
+      }),
     cancelChat: (sessionId) =>
       request<{ session_id: string; status: string }>({
         path: `/chat/${encodeURIComponent(sessionId)}/cancel`,
@@ -428,6 +449,7 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         query: {
           flow_id: params?.flow_id,
           step_id: params?.step_id,
+          session_id: params?.session_id,
           types: params?.types?.join(","),
           limit: params?.limit,
           offset: params?.offset,
@@ -459,6 +481,26 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     createProfile: (body) =>
       request<AgentProfile, AgentProfile>({
         path: "/agents/profiles",
+        method: "POST",
+        body,
+      }),
+    listSkills: () =>
+      request<SkillInfo[]>({
+        path: "/skills",
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    getSkill: (name) =>
+      request<SkillDetail>({
+        path: `/skills/${encodeURIComponent(name)}`,
+      }),
+    createSkill: (body) =>
+      request<SkillInfo, CreateSkillRequest>({
+        path: "/skills",
+        method: "POST",
+        body,
+      }),
+    importGitHubSkill: (body) =>
+      request<SkillInfo, ImportGitHubSkillRequest>({
+        path: "/skills/import/github",
         method: "POST",
         body,
       }),

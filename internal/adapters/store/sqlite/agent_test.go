@@ -3,22 +3,40 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
+	skillset "github.com/yoke233/ai-workflow/internal/skills"
 )
 
 func newAgentTestStore(t *testing.T) *Store {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "agent_test.db")
+	dataDir := t.TempDir()
+	t.Setenv("AI_WORKFLOW_DATA_DIR", dataDir)
+	createTestSkill(t, filepath.Join(dataDir, "skills"), "strict-review")
+	createTestSkill(t, filepath.Join(dataDir, "skills"), "writing-wave-plans")
+
+	dbPath := filepath.Join(dataDir, "agent_test.db")
 	s, err := New(dbPath)
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
+}
+
+func createTestSkill(t *testing.T, root string, name string) {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir skill %s: %v", name, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillset.DefaultSkillMD(name)), 0o644); err != nil {
+		t.Fatalf("write skill %s: %v", name, err)
+	}
 }
 
 func testDriver(id string) *core.AgentDriver {
@@ -414,3 +432,15 @@ func TestCapabilityOverflow(t *testing.T) {
 	}
 }
 
+func TestProfileCRUDRejectsInvalidSkillReference(t *testing.T) {
+	s := newAgentTestStore(t)
+	ctx := context.Background()
+
+	s.CreateDriver(ctx, testDriver("claude-acp"))
+
+	p := testProfile("broken-worker", "claude-acp", core.RoleWorker, "go")
+	p.Skills = []string{"missing-skill"}
+	if err := s.CreateProfile(ctx, p); !errors.Is(err, core.ErrInvalidSkills) {
+		t.Fatalf("expected ErrInvalidSkills, got %v", err)
+	}
+}

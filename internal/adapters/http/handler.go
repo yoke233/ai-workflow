@@ -10,21 +10,23 @@ import (
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	probeapp "github.com/yoke233/ai-workflow/internal/application/probe"
 	"github.com/yoke233/ai-workflow/internal/core"
+	skillset "github.com/yoke233/ai-workflow/internal/skills"
 )
 
 // Handler is the top-level HTTP handler for the workflow API.
 type Handler struct {
-	store      Store
-	bus        EventBus
-	engine     flowapp.Runner
-	lead       LeadChatService
-	scheduler  flowapp.Scheduler
-	registry   core.AgentRegistry
-	dagGen     DAGGenerator
-	probeSvc   probeapp.Service
-	skillsRoot string
-	sandbox    sandbox.SupportInspector
-	prPrompts  flowapp.PRFlowPromptsProvider
+	store               Store
+	bus                 EventBus
+	engine              flowapp.Runner
+	lead                LeadChatService
+	scheduler           flowapp.Scheduler
+	registry            core.AgentRegistry
+	dagGen              DAGGenerator
+	probeSvc            probeapp.Service
+	skillsRoot          string
+	skillGitHubImporter skillset.GitHubImporter
+	sandbox             sandbox.SupportInspector
+	prPrompts           flowapp.PRFlowPromptsProvider
 }
 
 // NewHandler creates the workflow API handler.
@@ -68,6 +70,11 @@ func WithExecutionProbeService(service probeapp.Service) HandlerOption {
 // This should point to the global shared skills repository, not a sandbox-local skills dir.
 func WithSkillsRoot(root string) HandlerOption {
 	return func(h *Handler) { h.skillsRoot = root }
+}
+
+// WithSkillGitHubImporter sets the importer used by POST /skills/import/github.
+func WithSkillGitHubImporter(importer skillset.GitHubImporter) HandlerOption {
+	return func(h *Handler) { h.skillGitHubImporter = importer }
 }
 
 // WithSandboxInspector sets the runtime sandbox support inspector.
@@ -161,7 +168,7 @@ func (h *Handler) Register(r chi.Router) {
 		r.Get("/executions/{execID}/probes", h.listExecutionProbes)
 		r.Get("/executions/{execID}/probe/latest", h.getLatestExecutionProbe)
 		r.Post("/admin/system-event", h.sendSystemEvent)
-		registerSkillRoutes(r, h.skillsRoot)
+		registerSkillRoutes(r, h.skillsRoot, h.registry, h.skillGitHubImporter)
 	})
 }
 

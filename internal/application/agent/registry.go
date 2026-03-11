@@ -7,6 +7,7 @@ import (
 
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	"github.com/yoke233/ai-workflow/internal/core"
+	skillset "github.com/yoke233/ai-workflow/internal/skills"
 )
 
 // Ensure ConfigRegistry satisfies both AgentRegistry and the flow resolver interface.
@@ -226,6 +227,9 @@ func (r *ConfigRegistry) validateProfileLocked(p *core.AgentProfile) error {
 	profileCaps := p.EffectiveCapabilities()
 	if !d.CapabilitiesMax.Covers(profileCaps) {
 		return fmt.Errorf("%w: profile %q exceeds driver %q", core.ErrCapabilityOverflow, p.ID, d.ID)
+	}
+	if err := skillset.ValidateProfileSkills(p.Skills); err != nil {
+		return err
 	}
 	return nil
 }

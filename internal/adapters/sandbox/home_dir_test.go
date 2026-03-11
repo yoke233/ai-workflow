@@ -7,8 +7,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
+	"github.com/yoke233/ai-workflow/internal/core"
+	skillset "github.com/yoke233/ai-workflow/internal/skills"
 )
 
 func TestDetectHome(t *testing.T) {
@@ -47,7 +48,7 @@ func TestHomeDirSandboxPrepareSetsEnvAndLinksSkills(t *testing.T) {
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# demo"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillset.DefaultSkillMD("demo-skill")), 0o644); err != nil {
 		t.Fatalf("write SKILL.md: %v", err)
 	}
 
@@ -101,6 +102,51 @@ func TestHomeDirSandboxPrepareSetsEnvAndLinksSkills(t *testing.T) {
 	}
 }
 
+func TestHomeDirSandboxPrepareRejectsInvalidSkill(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AI_WORKFLOW_DATA_DIR", dataDir)
+	baseHome := filepath.Join(t.TempDir(), ".codex")
+	if err := os.MkdirAll(filepath.Join(baseHome, "skills", ".system"), 0o755); err != nil {
+		t.Fatalf("mkdir base skills: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(baseHome, "auth.json"), []byte(`{"token":"x"}`), 0o600); err != nil {
+		t.Fatalf("write auth.json: %v", err)
+	}
+
+	skillsRoot := filepath.Join(dataDir, "skills")
+	skillDir := filepath.Join(skillsRoot, "broken-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# broken"), 0o644); err != nil {
+		t.Fatalf("write invalid SKILL.md: %v", err)
+	}
+
+	sb := HomeDirSandbox{
+		DataDir:          dataDir,
+		SkillsRoot:       skillsRoot,
+		RequireCodexAuth: true,
+	}
+	_, err := sb.Prepare(context.Background(), PrepareInput{
+		Profile: &core.AgentProfile{
+			ID:     "worker",
+			Skills: []string{"broken-skill"},
+		},
+		Driver: &core.AgentDriver{
+			ID:  "codex-acp",
+			Env: map[string]string{"CODEX_HOME": baseHome},
+		},
+		Launch: acpclient.LaunchConfig{
+			Command: "agent",
+			Env:     map[string]string{},
+		},
+		Scope: "flow-1",
+	})
+	if err == nil {
+		t.Fatal("expected invalid skill to fail sandbox preparation")
+	}
+}
+
 func TestLinkPathIfMissingCopiesFileOnWindowsFallback(t *testing.T) {
 	t.Parallel()
 
@@ -135,4 +181,3 @@ func TestLinkPathIfMissingCopiesFileOnWindowsFallback(t *testing.T) {
 		t.Fatal("non-windows should prefer symlink for file linking")
 	}
 }
-

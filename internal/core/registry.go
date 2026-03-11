@@ -12,6 +12,7 @@ var (
 	ErrDuplicateProfile   = errors.New("duplicate agent profile ID")
 	ErrCapabilityOverflow = errors.New("profile capabilities exceed driver capabilities_max")
 	ErrDriverInUse        = errors.New("driver is referenced by one or more profiles")
+	ErrInvalidSkills      = errors.New("profile references invalid or missing skills")
 )
 
 // AgentRegistry manages agent drivers and profiles with CRUD and resolution.

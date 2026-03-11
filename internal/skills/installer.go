@@ -6,15 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/platform/appdata"
 )
-
-var skillNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
 // EnsureSkillsLinked links each skill directory from skillsRoot into targetSkillsDir.
 func EnsureSkillsLinked(skillsRoot, targetSkillsDir string, skillNames []string) error {
@@ -36,19 +33,20 @@ func EnsureSkillsLinked(skillsRoot, targetSkillsDir string, skillNames []string)
 		if name == "" {
 			continue
 		}
-		if !skillNameRe.MatchString(name) {
+		if !IsValidName(name) {
 			return fmt.Errorf("invalid skill name %q", name)
 		}
-		src := filepath.Join(skillsRoot, name)
-		if fi, statErr := os.Stat(src); statErr != nil || !fi.IsDir() {
-			if errors.Is(statErr, os.ErrNotExist) {
-				return fmt.Errorf("skill %q not found at %s", name, src)
+		skill, inspectErr := InspectSkill(skillsRoot, name)
+		if inspectErr != nil {
+			if errors.Is(inspectErr, os.ErrNotExist) {
+				return fmt.Errorf("skill %q not found at %s", name, filepath.Join(skillsRoot, name))
 			}
-			if statErr != nil {
-				return fmt.Errorf("stat skill %q: %w", name, statErr)
-			}
-			return fmt.Errorf("skill %q path is not a directory: %s", name, src)
+			return fmt.Errorf("inspect skill %q: %w", name, inspectErr)
 		}
+		if !skill.Valid {
+			return fmt.Errorf("skill %q is invalid: %s", name, strings.Join(skill.ValidationErrors, "; "))
+		}
+		src := filepath.Join(skillsRoot, name)
 
 		dst := filepath.Join(targetSkillsDir, name)
 		if _, statErr := os.Lstat(dst); statErr == nil {
@@ -204,4 +202,3 @@ func linkDir(dst, src string) error {
 	}
 	return nil
 }
-

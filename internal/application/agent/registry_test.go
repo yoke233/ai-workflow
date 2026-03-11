@@ -3,10 +3,13 @@ package agent
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	"github.com/yoke233/ai-workflow/internal/core"
+	skillset "github.com/yoke233/ai-workflow/internal/skills"
 )
 
 func testDriver(id string) *core.AgentDriver {
@@ -341,5 +344,27 @@ func TestConfigRegistry_LoadBulk(t *testing.T) {
 	}
 	if len(pl) != 2 {
 		t.Fatalf("expected 2 profiles, got %d", len(pl))
+	}
+}
+
+func TestConfigRegistry_RejectsInvalidSkillReference(t *testing.T) {
+	ctx := context.Background()
+	reg := NewConfigRegistry()
+	reg.LoadDrivers([]*core.AgentDriver{testDriver("claude-acp")})
+
+	dataDir := t.TempDir()
+	t.Setenv("AI_WORKFLOW_DATA_DIR", dataDir)
+	dir := filepath.Join(dataDir, "skills", "strict-review")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillset.DefaultSkillMD("strict-review")), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	p := testProfile("worker-1", "claude-acp", core.RoleWorker, "backend")
+	p.Skills = []string{"strict-review", "missing-skill"}
+	if err := reg.CreateProfile(ctx, p); !errors.Is(err, core.ErrInvalidSkills) {
+		t.Fatalf("expected ErrInvalidSkills, got %v", err)
 	}
 }

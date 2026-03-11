@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
+	skillset "github.com/yoke233/ai-workflow/internal/skills"
 )
 
 // Ensure Store implements AgentRegistry.
@@ -273,6 +274,9 @@ func (s *Store) validateProfile(ctx context.Context, p *core.AgentProfile) error
 	if !d.CapabilitiesMax.Covers(profileCaps) {
 		return fmt.Errorf("%w: profile %q exceeds driver %q", core.ErrCapabilityOverflow, p.ID, d.ID)
 	}
+	if err := skillset.ValidateProfileSkills(p.Skills); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -368,6 +372,9 @@ func (s *Store) UpsertDriver(ctx context.Context, d *core.AgentDriver) error {
 
 // UpsertProfile inserts or replaces a profile (used for seeding from config).
 func (s *Store) UpsertProfile(ctx context.Context, p *core.AgentProfile) error {
+	if err := s.validateProfile(ctx, p); err != nil {
+		return err
+	}
 	caps, _ := marshalJSON(p.Capabilities)
 	actions, _ := marshalJSON(p.ActionsAllowed)
 	mcpTools, _ := marshalJSON(p.MCP.Tools)
@@ -398,4 +405,3 @@ func (s *Store) UpsertProfile(ctx context.Context, p *core.AgentProfile) error {
 		p.MCP.Enabled, mcpTools, now, now)
 	return err
 }
-
