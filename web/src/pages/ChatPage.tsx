@@ -10,6 +10,7 @@ import {
   ChevronRight,
   ClipboardCopy,
   Gauge,
+  ListTodo,
   Loader2,
   MoreHorizontal,
   Plus,
@@ -1433,6 +1434,28 @@ export function ChatPage() {
     [apiClient, selectedProjectId, navigate],
   );
 
+  const [createdIssueMessageId, setCreatedIssueMessageId] = useState<string | null>(null);
+
+  const handleCreateIssueFromMessage = useCallback(
+    async (messageId: string, content: string) => {
+      try {
+        const firstLine = content.split("\n")[0] ?? content;
+        const title = firstLine.length > 80 ? firstLine.slice(0, 80) + "..." : firstLine;
+        await apiClient.createIssue({
+          project_id: selectedProjectId ?? undefined,
+          title,
+          body: content,
+          metadata: { source: "chat" },
+        });
+        setCreatedIssueMessageId(messageId);
+        setTimeout(() => setCreatedIssueMessageId((prev) => (prev === messageId ? null : prev)), 2000);
+      } catch (err) {
+        setError(getErrorMessage(err));
+      }
+    },
+    [apiClient, selectedProjectId],
+  );
+
   return (
     <div className="flex h-full overflow-hidden">
       <div className="flex w-72 flex-col border-r bg-sidebar">
@@ -1775,24 +1798,48 @@ export function ChatPage() {
                     </div>
                     {/* Hover action bar for assistant messages */}
                     {message.role === "assistant" && (
-                      <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/msg:opacity-100">
+                      <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover/msg:opacity-100">
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          title="复制内容"
+                          className={cn(
+                            "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
+                            copiedMessageId === message.id
+                              ? "text-emerald-600"
+                              : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                          )}
+                          title="复制"
                           onClick={() => void handleCopyMessage(message.id, message.content)}
                         >
-                          <ClipboardCopy className="h-3 w-3" />
-                          复制
+                          {copiedMessageId === message.id ? (
+                            <Check className="h-3.5 w-3.5" />
+                          ) : (
+                            <ClipboardCopy className="h-3.5 w-3.5" />
+                          )}
                         </button>
                         <button
                           type="button"
-                          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-blue-50 hover:text-blue-600"
-                          title="基于此消息创建 Flow"
+                          className={cn(
+                            "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
+                            createdIssueMessageId === message.id
+                              ? "text-emerald-600"
+                              : "text-muted-foreground hover:bg-amber-50 hover:text-amber-600",
+                          )}
+                          title="创建 Issue"
+                          onClick={() => void handleCreateIssueFromMessage(message.id, message.content)}
+                        >
+                          {createdIssueMessageId === message.id ? (
+                            <Check className="h-3.5 w-3.5" />
+                          ) : (
+                            <ListTodo className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-blue-50 hover:text-blue-600"
+                          title="创建 Flow"
                           onClick={() => void handleCreateFlowFromMessage(message.content)}
                         >
-                          <Workflow className="h-3 w-3" />
-                          创建 Flow
+                          <Workflow className="h-3.5 w-3.5" />
                         </button>
                       </div>
                     )}
