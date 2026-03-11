@@ -18,17 +18,17 @@ import (
 // LocalSessionManager manages ACP sessions in the same process.
 // This is the default mode — no external dependencies, same behavior as before.
 //
-// SubmitPrompt executes synchronously (blocks until prompt completes).
-// WatchPrompt returns the cached result immediately.
+// StartExecution executes synchronously (blocks until execution completes).
+// WatchExecution returns the cached result immediately.
 type LocalSessionManager struct {
 	pool    *ACPSessionPool
 	store   core.Store
 	sandbox v2sandbox.Sandbox
 
-	mu      sync.Mutex
-	handles map[string]*localHandle
-	prompts map[string]*localPrompt
-	nextID  int64
+	mu          sync.Mutex
+	handles     map[string]*localHandle
+	invocations map[string]*localInvocation
+	nextID      int64
 
 	activeCount atomic.Int32
 	drainWg     sync.WaitGroup
@@ -40,32 +40,43 @@ type localHandle struct {
 	events     *switchingEventHandler
 	sessionID  acpproto.SessionId
 	agentCtx   *core.AgentContext
+	launch     acpclient.LaunchConfig
+	caps       acpclient.ClientCapabilities
+	workDir    string
+	mcpServers []acpproto.McpServer
 	reuse      bool
 	flowID     int64
+	stepID     int64
+	execID     int64
 }
 
-type localPrompt struct {
+type localInvocationEvent struct {
+	seq    int64
+	update acpclient.SessionUpdate
+}
+
+type localInvocation struct {
 	id        string
 	handleID  string
 	execID    int64
 	flowID    int64
 	stepID    int64
-	status    PromptState
-	result    *SessionPromptResult
+	status    ExecutionRuntimeState
+	result    *ExecutionResult
 	err       error
-	done      chan struct{} // closed when prompt completes
-	events    []acpclient.SessionUpdate
+	done      chan struct{} // closed when execution completes
+	events    []localInvocationEvent
 	createdAt time.Time
 }
 
 // NewLocalSessionManager creates a session manager that runs agents in-process.
 func NewLocalSessionManager(pool *ACPSessionPool, store core.Store, sandbox v2sandbox.Sandbox) *LocalSessionManager {
 	return &LocalSessionManager{
-		pool:    pool,
-		store:   store,
-		sandbox: sandbox,
-		handles: make(map[string]*localHandle),
-		prompts: make(map[string]*localPrompt),
+		pool:        pool,
+		store:       store,
+		sandbox:     sandbox,
+		handles:     make(map[string]*localHandle),
+		invocations: make(map[string]*localInvocation),
 	}
 }
 
@@ -99,8 +110,13 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in SessionAcquireInpu
 	m.mu.Unlock()
 
 	lh := &localHandle{
-		reuse:  in.Reuse,
-		flowID: in.FlowID,
+		reuse:   in.Reuse,
+		flowID:  in.FlowID,
+		stepID:  in.StepID,
+		execID:  in.ExecID,
+		launch:  sandboxedLaunch,
+		caps:    in.Caps,
+		workDir: in.WorkDir,
 	}
 
 	if in.Reuse && m.pool != nil {
@@ -124,6 +140,9 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in SessionAcquireInpu
 		lh.agentCtx = ac
 		lh.sessionID = sess.sessionID
 		lh.events = sess.events
+		if in.MCPFactory != nil && sess.client != nil {
+			lh.mcpServers = in.MCPFactory(sess.client.SupportsSSEMCP())
+		}
 	} else {
 		switcher := &switchingEventHandler{}
 		handler := teamleader.NewACPHandler(in.WorkDir, "", nil)
@@ -156,6 +175,7 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in SessionAcquireInpu
 		lh.standalone = client
 		lh.sessionID = sid
 		lh.events = switcher
+		lh.mcpServers = append([]acpproto.McpServer(nil), mcpServers...)
 	}
 
 	handle := &SessionHandle{ID: handleID}
@@ -174,58 +194,59 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in SessionAcquireInpu
 	return handle, nil
 }
 
-// SubmitPrompt executes the prompt synchronously (local mode).
-// Returns a prompt ID; the result is available immediately via WatchPrompt.
-func (m *LocalSessionManager) SubmitPrompt(ctx context.Context, handle *SessionHandle, text string) (string, error) {
+// StartExecution executes synchronously in local mode.
+// Returns an invocation ID; the result is available immediately via WatchExecution.
+func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *SessionHandle, text string) (string, error) {
 	m.mu.Lock()
 	lh, ok := m.handles[handle.ID]
 	if !ok {
 		m.mu.Unlock()
 		return "", fmt.Errorf("session handle %q not found", handle.ID)
 	}
-	promptID := fmt.Sprintf("lp-%d-%d", time.Now().UnixNano(), m.nextID)
+	invocationID := fmt.Sprintf("li-%d-%d", time.Now().UnixNano(), m.nextID)
 	m.nextID++
-	lp := &localPrompt{
-		id:        promptID,
+	inv := &localInvocation{
+		id:        invocationID,
 		handleID:  handle.ID,
-		execID:    lh.flowID, // will be set properly via step context
+		execID:    lh.execID,
 		flowID:    lh.flowID,
-		status:    PromptRunning,
+		stepID:    lh.stepID,
+		status:    ExecutionRunning,
 		done:      make(chan struct{}),
 		createdAt: time.Now().UTC(),
 	}
-	m.prompts[promptID] = lp
+	m.invocations[invocationID] = inv
 	m.mu.Unlock()
 
 	m.activeCount.Add(1)
 	m.drainWg.Add(1)
 
 	// Execute synchronously.
-	result, err := m.executePrompt(ctx, lh, text, lp)
+	result, err := m.executeExecution(ctx, lh, text, inv)
 
 	m.mu.Lock()
 	if err != nil {
-		lp.status = PromptFailed
-		lp.err = err
+		inv.status = ExecutionFailed
+		inv.err = err
 	} else {
-		lp.status = PromptDone
-		lp.result = result
+		inv.status = ExecutionDone
+		inv.result = result
 	}
-	close(lp.done)
+	close(inv.done)
 	m.mu.Unlock()
 
 	m.activeCount.Add(-1)
 	m.drainWg.Done()
 
 	if err != nil {
-		return promptID, err
+		return invocationID, err
 	}
-	return promptID, nil
+	return invocationID, nil
 }
 
-func (m *LocalSessionManager) executePrompt(ctx context.Context, lh *localHandle, text string, lp *localPrompt) (*SessionPromptResult, error) {
-	// Capture events for the prompt record.
-	collector := &eventCollector{lp: lp, mu: &m.mu}
+func (m *LocalSessionManager) executeExecution(ctx context.Context, lh *localHandle, text string, inv *localInvocation) (*ExecutionResult, error) {
+	// Capture events for the invocation record.
+	collector := &eventCollector{inv: inv, mu: &m.mu}
 
 	if lh.events != nil {
 		lh.events.Set(collector)
@@ -248,14 +269,14 @@ func (m *LocalSessionManager) executePrompt(ctx context.Context, lh *localHandle
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("ACP prompt failed: %w", err)
+		return nil, fmt.Errorf("ACP execution failed: %w", err)
 	}
 
 	if lh.reuse && lh.pooled != nil && m.pool != nil {
 		m.pool.NoteTurn(ctx, lh.agentCtx, lh.pooled)
 	}
 
-	out := &SessionPromptResult{
+	out := &ExecutionResult{
 		Text:       strings.TrimSpace(result.Text),
 		StopReason: string(result.StopReason),
 	}
@@ -263,22 +284,26 @@ func (m *LocalSessionManager) executePrompt(ctx context.Context, lh *localHandle
 		out.InputTokens = int64(result.Usage.InputTokens)
 		out.OutputTokens = int64(result.Usage.OutputTokens)
 	}
+	if lh.agentCtx != nil && lh.agentCtx.ID > 0 {
+		id := lh.agentCtx.ID
+		out.AgentContextID = &id
+	}
 	return out, nil
 }
 
-// WatchPrompt returns the result of a completed prompt (local mode completes synchronously).
-// If the prompt is still running (shouldn't happen in local mode), it waits.
-func (m *LocalSessionManager) WatchPrompt(ctx context.Context, promptID string, _ int64, sink EventSink) (*SessionPromptResult, error) {
+// WatchExecution returns the result of a completed execution (local mode completes synchronously).
+// If the execution is still running (shouldn't happen in local mode), it waits.
+func (m *LocalSessionManager) WatchExecution(ctx context.Context, invocationID string, lastEventSeq int64, sink EventSink) (*ExecutionResult, error) {
 	m.mu.Lock()
-	lp, ok := m.prompts[promptID]
+	inv, ok := m.invocations[invocationID]
 	m.mu.Unlock()
 	if !ok {
-		return nil, fmt.Errorf("prompt %q not found", promptID)
+		return nil, fmt.Errorf("invocation %q not found", invocationID)
 	}
 
 	// Wait for completion.
 	select {
-	case <-lp.done:
+	case <-inv.done:
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -286,44 +311,80 @@ func (m *LocalSessionManager) WatchPrompt(ctx context.Context, promptID string, 
 	// Replay events to sink if requested.
 	if sink != nil {
 		m.mu.Lock()
-		events := append([]acpclient.SessionUpdate{}, lp.events...)
+		events := append([]localInvocationEvent{}, inv.events...)
 		m.mu.Unlock()
 		for _, ev := range events {
-			_ = sink.HandleSessionUpdate(ctx, ev)
+			if ev.seq <= lastEventSeq {
+				continue
+			}
+			_ = sink.HandleSessionUpdate(ctx, ev.update)
 		}
 	}
 
-	if lp.err != nil {
-		return nil, lp.err
+	if inv.err != nil {
+		return nil, inv.err
 	}
-	return lp.result, nil
+	return inv.result, nil
 }
 
-// RecoverPrompts returns recent prompt statuses (local mode: only in-memory).
-func (m *LocalSessionManager) RecoverPrompts(_ context.Context, since time.Time) ([]PromptStatus, error) {
+// RecoverExecutions returns recent execution statuses (local mode: only in-memory).
+func (m *LocalSessionManager) RecoverExecutions(_ context.Context, since time.Time) ([]ExecutionRuntimeStatus, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var out []PromptStatus
-	for _, lp := range m.prompts {
-		if lp.createdAt.Before(since) {
+	var out []ExecutionRuntimeStatus
+	for _, inv := range m.invocations {
+		if inv.createdAt.Before(since) {
 			continue
 		}
-		ps := PromptStatus{
-			PromptID:  lp.id,
-			FlowID:    lp.flowID,
-			Status:    lp.status,
-			CreatedAt: lp.createdAt,
+		status := ExecutionRuntimeStatus{
+			InvocationID: inv.id,
+			ExecID:       inv.execID,
+			FlowID:       inv.flowID,
+			StepID:       inv.stepID,
+			Status:       inv.status,
+			CreatedAt:    inv.createdAt,
 		}
-		if lp.result != nil {
-			ps.Result = lp.result
+		if inv.result != nil {
+			status.Result = inv.result
 		}
-		if lp.err != nil {
-			ps.Error = lp.err.Error()
+		if inv.err != nil {
+			status.Error = inv.err.Error()
 		}
-		out = append(out, ps)
+		out = append(out, status)
 	}
 	return out, nil
+}
+
+// ProbeExecution sends a side-channel probe to a currently running local execution.
+func (m *LocalSessionManager) ProbeExecution(ctx context.Context, req ExecutionProbeRuntimeRequest) (*ExecutionProbeRuntimeResult, error) {
+	m.mu.Lock()
+	var handle *localHandle
+	for _, candidate := range m.handles {
+		if candidate.execID == req.ExecutionID {
+			handle = candidate
+			break
+		}
+	}
+	m.mu.Unlock()
+
+	if handle == nil {
+		return &ExecutionProbeRuntimeResult{
+			Reachable:  false,
+			Error:      "execution route is not active",
+			ObservedAt: time.Now().UTC(),
+		}, nil
+	}
+
+	return runACPExecutionProbe(ctx, acpExecutionProbeTarget{
+		Launch:     handle.launch,
+		Caps:       handle.caps,
+		WorkDir:    handle.workDir,
+		MCPServers: handle.mcpServers,
+		SessionID:  handle.sessionID,
+		Question:   req.Question,
+		Timeout:    req.Timeout,
+	})
 }
 
 // Release marks a session handle as no longer active.
@@ -351,7 +412,7 @@ func (m *LocalSessionManager) CleanupFlow(flowID int64) {
 	}
 }
 
-// DrainActive blocks until all in-flight prompts complete.
+// DrainActive blocks until all in-flight executions complete.
 func (m *LocalSessionManager) DrainActive(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
@@ -366,7 +427,7 @@ func (m *LocalSessionManager) DrainActive(ctx context.Context) error {
 	}
 }
 
-// ActiveCount returns the number of executing prompts.
+// ActiveCount returns the number of executing invocations.
 func (m *LocalSessionManager) ActiveCount() int {
 	return int(m.activeCount.Load())
 }
@@ -386,15 +447,18 @@ func (m *LocalSessionManager) Close() {
 	m.mu.Unlock()
 }
 
-// eventCollector captures events for a local prompt record.
+// eventCollector captures events for a local invocation record.
 type eventCollector struct {
-	lp *localPrompt
-	mu *sync.Mutex
+	inv *localInvocation
+	mu  *sync.Mutex
 }
 
 func (c *eventCollector) HandleSessionUpdate(ctx context.Context, update acpclient.SessionUpdate) error {
 	c.mu.Lock()
-	c.lp.events = append(c.lp.events, update)
+	c.inv.events = append(c.inv.events, localInvocationEvent{
+		seq:    int64(len(c.inv.events) + 1),
+		update: update,
+	})
 	c.mu.Unlock()
 	return nil
 }

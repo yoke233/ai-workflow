@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // FlowStore persists Flow aggregates.
 type FlowStore interface {
@@ -42,6 +45,7 @@ type ExecutionStore interface {
 	CreateExecution(ctx context.Context, e *Execution) (int64, error)
 	GetExecution(ctx context.Context, id int64) (*Execution, error)
 	ListExecutionsByStep(ctx context.Context, stepID int64) ([]*Execution, error)
+	ListExecutionsByStatus(ctx context.Context, status ExecutionStatus) ([]*Execution, error)
 	UpdateExecution(ctx context.Context, e *Execution) error
 }
 
@@ -73,6 +77,18 @@ type AgentContextStore interface {
 type EventStore interface {
 	CreateEvent(ctx context.Context, e *Event) (int64, error)
 	ListEvents(ctx context.Context, filter EventFilter) ([]*Event, error)
+	GetLatestExecutionEventTime(ctx context.Context, execID int64, eventType EventType) (*time.Time, error)
+}
+
+// ExecutionProbeStore persists probe records and execution routing metadata.
+type ExecutionProbeStore interface {
+	CreateExecutionProbe(ctx context.Context, probe *ExecutionProbe) (int64, error)
+	GetExecutionProbe(ctx context.Context, id int64) (*ExecutionProbe, error)
+	ListExecutionProbesByExecution(ctx context.Context, executionID int64) ([]*ExecutionProbe, error)
+	GetLatestExecutionProbe(ctx context.Context, executionID int64) (*ExecutionProbe, error)
+	GetActiveExecutionProbe(ctx context.Context, executionID int64) (*ExecutionProbe, error)
+	UpdateExecutionProbe(ctx context.Context, probe *ExecutionProbe) error
+	GetExecutionProbeRoute(ctx context.Context, executionID int64) (*ExecutionProbeRoute, error)
 }
 
 // Store is the aggregate interface combining all sub-stores.
@@ -86,6 +102,7 @@ type Store interface {
 	BriefingStore
 	AgentContextStore
 	EventStore
+	ExecutionProbeStore
 	Close() error
 }
 
@@ -101,6 +118,7 @@ type FlowFilter struct {
 type EventFilter struct {
 	FlowID *int64
 	StepID *int64
+	ExecID *int64
 	Types  []EventType
 	Limit  int
 	Offset int

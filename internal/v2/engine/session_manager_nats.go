@@ -26,23 +26,23 @@ type NATSSessionManagerConfig struct {
 	StreamPrefix string
 
 	// ServerID uniquely identifies this server in multi-server setups.
-	// Used as a prefix in prompt IDs to avoid collisions across servers.
+	// Used as a prefix in invocation IDs to avoid collisions across servers.
 	// Auto-generated from hostname + PID if empty.
 	ServerID string
 
-	// Store is used for persisting prompt metadata.
+	// Store is used for persisting execution metadata.
 	Store core.Store
 }
 
 // NATSSessionManager implements SessionManager using NATS JetStream.
-// Prompts are published as messages, executors consume them via queue groups,
+// Executions are published as messages, executors consume them via queue groups,
 // results and events are streamed back through dedicated subjects.
 //
 // Subject layout:
 //
-//	{prefix}.prompt.submit.{agent_type}  — prompt submission (consumed by executors)
-//	{prefix}.prompt.result.{prompt_id}   — final result
-//	{prefix}.prompt.events.{prompt_id}   — streaming events during execution
+//	{prefix}.invocation.submit.{agent_type}  — execution submission (consumed by executors)
+//	{prefix}.invocation.result.{invocation_id}   — final result
+//	{prefix}.invocation.events.{invocation_id}   — streaming events during execution
 //	{prefix}.executor.register           — executor heartbeat/registration
 type NATSSessionManager struct {
 	nc       *nats.Conn
@@ -64,34 +64,36 @@ type natsHandle struct {
 	sessionIn SessionAcquireInput
 }
 
-// natsPromptMessage is the payload published to the prompt submission subject.
-type natsPromptMessage struct {
-	PromptID string             `json:"prompt_id"`
-	HandleID string             `json:"handle_id"`
-	Text     string             `json:"text"`
-	Input    SessionAcquireInput `json:"-"` // serialized separately
-	FlowID   int64              `json:"flow_id"`
-	StepID   int64              `json:"step_id"`
-	ExecID   int64              `json:"exec_id"`
-	AgentID  string             `json:"agent_id"`
-	WorkDir  string             `json:"work_dir"`
+// natsInvocationMessage is the payload published to the execution submission subject.
+type natsInvocationMessage struct {
+	InvocationID string              `json:"invocation_id"`
+	HandleID     string              `json:"handle_id"`
+	Text         string              `json:"text"`
+	Input        SessionAcquireInput `json:"-"` // serialized separately
+	FlowID       int64               `json:"flow_id"`
+	StepID       int64               `json:"step_id"`
+	ExecID       int64               `json:"execution_id"`
+	AgentID      string              `json:"agent_id"`
+	ProfileID    string              `json:"profile_id"`
+	WorkDir      string              `json:"work_dir"`
 }
 
-// natsPromptResult is the payload published to the result subject.
-type natsPromptResult struct {
-	PromptID     string `json:"prompt_id"`
-	Text         string `json:"text"`
-	StopReason   string `json:"stop_reason"`
-	InputTokens  int64  `json:"input_tokens"`
-	OutputTokens int64  `json:"output_tokens"`
-	Error        string `json:"error,omitempty"`
+// natsInvocationResult is the payload published to the result subject.
+type natsInvocationResult struct {
+	InvocationID   string `json:"invocation_id"`
+	Text           string `json:"text"`
+	StopReason     string `json:"stop_reason"`
+	InputTokens    int64  `json:"input_tokens"`
+	OutputTokens   int64  `json:"output_tokens"`
+	AgentContextID *int64 `json:"agent_context_id,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 // natsEventMessage wraps a streaming event for NATS transport.
 type natsEventMessage struct {
-	PromptID string                 `json:"prompt_id"`
-	Seq      int64                  `json:"seq"`
-	Update   acpclient.SessionUpdate `json:"update"`
+	InvocationID string                  `json:"invocation_id"`
+	Seq          int64                   `json:"seq"`
+	Update       acpclient.SessionUpdate `json:"update"`
 }
 
 // NewNATSSessionManager creates a NATS-backed session manager.
@@ -136,22 +138,22 @@ func NewNATSSessionManager(cfg NATSSessionManagerConfig) (*NATSSessionManager, e
 }
 
 func (m *NATSSessionManager) ensureStreams(ctx context.Context) error {
-	// Prompt submission stream — consumed by executor workers.
+	// Execution submission stream — consumed by executor workers.
 	_, err := m.js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:      m.prefix + "_prompts",
-		Subjects:  []string{m.prefix + ".prompt.submit.>"},
+		Name:      m.prefix + "_invocations",
+		Subjects:  []string{m.prefix + ".invocation.submit.>"},
 		Retention: jetstream.WorkQueuePolicy,
 		MaxAge:    24 * time.Hour,
 		Storage:   jetstream.FileStorage,
 	})
 	if err != nil {
-		return fmt.Errorf("create prompts stream: %w", err)
+		return fmt.Errorf("create invocations stream: %w", err)
 	}
 
 	// Results stream — published by executors, consumed by watchers.
 	_, err = m.js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:      m.prefix + "_results",
-		Subjects:  []string{m.prefix + ".prompt.result.>"},
+		Subjects:  []string{m.prefix + ".invocation.result.>"},
 		Retention: jetstream.InterestPolicy,
 		MaxAge:    24 * time.Hour,
 		Storage:   jetstream.FileStorage,
@@ -163,7 +165,7 @@ func (m *NATSSessionManager) ensureStreams(ctx context.Context) error {
 	// Events stream — streaming events during execution.
 	_, err = m.js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:      m.prefix + "_events",
-		Subjects:  []string{m.prefix + ".prompt.events.>"},
+		Subjects:  []string{m.prefix + ".invocation.events.>"},
 		Retention: jetstream.InterestPolicy,
 		MaxAge:    1 * time.Hour,
 		Storage:   jetstream.FileStorage,
@@ -190,8 +192,8 @@ func (m *NATSSessionManager) Acquire(_ context.Context, in SessionAcquireInput) 
 	return &SessionHandle{ID: handleID}, nil
 }
 
-// SubmitPrompt publishes the prompt to JetStream for remote execution.
-func (m *NATSSessionManager) SubmitPrompt(ctx context.Context, handle *SessionHandle, text string) (string, error) {
+// StartExecution publishes the execution request to JetStream for remote execution.
+func (m *NATSSessionManager) StartExecution(ctx context.Context, handle *SessionHandle, text string) (string, error) {
 	m.mu.Lock()
 	nh, ok := m.handles[handle.ID]
 	if !ok {
@@ -199,7 +201,7 @@ func (m *NATSSessionManager) SubmitPrompt(ctx context.Context, handle *SessionHa
 		return "", fmt.Errorf("session handle %q not found", handle.ID)
 	}
 	m.nextID++
-	promptID := fmt.Sprintf("np-%s-%d-%d", m.serverID, time.Now().UnixNano(), m.nextID)
+	invocationID := fmt.Sprintf("ni-%s-%d-%d", m.serverID, time.Now().UnixNano(), m.nextID)
 	m.mu.Unlock()
 
 	agentType := "default"
@@ -207,48 +209,51 @@ func (m *NATSSessionManager) SubmitPrompt(ctx context.Context, handle *SessionHa
 		agentType = nh.sessionIn.Driver.ID
 	}
 
-	msg := natsPromptMessage{
-		PromptID: promptID,
-		HandleID: handle.ID,
-		Text:     text,
-		FlowID:   nh.sessionIn.FlowID,
-		StepID:   nh.sessionIn.StepID,
-		ExecID:   nh.sessionIn.ExecID,
-		AgentID:  agentType,
-		WorkDir:  nh.sessionIn.WorkDir,
+	msg := natsInvocationMessage{
+		InvocationID: invocationID,
+		HandleID:     handle.ID,
+		Text:         text,
+		FlowID:       nh.sessionIn.FlowID,
+		StepID:       nh.sessionIn.StepID,
+		ExecID:       nh.sessionIn.ExecID,
+		AgentID:      agentType,
+		WorkDir:      nh.sessionIn.WorkDir,
+	}
+	if nh.sessionIn.Profile != nil {
+		msg.ProfileID = strings.TrimSpace(nh.sessionIn.Profile.ID)
 	}
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return "", fmt.Errorf("marshal prompt message: %w", err)
+		return "", fmt.Errorf("marshal execution message: %w", err)
 	}
 
-	subject := fmt.Sprintf("%s.prompt.submit.%s", m.prefix, agentType)
+	subject := fmt.Sprintf("%s.invocation.submit.%s", m.prefix, agentType)
 	_, err = m.js.Publish(ctx, subject, data)
 	if err != nil {
-		return "", fmt.Errorf("publish prompt to NATS: %w", err)
+		return "", fmt.Errorf("publish execution to NATS: %w", err)
 	}
 
 	m.activeCount.Add(1)
 	m.drainWg.Add(1)
 
-	slog.Info("nats session manager: prompt submitted",
-		"prompt_id", promptID, "agent", agentType, "flow_id", msg.FlowID)
+	slog.Info("nats session manager: execution dispatched",
+		"exec_id", msg.ExecID, "agent", agentType, "flow_id", msg.FlowID)
 
-	return promptID, nil
+	return invocationID, nil
 }
 
-// WatchPrompt subscribes to the result and event subjects for a given prompt.
+// WatchExecution subscribes to the result and event subjects for a given invocation.
 // It blocks until the result is received or ctx is cancelled.
-func (m *NATSSessionManager) WatchPrompt(ctx context.Context, promptID string, lastEventSeq int64, sink EventSink) (*SessionPromptResult, error) {
+func (m *NATSSessionManager) WatchExecution(ctx context.Context, invocationID string, lastEventSeq int64, sink EventSink) (*ExecutionResult, error) {
 	defer func() {
 		m.activeCount.Add(-1)
 		m.drainWg.Done()
 	}()
 
-	// Subscribe to events stream for this prompt.
-	eventSubject := fmt.Sprintf("%s.prompt.events.%s", m.prefix, promptID)
-	resultSubject := fmt.Sprintf("%s.prompt.result.%s", m.prefix, promptID)
+	// Subscribe to events stream for this invocation.
+	eventSubject := fmt.Sprintf("%s.invocation.events.%s", m.prefix, invocationID)
+	resultSubject := fmt.Sprintf("%s.invocation.result.%s", m.prefix, invocationID)
 
 	// Create ephemeral consumer for events.
 	if sink != nil {
@@ -258,9 +263,9 @@ func (m *NATSSessionManager) WatchPrompt(ctx context.Context, promptID string, l
 			AckPolicy:     jetstream.AckExplicitPolicy,
 		})
 		if err != nil {
-			slog.Warn("nats watch: failed to create event consumer", "prompt_id", promptID, "error", err)
+			slog.Warn("nats watch: failed to create event consumer", "invocation_id", invocationID, "error", err)
 		} else {
-			go m.consumeEvents(ctx, eventConsumer, sink)
+			go m.consumeEvents(ctx, eventConsumer, lastEventSeq, sink)
 		}
 	}
 
@@ -284,7 +289,7 @@ func (m *NATSSessionManager) WatchPrompt(ctx context.Context, promptID string, l
 			continue
 		}
 		for msg := range msgs.Messages() {
-			var result natsPromptResult
+			var result natsInvocationResult
 			if err := json.Unmarshal(msg.Data(), &result); err != nil {
 				_ = msg.Nak()
 				return nil, fmt.Errorf("unmarshal result: %w", err)
@@ -295,11 +300,12 @@ func (m *NATSSessionManager) WatchPrompt(ctx context.Context, promptID string, l
 				return nil, fmt.Errorf("remote execution failed: %s", result.Error)
 			}
 
-			return &SessionPromptResult{
-				Text:         result.Text,
-				StopReason:   result.StopReason,
-				InputTokens:  result.InputTokens,
-				OutputTokens: result.OutputTokens,
+			return &ExecutionResult{
+				Text:           result.Text,
+				StopReason:     result.StopReason,
+				InputTokens:    result.InputTokens,
+				OutputTokens:   result.OutputTokens,
+				AgentContextID: result.AgentContextID,
 			}, nil
 		}
 
@@ -309,7 +315,7 @@ func (m *NATSSessionManager) WatchPrompt(ctx context.Context, promptID string, l
 	}
 }
 
-func (m *NATSSessionManager) consumeEvents(ctx context.Context, consumer jetstream.Consumer, sink EventSink) {
+func (m *NATSSessionManager) consumeEvents(ctx context.Context, consumer jetstream.Consumer, lastEventSeq int64, sink EventSink) {
 	for {
 		msgs, err := consumer.Fetch(10, jetstream.FetchMaxWait(2*time.Second))
 		if err != nil {
@@ -325,6 +331,9 @@ func (m *NATSSessionManager) consumeEvents(ctx context.Context, consumer jetstre
 				continue
 			}
 			_ = msg.Ack()
+			if ev.Seq <= lastEventSeq {
+				continue
+			}
 			_ = sink.HandleSessionUpdate(ctx, ev.Update)
 		}
 		if ctx.Err() != nil {
@@ -333,13 +342,65 @@ func (m *NATSSessionManager) consumeEvents(ctx context.Context, consumer jetstre
 	}
 }
 
-// RecoverPrompts queries NATS for prompts that may have been in-flight during a restart.
-func (m *NATSSessionManager) RecoverPrompts(ctx context.Context, since time.Time) ([]PromptStatus, error) {
-	// In NATS mode, prompts that were published but not yet consumed are still in the stream.
-	// Prompts that were being executed will have their results published by the executor.
+// RecoverExecutions queries NATS for executions that may have been in-flight during a restart.
+func (m *NATSSessionManager) RecoverExecutions(ctx context.Context, since time.Time) ([]ExecutionRuntimeStatus, error) {
+	// In NATS mode, executions that were published but not yet consumed are still in the stream.
+	// Executions that were being executed will have their results published by the executor.
 	// We return an empty list here — the executor worker handles recovery by re-publishing results.
 	slog.Info("nats session manager: recovery check", "since", since)
 	return nil, nil
+}
+
+// ProbeExecution routes a probe request to the owning remote worker over NATS request-reply.
+func (m *NATSSessionManager) ProbeExecution(ctx context.Context, req ExecutionProbeRuntimeRequest) (*ExecutionProbeRuntimeResult, error) {
+	if strings.TrimSpace(req.OwnerID) == "" {
+		return &ExecutionProbeRuntimeResult{
+			Reachable:  false,
+			Error:      "missing execution owner",
+			ObservedAt: time.Now().UTC(),
+		}, nil
+	}
+
+	payload, err := json.Marshal(natsExecutionProbeRequest{
+		ExecutionID:  req.ExecutionID,
+		SessionID:    req.SessionID,
+		InvocationID: req.InvocationID,
+		Question:     req.Question,
+		TimeoutMS:    req.Timeout.Milliseconds(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal probe request: %w", err)
+	}
+
+	subject := fmt.Sprintf("%s.probe.request.%s", m.prefix, req.OwnerID)
+	replyCtx := ctx
+	cancel := func() {}
+	if req.Timeout > 0 {
+		replyCtx, cancel = context.WithTimeout(ctx, req.Timeout+(2*time.Second))
+	}
+	defer cancel()
+
+	msg, err := m.nc.RequestWithContext(replyCtx, subject, payload)
+	if err != nil {
+		return &ExecutionProbeRuntimeResult{
+			Reachable:  false,
+			Error:      fmt.Sprintf("probe owner unreachable: %v", err),
+			ObservedAt: time.Now().UTC(),
+		}, nil
+	}
+
+	var res natsExecutionProbeResponse
+	if err := json.Unmarshal(msg.Data, &res); err != nil {
+		return nil, fmt.Errorf("unmarshal probe response: %w", err)
+	}
+
+	return &ExecutionProbeRuntimeResult{
+		Reachable:  res.Reachable,
+		Answered:   res.Answered,
+		ReplyText:  res.ReplyText,
+		Error:      res.Error,
+		ObservedAt: res.ObservedAt,
+	}, nil
 }
 
 // Release is a no-op in NATS mode — sessions are managed by executors.
@@ -353,7 +414,7 @@ func (m *NATSSessionManager) Release(_ context.Context, handle *SessionHandle) e
 // CleanupFlow is a no-op in NATS mode — executor workers manage their own sessions.
 func (m *NATSSessionManager) CleanupFlow(_ int64) {}
 
-// DrainActive blocks until all in-flight prompts complete.
+// DrainActive blocks until all in-flight executions complete.
 func (m *NATSSessionManager) DrainActive(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
@@ -368,7 +429,7 @@ func (m *NATSSessionManager) DrainActive(ctx context.Context) error {
 	}
 }
 
-// ActiveCount returns the number of prompts being watched.
+// ActiveCount returns the number of invocations being watched.
 func (m *NATSSessionManager) ActiveCount() int {
 	return int(m.activeCount.Load())
 }

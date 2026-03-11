@@ -193,6 +193,15 @@ provider = "home_dir"
 # max_turns = 12
 # idle_ttl  = "15m"
 
+# v2 execution probe watchdog。用于对长时间 running execution 发起旁路探活。
+[v2.execution_probe]
+enabled = false
+interval = "1m"
+after = "20m"
+idle_after = "10m"
+timeout = "45s"
+max_attempts = 1
+
 # v2 会话复用（session.reuse=true）时的“增量提示词”。
 # 这些内容会作为同一 session 的后续消息发送，以复用已有上下文和 prompt cache，所以应尽量简短。
 [v2.prompts]

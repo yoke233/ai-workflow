@@ -50,13 +50,14 @@ type LLMFilterConfig struct {
 type V2Config struct {
 	// MockExecutor makes v2 step execution use an in-process stub instead of ACP agents.
 	// Useful for smoke tests and environments without LLM credentials.
-	MockExecutor   bool                  `toml:"mock_executor" yaml:"mock_executor" json:"mock_executor"`
-	Collector      V2CollectorConfig     `toml:"collector" yaml:"collector" json:"collector"`
-	Sandbox        V2SandboxConfig       `toml:"sandbox"   yaml:"sandbox" json:"sandbox"`
-	Agents         V2AgentsConfig        `toml:"agents"    yaml:"agents" json:"agents"`
-	MCP            V2MCPConfig           `toml:"mcp"       yaml:"mcp" json:"mcp"`
-	Prompts        V2PromptsConfig       `toml:"prompts"   yaml:"prompts" json:"prompts"`
+	MockExecutor   bool                   `toml:"mock_executor" yaml:"mock_executor" json:"mock_executor"`
+	Collector      V2CollectorConfig      `toml:"collector" yaml:"collector" json:"collector"`
+	Sandbox        V2SandboxConfig        `toml:"sandbox"   yaml:"sandbox" json:"sandbox"`
+	Agents         V2AgentsConfig         `toml:"agents"    yaml:"agents" json:"agents"`
+	MCP            V2MCPConfig            `toml:"mcp"       yaml:"mcp" json:"mcp"`
+	Prompts        V2PromptsConfig        `toml:"prompts"   yaml:"prompts" json:"prompts"`
 	SessionManager V2SessionManagerConfig `toml:"session_manager" yaml:"session_manager" json:"session_manager"`
+	ExecutionProbe V2ExecutionProbeConfig `toml:"execution_probe" yaml:"execution_probe" json:"execution_probe"`
 }
 
 // V2SessionManagerConfig configures the session manager mode.
@@ -74,18 +75,26 @@ type V2SessionManagerConfig struct {
 	NATS V2NATSConfig `toml:"nats" yaml:"nats" json:"nats"`
 }
 
+// V2ExecutionProbeConfig configures watchdog-driven execution probes.
+type V2ExecutionProbeConfig struct {
+	Enabled     bool     `toml:"enabled" yaml:"enabled" json:"enabled"`
+	Interval    Duration `toml:"interval" yaml:"interval" json:"interval"`
+	After       Duration `toml:"after" yaml:"after" json:"after"`
+	IdleAfter   Duration `toml:"idle_after" yaml:"idle_after" json:"idle_after"`
+	Timeout     Duration `toml:"timeout" yaml:"timeout" json:"timeout"`
+	MaxAttempts int      `toml:"max_attempts" yaml:"max_attempts" json:"max_attempts"`
+}
+
 // V2NATSConfig configures the NATS connection and JetStream settings.
 type V2NATSConfig struct {
 	// URL is the NATS server URL (e.g., "nats://localhost:4222").
-	// If empty and Embedded is true, an embedded NATS server is started.
+	// The current implementation requires an external NATS server.
 	URL string `toml:"url" yaml:"url" json:"url"`
 
-	// Embedded starts an in-process NATS server. Useful for single-machine setups
-	// that still want crash-resilient prompt persistence.
+	// Embedded is reserved for a future in-process NATS mode and is not wired yet.
 	Embedded bool `toml:"embedded" yaml:"embedded" json:"embedded"`
 
-	// EmbeddedDataDir is the data directory for the embedded NATS server's JetStream store.
-	// Defaults to <data-dir>/nats-data if empty.
+	// EmbeddedDataDir is reserved for the future embedded NATS mode.
 	EmbeddedDataDir string `toml:"embedded_data_dir" yaml:"embedded_data_dir" json:"embedded_data_dir"`
 
 	// StreamPrefix is the NATS JetStream stream name prefix. Default: "aiworkflow".
@@ -351,12 +360,22 @@ type V2Layer struct {
 	MCP            *V2MCPLayer            `toml:"mcp"             yaml:"mcp"`
 	Prompts        *V2PromptsLayer        `toml:"prompts"         yaml:"prompts"`
 	SessionManager *V2SessionManagerLayer `toml:"session_manager" yaml:"session_manager"`
+	ExecutionProbe *V2ExecutionProbeLayer `toml:"execution_probe" yaml:"execution_probe"`
 }
 
 type V2SessionManagerLayer struct {
 	Mode     *string      `toml:"mode"      yaml:"mode"`
 	ServerID *string      `toml:"server_id" yaml:"server_id"`
 	NATS     *V2NATSLayer `toml:"nats"      yaml:"nats"`
+}
+
+type V2ExecutionProbeLayer struct {
+	Enabled     *bool     `toml:"enabled" yaml:"enabled"`
+	Interval    *Duration `toml:"interval" yaml:"interval"`
+	After       *Duration `toml:"after" yaml:"after"`
+	IdleAfter   *Duration `toml:"idle_after" yaml:"idle_after"`
+	Timeout     *Duration `toml:"timeout" yaml:"timeout"`
+	MaxAttempts *int      `toml:"max_attempts" yaml:"max_attempts"`
 }
 
 type V2NATSLayer struct {

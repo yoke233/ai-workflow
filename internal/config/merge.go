@@ -409,6 +409,26 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 				}
 			}
 		}
+		if probe := v2.ExecutionProbe; probe != nil {
+			if probe.Enabled != nil {
+				cfg.V2.ExecutionProbe.Enabled = *probe.Enabled
+			}
+			if probe.Interval != nil {
+				cfg.V2.ExecutionProbe.Interval = *probe.Interval
+			}
+			if probe.After != nil {
+				cfg.V2.ExecutionProbe.After = *probe.After
+			}
+			if probe.IdleAfter != nil {
+				cfg.V2.ExecutionProbe.IdleAfter = *probe.IdleAfter
+			}
+			if probe.Timeout != nil {
+				cfg.V2.ExecutionProbe.Timeout = *probe.Timeout
+			}
+			if probe.MaxAttempts != nil {
+				cfg.V2.ExecutionProbe.MaxAttempts = *probe.MaxAttempts
+			}
+		}
 		if prompts := v2.Prompts; prompts != nil {
 			if prompts.ReworkFollowup != nil {
 				cfg.V2.Prompts.ReworkFollowup = *prompts.ReworkFollowup

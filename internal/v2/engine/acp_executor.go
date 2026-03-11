@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"text/template"
 	"time"
@@ -32,7 +33,7 @@ type ACPExecutorConfig struct {
 
 // NewACPStepExecutor creates a StepExecutor that uses a SessionManager for ACP agent execution.
 // It resolves step → AgentProfile + AgentDriver via the AgentRegistry, acquires a session,
-// submits the prompt, watches for completion, then stores the result.
+// starts the execution, watches for completion, then stores the result.
 func NewACPStepExecutor(cfg ACPExecutorConfig) StepExecutor {
 	return func(ctx context.Context, step *core.Step, exec *core.Execution) error {
 		if cfg.SessionManager == nil {
@@ -112,16 +113,19 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) StepExecutor {
 			exec.AgentContextID = handle.AgentContextID
 		}
 
-		prompt := buildPromptForStep(profile, exec.BriefingSnapshot, step, handle.HasPriorTurns, cfg.ReworkFollowupTemplate, cfg.ContinueFollowupTemplate)
+		executionInput := buildExecutionInputForStep(profile, exec.BriefingSnapshot, step, handle.HasPriorTurns, cfg.ReworkFollowupTemplate, cfg.ContinueFollowupTemplate)
 
-		promptID, err := cfg.SessionManager.SubmitPrompt(ctx, handle, prompt)
+		invocationID, err := cfg.SessionManager.StartExecution(ctx, handle, executionInput)
 		if err != nil {
-			return fmt.Errorf("submit prompt: %w", err)
+			return fmt.Errorf("start execution: %w", err)
 		}
 
-		result, err := cfg.SessionManager.WatchPrompt(ctx, promptID, 0, bridge)
+		result, err := cfg.SessionManager.WatchExecution(ctx, invocationID, 0, bridge)
 		if err != nil {
-			return fmt.Errorf("watch prompt: %w", err)
+			return fmt.Errorf("watch execution: %w", err)
+		}
+		if result != nil && result.AgentContextID != nil {
+			exec.AgentContextID = result.AgentContextID
 		}
 
 		// Flush any remaining accumulated chunks.
@@ -195,8 +199,8 @@ func extractGateMetadata(markdown string) map[string]any {
 	return parsed
 }
 
-// buildPromptFromBriefing constructs the prompt text sent to the ACP agent.
-func buildPromptFromBriefing(snapshot string, step *core.Step) string {
+// buildExecutionInputFromBriefing constructs the execution input sent to the ACP agent.
+func buildExecutionInputFromBriefing(snapshot string, step *core.Step) string {
 	var sb strings.Builder
 	sb.WriteString("# Task\n\n")
 	sb.WriteString(snapshot)
@@ -224,25 +228,25 @@ func cloneEnv(in map[string]string) map[string]string {
 	return out
 }
 
-func buildPromptForStep(profile *core.AgentProfile, snapshot string, step *core.Step, hasPriorTurns bool, reworkTmpl string, continueTmpl string) string {
+func buildExecutionInputForStep(profile *core.AgentProfile, snapshot string, step *core.Step, hasPriorTurns bool, reworkTmpl string, continueTmpl string) string {
 	// For gate steps, always repeat the full instruction block to ensure deterministic output.
 	if step != nil && step.Type == core.StepGate {
-		return buildPromptFromBriefing(snapshot, step)
+		return buildExecutionInputFromBriefing(snapshot, step)
 	}
 
 	feedback := latestGateFeedback(step)
 	// If the agent is in a reused session and we already have prior turns, send only the incremental
-	// feedback to preserve prompt caching and leverage the existing context window.
+	// feedback to preserve execution context caching and leverage the existing context window.
 	if profile != nil && profile.Session.Reuse && hasPriorTurns {
 		if feedback != "" {
-			return renderFollowupPrompt(reworkTmpl, followupVars{Feedback: feedback, StepName: stepName(step)})
+			return renderFollowupExecutionMessage(reworkTmpl, followupVars{Feedback: feedback, StepName: stepName(step)})
 		}
-		// No explicit feedback — continue without re-sending the full base prompt.
-		return renderFollowupPrompt(continueTmpl, followupVars{StepName: stepName(step)})
+		// No explicit feedback — continue without re-sending the full base instruction block.
+		return renderFollowupExecutionMessage(continueTmpl, followupVars{StepName: stepName(step)})
 	}
 
-	// Default: full base prompt + optional feedback section.
-	base := buildPromptFromBriefing(snapshot, step)
+	// Default: full base instruction block + optional feedback section.
+	base := buildExecutionInputFromBriefing(snapshot, step)
 	if feedback == "" {
 		return base
 	}
@@ -296,7 +300,7 @@ func stepName(step *core.Step) string {
 	return strings.TrimSpace(step.Name)
 }
 
-func renderFollowupPrompt(tmplText string, vars followupVars) string {
+func renderFollowupExecutionMessage(tmplText string, vars followupVars) string {
 	// Safe fallback: no template provided.
 	if strings.TrimSpace(tmplText) == "" {
 		if strings.TrimSpace(vars.Feedback) == "" {
@@ -313,13 +317,13 @@ func renderFollowupPrompt(tmplText string, vars followupVars) string {
 
 	tmpl, err := template.New("v2-followup").Parse(tmplText)
 	if err != nil {
-		// Never fail the execution due to prompt template issues.
-		slog.Warn("v2 followup prompt: invalid template", "error", err)
+		// Never fail the execution due to follow-up template issues.
+		slog.Warn("v2 followup execution message: invalid template", "error", err)
 		return "# Rework Requested\n\n反馈：\n" + vars.Feedback + "\n"
 	}
 	var b strings.Builder
 	if err := tmpl.Execute(&b, vars); err != nil {
-		slog.Warn("v2 followup prompt: render failed", "error", err)
+		slog.Warn("v2 followup execution message: render failed", "error", err)
 		return "# Rework Requested\n\n反馈：\n" + vars.Feedback + "\n"
 	}
 	out := strings.TrimSpace(b.String())
@@ -423,7 +427,7 @@ func (b *EventBridge) FlushPending(ctx context.Context) {
 	b.flushMessage(ctx)
 }
 
-// PublishData publishes an event with arbitrary data (used for done, prompt events).
+// PublishData publishes an event with arbitrary data (used for done and runtime events).
 func (b *EventBridge) PublishData(ctx context.Context, data map[string]any) {
 	b.publish(ctx, data)
 }

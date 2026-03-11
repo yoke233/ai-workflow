@@ -20,6 +20,7 @@ type Handler struct {
 	scheduler  *engine.FlowScheduler
 	registry   core.AgentRegistry
 	dagGen     *engine.DAGGenerator
+	probeSvc   *engine.ExecutionProbeService
 	skillsRoot string
 	sandbox    v2sandbox.SupportInspector
 	prPrompts  engine.PRFlowPromptsProvider
@@ -55,6 +56,11 @@ func WithRegistry(r core.AgentRegistry) HandlerOption {
 // WithDAGGenerator sets the DAG generator for AI-powered step decomposition.
 func WithDAGGenerator(g *engine.DAGGenerator) HandlerOption {
 	return func(h *Handler) { h.dagGen = g }
+}
+
+// WithExecutionProbeService sets the execution probe service for manual/admin probe APIs.
+func WithExecutionProbeService(service *engine.ExecutionProbeService) HandlerOption {
+	return func(h *Handler) { h.probeSvc = service }
 }
 
 // WithSkillsRoot sets the filesystem root directory for managing ai-workflow skills.
@@ -141,6 +147,9 @@ func (h *Handler) Register(r chi.Router) {
 	// Admin controls
 	r.Group(func(r chi.Router) {
 		r.Use(web.RequireScope(web.ScopeAdmin))
+		r.Post("/executions/{execID}/probe", h.createExecutionProbe)
+		r.Get("/executions/{execID}/probes", h.listExecutionProbes)
+		r.Get("/executions/{execID}/probe/latest", h.getLatestExecutionProbe)
 		r.Post("/admin/system-event", h.sendSystemEvent)
 		registerSkillRoutes(r, h.skillsRoot)
 	})

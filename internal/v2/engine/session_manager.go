@@ -9,29 +9,32 @@ import (
 	"github.com/yoke233/ai-workflow/internal/v2/core"
 )
 
-// SessionManager abstracts ACP agent session lifecycle management.
+// SessionManager abstracts ACP agent session lifecycle management for executions.
 //
 // Two modes:
 //   - Local (default): in-process, wraps ACPSessionPool. No external dependencies.
-//   - NATS (opt-in): async prompt submission via NATS JetStream. Agents survive
+//   - NATS (opt-in): async execution dispatch via NATS JetStream. Agents survive
 //     server restarts. Supports multiple remote executors with queue-group load balancing.
 type SessionManager interface {
 	// Acquire gets or creates an ACP session for the given agent+flow.
 	Acquire(ctx context.Context, in SessionAcquireInput) (*SessionHandle, error)
 
-	// SubmitPrompt submits a prompt for execution. Returns a prompt ID.
+	// StartExecution dispatches text to the acquired session. Returns an invocation ID.
 	// In local mode this executes synchronously and the result is available immediately.
 	// In NATS mode this publishes to JetStream and returns before execution starts.
-	SubmitPrompt(ctx context.Context, handle *SessionHandle, text string) (string, error)
+	StartExecution(ctx context.Context, handle *SessionHandle, text string) (string, error)
 
-	// WatchPrompt subscribes to events for a submitted prompt. Blocks until the
-	// prompt completes or ctx is cancelled. Events are forwarded to sink.
+	// WatchExecution subscribes to events for a dispatched invocation. Blocks until the
+	// execution completes or ctx is cancelled. Events are forwarded to sink.
 	// Can reconnect with lastEventSeq to resume from where we left off.
-	WatchPrompt(ctx context.Context, promptID string, lastEventSeq int64, sink EventSink) (*SessionPromptResult, error)
+	WatchExecution(ctx context.Context, invocationID string, lastEventSeq int64, sink EventSink) (*ExecutionResult, error)
 
-	// RecoverPrompts returns the status of all prompts that were active or completed
+	// RecoverExecutions returns the status of all executions that were active or completed
 	// since the given timestamp. Called after server restart to resume tracking.
-	RecoverPrompts(ctx context.Context, since time.Time) ([]PromptStatus, error)
+	RecoverExecutions(ctx context.Context, since time.Time) ([]ExecutionRuntimeStatus, error)
+
+	// ProbeExecution sends a side-channel diagnostic question to a running execution.
+	ProbeExecution(ctx context.Context, req ExecutionProbeRuntimeRequest) (*ExecutionProbeRuntimeResult, error)
 
 	// Release marks a session handle as no longer active.
 	Release(ctx context.Context, handle *SessionHandle) error
@@ -39,17 +42,17 @@ type SessionManager interface {
 	// CleanupFlow releases all sessions for a completed/failed flow.
 	CleanupFlow(flowID int64)
 
-	// DrainActive blocks until all in-flight prompts complete (for graceful upgrade).
+	// DrainActive blocks until all in-flight executions complete (for graceful upgrade).
 	DrainActive(ctx context.Context) error
 
-	// ActiveCount returns the number of currently executing prompts.
+	// ActiveCount returns the number of currently executing invocations.
 	ActiveCount() int
 
 	// Close shuts down all managed sessions.
 	Close()
 }
 
-// EventSink receives streaming events during prompt execution.
+// EventSink receives streaming events during execution.
 type EventSink interface {
 	HandleSessionUpdate(ctx context.Context, update acpclient.SessionUpdate) error
 }
@@ -79,35 +82,55 @@ type SessionAcquireInput struct {
 type SessionHandle struct {
 	ID             string // opaque handle identifier
 	AgentContextID *int64 // persisted context ID (for execution record)
-	HasPriorTurns  bool   // whether session had prior prompts
+	HasPriorTurns  bool   // whether session had prior executions
 }
 
-// SessionPromptResult contains the outcome of a prompt execution.
-type SessionPromptResult struct {
-	Text         string
-	StopReason   string
-	InputTokens  int64
-	OutputTokens int64
+// ExecutionResult contains the outcome of an execution.
+type ExecutionResult struct {
+	Text           string
+	StopReason     string
+	InputTokens    int64
+	OutputTokens   int64
+	AgentContextID *int64
 }
 
-// PromptStatus represents the state of a prompt (for recovery after restart).
-type PromptStatus struct {
-	PromptID  string
-	ExecID    int64
-	FlowID    int64
-	StepID    int64
-	Status    PromptState
-	Result    *SessionPromptResult
-	Error     string
-	CreatedAt time.Time
+// ExecutionRuntimeStatus represents the state of an execution invocation for recovery.
+type ExecutionRuntimeStatus struct {
+	InvocationID string
+	ExecID       int64
+	FlowID       int64
+	StepID       int64
+	Status       ExecutionRuntimeState
+	Result       *ExecutionResult
+	Error        string
+	CreatedAt    time.Time
 }
 
-// PromptState is the lifecycle state of a submitted prompt.
-type PromptState string
+// ExecutionRuntimeState is the lifecycle state of a dispatched execution invocation.
+type ExecutionRuntimeState string
 
 const (
-	PromptPending PromptState = "pending"
-	PromptRunning PromptState = "running"
-	PromptDone    PromptState = "done"
-	PromptFailed  PromptState = "failed"
+	ExecutionPending ExecutionRuntimeState = "pending"
+	ExecutionRunning ExecutionRuntimeState = "running"
+	ExecutionDone    ExecutionRuntimeState = "done"
+	ExecutionFailed  ExecutionRuntimeState = "failed"
 )
+
+// ExecutionProbeRuntimeRequest contains the internal routing data needed to send a probe.
+type ExecutionProbeRuntimeRequest struct {
+	ExecutionID  int64
+	InvocationID string
+	SessionID    string
+	OwnerID      string
+	Question     string
+	Timeout      time.Duration
+}
+
+// ExecutionProbeRuntimeResult is the low-level runtime response for a probe request.
+type ExecutionProbeRuntimeResult struct {
+	Reachable  bool
+	Answered   bool
+	ReplyText  string
+	Error      string
+	ObservedAt time.Time
+}

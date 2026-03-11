@@ -99,6 +99,40 @@ func (s *Store) ListExecutionsByStep(ctx context.Context, stepID int64) ([]*core
 	return execs, rows.Err()
 }
 
+func (s *Store) ListExecutionsByStatus(ctx context.Context, status core.ExecutionStatus) ([]*core.Execution, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, step_id, flow_id, status, agent_id, agent_context_id,
+		        briefing_snapshot, artifact_id, input, output,
+		        error_message, error_kind, attempt, started_at, finished_at, created_at
+		 FROM executions WHERE status = ? ORDER BY id`, status,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list executions by status: %w", err)
+	}
+	defer rows.Close()
+
+	var execs []*core.Execution
+	for rows.Next() {
+		e := &core.Execution{}
+		var input, output, briefing, errorKind sql.NullString
+		if err := rows.Scan(&e.ID, &e.StepID, &e.FlowID, &e.Status, &e.AgentID, &e.AgentContextID,
+			&briefing, &e.ArtifactID, &input, &output,
+			&e.ErrorMessage, &errorKind, &e.Attempt, &e.StartedAt, &e.FinishedAt, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan execution: %w", err)
+		}
+		if briefing.Valid {
+			e.BriefingSnapshot = briefing.String
+		}
+		if errorKind.Valid {
+			e.ErrorKind = core.ErrorKind(errorKind.String)
+		}
+		unmarshalNullJSON(input, &e.Input)
+		unmarshalNullJSON(output, &e.Output)
+		execs = append(execs, e)
+	}
+	return execs, rows.Err()
+}
+
 func (s *Store) UpdateExecution(ctx context.Context, e *core.Execution) error {
 	output, err := marshalJSON(e.Output)
 	if err != nil {

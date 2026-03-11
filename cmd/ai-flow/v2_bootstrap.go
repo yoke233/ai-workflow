@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/go-chi/chi/v5"
@@ -199,10 +200,17 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 	schedCtx, schedCancel := context.WithCancel(context.Background())
 	go scheduler.Start(schedCtx)
 
-	if n, err := v2engine.RecoverInterruptedFlows(context.Background(), v2Store, scheduler); err != nil {
+	recoverFlows := v2engine.RecoverInterruptedFlows
+	recoveryLogLabel := "interrupted flows"
+	if smMode == "nats" {
+		recoverFlows = v2engine.RecoverQueuedFlows
+		recoveryLogLabel = "queued flows"
+		slog.Warn("v2 bootstrap: skipping running-flow recovery in NATS mode until execution recovery is implemented")
+	}
+	if n, err := recoverFlows(context.Background(), v2Store, scheduler); err != nil {
 		slog.Warn("v2 bootstrap: flow recovery error", "error", err)
 	} else if n > 0 {
-		slog.Info("v2 bootstrap: recovered interrupted flows", "count", n)
+		slog.Info("v2 bootstrap: recovered flows", "kind", recoveryLogLabel, "count", n)
 	}
 
 	leadAgent := v2engine.NewLeadAgent(v2engine.LeadAgentConfig{
@@ -216,13 +224,25 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 		dagGen = v2engine.NewDAGGenerator(llmClient, registry)
 	}
 
-	handler := v2api.NewHandler(v2Store, v2Bus, eng, buildV2APIOptions(bootstrapCfg, runtimeManager, leadAgent, scheduler, registry, dagGen)...)
+	probeSvc := v2engine.NewExecutionProbeService(v2engine.ExecutionProbeServiceConfig{
+		Store:          v2Store,
+		Bus:            v2Bus,
+		SessionManager: sessionMgr,
+	})
+
+	apiOpts := buildV2APIOptions(bootstrapCfg, runtimeManager, leadAgent, scheduler, registry, dagGen)
+	apiOpts = append(apiOpts, v2api.WithExecutionProbeService(probeSvc))
+	handler := v2api.NewHandler(v2Store, v2Bus, eng, apiOpts...)
 	registrar := func(r chi.Router) { handler.Register(r) }
 
 	var runtimeWatchCancel context.CancelFunc
+	var probeWatchCancel context.CancelFunc
 	cleanup := func() {
 		if runtimeWatchCancel != nil {
 			runtimeWatchCancel()
+		}
+		if probeWatchCancel != nil {
+			probeWatchCancel()
 		}
 		if runtimeManager != nil {
 			_ = runtimeManager.Close()
@@ -245,6 +265,20 @@ func bootstrapV2(v1StorePath string, roleResolver *acpclient.RoleResolver, boots
 		if err := runtimeManager.Start(watchCtx); err != nil {
 			slog.Warn("v2 bootstrap: config runtime watcher disabled", "error", err)
 		}
+	}
+
+	if bootstrapCfg != nil && bootstrapCfg.V2.ExecutionProbe.Enabled {
+		probeWatchdog := v2engine.NewExecutionProbeWatchdog(v2Store, probeSvc, v2engine.ExecutionProbeWatchdogConfig{
+			Enabled:      bootstrapCfg.V2.ExecutionProbe.Enabled,
+			Interval:     bootstrapCfg.V2.ExecutionProbe.Interval.Duration,
+			ProbeAfter:   bootstrapCfg.V2.ExecutionProbe.After.Duration,
+			IdleAfter:    bootstrapCfg.V2.ExecutionProbe.IdleAfter.Duration,
+			ProbeTimeout: bootstrapCfg.V2.ExecutionProbe.Timeout.Duration,
+			MaxAttempts:  bootstrapCfg.V2.ExecutionProbe.MaxAttempts,
+		})
+		watchCtx, cancel := context.WithCancel(context.Background())
+		probeWatchCancel = cancel
+		go probeWatchdog.Start(watchCtx)
 	}
 
 	slog.Info("v2 engine bootstrapped", "db", v2DBPath)
@@ -296,7 +330,7 @@ func natsConnect(url string) (*nats.Conn, error) {
 	nc, err := nats.Connect(url,
 		nats.RetryOnFailedConnect(true),
 		nats.MaxReconnects(10),
-		nats.ReconnectWait(2),
+		nats.ReconnectWait(2*time.Second),
 	)
 	if err != nil {
 		return nil, err
