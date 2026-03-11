@@ -11,6 +11,7 @@ artifacts/
 /docs/.write-test.tmp
 .ai-workflow/
 node_modules/
+*.tsbuildinfo
 
 # Go
 *.exe
