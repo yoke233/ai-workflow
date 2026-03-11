@@ -72,8 +72,8 @@ const WorkbenchRoutes = () => {
           <Route path="/sandbox" element={<SandboxPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/skills" element={<SkillsPage />} />
-          <Route path="/git-tags" element={<GitTagsPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:projectId/git-tags" element={<GitTagsPage />} />
           <Route path="/projects/new" element={<CreateProjectPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

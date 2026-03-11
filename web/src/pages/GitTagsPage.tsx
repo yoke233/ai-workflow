@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useParams, Link } from "react-router-dom";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,12 +14,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { GitCommitEntry, GitTagEntry } from "@/types/apiV2";
-import { Tag, GitCommit, Upload, RefreshCw, Check, AlertCircle } from "lucide-react";
+import { Tag, GitCommit, Upload, RefreshCw, Check, AlertCircle, ArrowLeft } from "lucide-react";
 
 type TabType = "commits" | "tags";
 
 export function GitTagsPage() {
-  const { apiClient, selectedProjectId } = useWorkbench();
+  const { apiClient } = useWorkbench();
+  const { projectId: projectIdParam } = useParams<{ projectId: string }>();
+  const selectedProjectId = projectIdParam ? Number(projectIdParam) : null;
 
   const [activeTab, setActiveTab] = useState<TabType>("commits");
   const [commits, setCommits] = useState<GitCommitEntry[]>([]);
@@ -143,6 +146,13 @@ export function GitTagsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
+          <Link
+            to="/projects"
+            className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-3 w-3" />
+            返回项目
+          </Link>
           <h1 className="text-2xl font-semibold tracking-tight">版本标签</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             查看提交记录、创建 Git Tag 并推送到远程触发 CI/CD
