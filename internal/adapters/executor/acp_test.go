@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	acpproto "github.com/coder/acp-go-sdk"
+
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	eventbridge "github.com/yoke233/ai-workflow/internal/adapters/events/bridge"
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
@@ -250,5 +252,50 @@ func TestIsTransientAgentEvent(t *testing.T) {
 			t.Errorf("IsTransientAgentEvent(%s/%s) = %v, want %v",
 				tt.eventType, tt.subType, got, tt.want)
 		}
+	}
+}
+
+func TestBuildStepMCPFactory(t *testing.T) {
+	resolverCalled := 0
+	resolver := func(profileID string, agentSupportsSSE bool) []acpproto.McpServer {
+		resolverCalled++
+		return []acpproto.McpServer{{Sse: &acpproto.McpServerSseInline{Name: "complete-step", Type: "sse", Url: "http://127.0.0.1:8080/api/v1/mcp"}}}
+	}
+
+	t.Run("nil resolver returns nil", func(t *testing.T) {
+		factory := buildStepMCPFactory(&core.Step{Type: core.StepExec}, "worker", nil)
+		if factory != nil {
+			t.Fatal("expected nil factory")
+		}
+	})
+
+	t.Run("composite step does not inject", func(t *testing.T) {
+		factory := buildStepMCPFactory(&core.Step{Type: core.StepComposite}, "worker", resolver)
+		if factory != nil {
+			t.Fatal("expected nil factory for composite step")
+		}
+	})
+
+	t.Run("exec step injects", func(t *testing.T) {
+		factory := buildStepMCPFactory(&core.Step{Type: core.StepExec}, "worker", resolver)
+		if factory == nil {
+			t.Fatal("expected non-nil factory for exec step")
+		}
+		servers := factory(true)
+		if len(servers) != 1 || servers[0].Sse == nil {
+			t.Fatalf("unexpected servers: %+v", servers)
+		}
+	})
+
+	t.Run("gate step injects", func(t *testing.T) {
+		factory := buildStepMCPFactory(&core.Step{Type: core.StepGate}, "worker", resolver)
+		if factory == nil {
+			t.Fatal("expected non-nil factory for gate step")
+		}
+		_ = factory(false)
+	})
+
+	if resolverCalled != 2 {
+		t.Fatalf("resolver called %d times, want 2", resolverCalled)
 	}
 }

@@ -2,6 +2,8 @@ package bootstrap
 
 import (
 	"context"
+
+	acpproto "github.com/coder/acp-go-sdk"
 	"log/slog"
 	"os"
 	"strings"
@@ -34,7 +36,7 @@ func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, ghTokens G
 
 	sessionMgr, sessionMode := buildSessionManager(bootstrapCfg, base.store, base.dataDir, acpPool, sb)
 	llmClient := buildCollectorClient(bootstrapCfg)
-	executor := buildStepExecutor(base.store, base.bus, base.registry, sessionMgr, bootstrapCfg, ghTokens, upgradeFn)
+	executor := buildStepExecutor(base.store, base.bus, base.registry, base.runtimeManager, sessionMgr, bootstrapCfg, ghTokens, upgradeFn)
 	engine := buildFlowEngine(base.store, base.bus, executor, base.runtimeManager, bootstrapCfg, ghTokens, llmClient)
 	schedulerCtx, schedulerStop := context.WithCancel(context.Background())
 	scheduler := flowapp.NewFlowScheduler(engine, base.store, base.bus, flowapp.FlowSchedulerConfig{MaxConcurrentFlows: 2})
@@ -76,6 +78,7 @@ func buildStepExecutor(
 	store core.Store,
 	bus core.EventBus,
 	registry core.AgentRegistry,
+	runtimeManager *configruntime.Manager,
 	sessionMgr runtimeapp.SessionManager,
 	bootstrapCfg *config.Config,
 	ghTokens GitHubTokens,
@@ -96,6 +99,7 @@ func buildStepExecutor(
 			Store:                    store,
 			Bus:                      bus,
 			SessionManager:           sessionMgr,
+			MCPResolver:              buildExecutionMCPResolver(runtimeManager),
 			ReworkFollowupTemplate:   reworkFollowupTemplate(bootstrapCfg),
 			ContinueFollowupTemplate: continueFollowupTemplate(bootstrapCfg),
 		})
@@ -111,6 +115,15 @@ func buildStepExecutor(
 		UpgradeFunc: upgradeFn,
 		ACPExecutor: executor,
 	})
+}
+
+func buildExecutionMCPResolver(runtimeManager *configruntime.Manager) func(profileID string, agentSupportsSSE bool) []acpproto.McpServer {
+	if runtimeManager == nil {
+		return nil
+	}
+	return func(profileID string, agentSupportsSSE bool) []acpproto.McpServer {
+		return runtimeManager.ResolveMCPServers(profileID, agentSupportsSSE)
+	}
 }
 
 func buildFlowEngine(

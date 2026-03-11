@@ -72,25 +72,21 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 		}
 
 		reuse := profile.Session.Reuse
+		mcpFactory := buildStepMCPFactory(step, profile.ID, cfg.MCPResolver)
 
 		handle, err := cfg.SessionManager.Acquire(ctx, runtimeapp.SessionAcquireInput{
-			Profile: profile,
-			Driver:  driver,
-			Launch:  launchCfg,
-			Caps:    acpCaps,
-			WorkDir: workDir,
-			MCPFactory: func(agentSupportsSSE bool) []acpproto.McpServer {
-				if cfg.MCPResolver != nil {
-					return cfg.MCPResolver(profile.ID, agentSupportsSSE)
-				}
-				return nil
-			},
-			FlowID:   step.FlowID,
-			StepID:   step.ID,
-			ExecID:   exec.ID,
-			Reuse:    reuse,
-			IdleTTL:  profile.Session.IdleTTL,
-			MaxTurns: profile.Session.MaxTurns,
+			Profile:    profile,
+			Driver:     driver,
+			Launch:     launchCfg,
+			Caps:       acpCaps,
+			WorkDir:    workDir,
+			MCPFactory: mcpFactory,
+			FlowID:     step.FlowID,
+			StepID:     step.ID,
+			ExecID:     exec.ID,
+			Reuse:      reuse,
+			IdleTTL:    profile.Session.IdleTTL,
+			MaxTurns:   profile.Session.MaxTurns,
 		})
 		if err != nil {
 			return fmt.Errorf("acquire session: %w", err)
@@ -160,6 +156,19 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 			"stop_reason", result.StopReason)
 
 		return nil
+	}
+}
+
+func buildStepMCPFactory(step *core.Step, profileID string, resolver func(profileID string, agentSupportsSSE bool) []acpproto.McpServer) func(agentSupportsSSE bool) []acpproto.McpServer {
+	if resolver == nil || step == nil {
+		return nil
+	}
+	// complete_step should only be exposed while executing concrete steps.
+	if step.Type != core.StepExec && step.Type != core.StepGate {
+		return nil
+	}
+	return func(agentSupportsSSE bool) []acpproto.McpServer {
+		return resolver(profileID, agentSupportsSSE)
 	}
 }
 
