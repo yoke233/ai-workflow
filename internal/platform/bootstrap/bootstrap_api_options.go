@@ -20,10 +20,9 @@ func buildAPIOptions(
 	registry core.AgentRegistry,
 	dagGen api.DAGGenerator,
 ) []api.HandlerOption {
-	enabled := bootstrapCfg != nil && bootstrapCfg.Runtime.Sandbox.Enabled
-	provider := ""
+	fallback := config.RuntimeSandboxConfig{}
 	if bootstrapCfg != nil {
-		provider = bootstrapCfg.Runtime.Sandbox.Provider
+		fallback = bootstrapCfg.Runtime.Sandbox
 	}
 	skillsRoot := ""
 	if dataDir, err := appdata.ResolveDataDir(); err == nil {
@@ -35,7 +34,7 @@ func buildAPIOptions(
 		api.WithScheduler(scheduler),
 		api.WithRegistry(registry),
 		api.WithDAGGenerator(dagGen),
-		api.WithSandboxInspector(sandbox.NewDefaultSupportInspector(enabled, provider)),
+		api.WithSandboxController(sandbox.NewRuntimeControlService(runtimeManager, fallback)),
 		api.WithSkillsRoot(skillsRoot),
 		api.WithPRFlowPromptsProvider(func() flowapp.PRFlowPrompts {
 			return currentPRFlowPrompts(runtimeManager, bootstrapCfg)

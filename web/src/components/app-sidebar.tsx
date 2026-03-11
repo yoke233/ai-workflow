@@ -11,6 +11,7 @@ import {
   FileStack,
   ChevronsUpDown,
   Sparkles,
+  Shield,
 } from "lucide-react";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 
@@ -19,6 +20,7 @@ const navItems = [
   { to: "/chat", icon: MessageSquare, label: "对话" },
   { to: "/flows", icon: GitBranch, label: "流程" },
   { to: "/analytics", icon: BarChart3, label: "运行分析" },
+  { to: "/sandbox", icon: Shield, label: "沙盒" },
   { to: "/templates", icon: FileStack, label: "模板" },
   { to: "/agents", icon: Bot, label: "代理" },
   { to: "/skills", icon: Sparkles, label: "技能" },

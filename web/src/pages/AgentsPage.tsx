@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Settings2, Bot, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SandboxSupportPanel } from "@/components/SandboxSupportPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,7 @@ import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { cn } from "@/lib/utils";
 import { getErrorMessage } from "@/lib/v2Workbench";
 import type { AgentDriver, AgentProfile } from "@/types/apiV2";
+import type { SandboxSupportResponse } from "@/types/system";
 
 const roleBadgeVariant: Record<string, "info" | "warning" | "default" | "secondary"> = {
   worker: "info",
@@ -28,8 +30,11 @@ export function AgentsPage() {
   const { apiClient } = useWorkbench();
   const [drivers, setDrivers] = useState<AgentDriver[]>([]);
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
+  const [sandboxSupport, setSandboxSupport] = useState<SandboxSupportResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [sandboxLoading, setSandboxLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sandboxError, setSandboxError] = useState<string | null>(null);
 
   const [driverDialogOpen, setDriverDialogOpen] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
@@ -64,8 +69,20 @@ export function AgentsPage() {
     }
   };
 
+  const loadSandboxSupport = async () => {
+    setSandboxLoading(true);
+    setSandboxError(null);
+    try {
+      setSandboxSupport(await apiClient.getSandboxSupport());
+    } catch (loadError) {
+      setSandboxError(getErrorMessage(loadError));
+    } finally {
+      setSandboxLoading(false);
+    }
+  };
+
   useEffect(() => {
-    void load();
+    void Promise.all([load(), loadSandboxSupport()]);
   }, []);
 
   const toggleCap = (cap: string) => {
@@ -141,6 +158,15 @@ export function AgentsPage() {
       </div>
 
       {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
+
+      <SandboxSupportPanel
+        report={sandboxSupport}
+        loading={sandboxLoading}
+        error={sandboxError}
+        onRefresh={() => {
+          void loadSandboxSupport();
+        }}
+      />
 
       <Card>
         <CardHeader>

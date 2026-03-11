@@ -30,7 +30,7 @@ type flowStack struct {
 }
 
 func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, ghTokens GitHubTokens, upgradeFn executoradapter.UpgradeFunc) (*flowStack, error) {
-	sb := buildSandbox(bootstrapCfg, base.dataDir)
+	sb := buildSandbox(bootstrapCfg, base.runtimeManager, base.dataDir)
 	acpPool := agentruntime.NewACPSessionPool(base.store, base.bus)
 
 	sessionMgr, sessionMode := buildSessionManager(bootstrapCfg, base.store, base.dataDir, acpPool, sb)

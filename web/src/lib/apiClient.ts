@@ -1,4 +1,6 @@
 import type {
+  BootstrapPRFlowRequest,
+  BootstrapPRFlowResponse,
   CancelFlowResponse,
   AgentDriver,
   AgentProfile,
@@ -42,7 +44,7 @@ import type {
   CreateFlowFromTemplateRequest,
   CreateFlowFromTemplateResponse,
 } from "../types/apiV2";
-import type { SandboxSupportResponse } from "../types/system";
+import type { SandboxSupportResponse, UpdateSandboxSupportRequest } from "../types/system";
 
 type Primitive = string | number | boolean;
 
@@ -144,6 +146,7 @@ export interface ApiClient {
   getStats(): Promise<StatsResponse>;
   getSchedulerStats(): Promise<SchedulerStats>;
   getSandboxSupport(): Promise<SandboxSupportResponse>;
+  updateSandboxSupport(body: UpdateSandboxSupportRequest): Promise<SandboxSupportResponse>;
   sendSystemEvent(body: AdminSystemEventRequest): Promise<AdminSystemEventResponse>;
 
   listProjects(params?: { limit?: number; offset?: number }): Promise<Project[]>;
@@ -182,6 +185,7 @@ export interface ApiClient {
   getFlow(flowId: number): Promise<Flow>;
   runFlow(flowId: number): Promise<RunFlowResponse>;
   cancelFlow(flowId: number): Promise<CancelFlowResponse>;
+  bootstrapPRFlow(flowId: number, body?: BootstrapPRFlowRequest): Promise<BootstrapPRFlowResponse>;
 
   listSteps(flowId: number): Promise<Step[]>;
   createStep(flowId: number, body: CreateStepRequest): Promise<Step>;
@@ -299,6 +303,12 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     getSandboxSupport: () =>
       request<SandboxSupportResponse>({
         path: "/system/sandbox-support",
+      }),
+    updateSandboxSupport: (body) =>
+      request<SandboxSupportResponse, UpdateSandboxSupportRequest>({
+        path: "/admin/system/sandbox-support",
+        method: "PUT",
+        body,
       }),
     sendSystemEvent: (body) =>
       request<AdminSystemEventResponse, AdminSystemEventRequest>({
@@ -434,6 +444,12 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       request<CancelFlowResponse>({
         path: `/flows/${flowId}/cancel`,
         method: "POST",
+      }),
+    bootstrapPRFlow: (flowId, body) =>
+      request<BootstrapPRFlowResponse, BootstrapPRFlowRequest>({
+        path: `/flows/${flowId}/bootstrap-pr`,
+        method: "POST",
+        body,
       }),
 
     listSteps: (flowId) =>

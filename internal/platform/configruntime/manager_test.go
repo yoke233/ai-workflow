@@ -101,6 +101,72 @@ func TestManager_UpdateConfigWritesBackAndReloads(t *testing.T) {
 	}
 }
 
+func TestManager_UpdateRuntimeWritesSandboxConfig(t *testing.T) {
+	manager, _ := newManagerForTest(t)
+
+	current := manager.GetRuntime()
+	current.Sandbox = config.RuntimeSandboxConfig{
+		Enabled:  true,
+		Provider: "docker",
+		LiteBox: config.RuntimeLiteBoxConfig{
+			BridgeCommand: "litebox-acp",
+		},
+		BoxLite: config.RuntimeBoxLiteConfig{
+			Command: "boxlite",
+			Image:   "ghcr.io/example/boxlite:latest",
+			RunArgs: []string{"--debug"},
+			CPUs:    "2",
+			Memory:  "4g",
+			Network: "shared",
+		},
+		Docker: config.RuntimeDockerConfig{
+			Command:        "docker",
+			Image:          "node:20-bookworm",
+			RunArgs:        []string{"--pull=missing"},
+			CPUs:           "1.5",
+			Memory:         "3g",
+			MemorySwap:     "3g",
+			PidsLimit:      "256",
+			Network:        "host",
+			ReadOnlyRootFS: true,
+			Tmpfs:          []string{"/tmp:size=512m"},
+		},
+	}
+
+	if _, err := manager.UpdateRuntime(context.Background(), current); err != nil {
+		t.Fatalf("UpdateRuntime() error = %v", err)
+	}
+
+	got := manager.GetRuntime().Sandbox
+	if got.Provider != "docker" || !got.Enabled {
+		t.Fatalf("unexpected sandbox config: %+v", got)
+	}
+	if got.BoxLite.Image != "ghcr.io/example/boxlite:latest" {
+		t.Fatalf("boxlite image not persisted: %+v", got.BoxLite)
+	}
+	if got.Docker.Image != "node:20-bookworm" || !got.Docker.ReadOnlyRootFS {
+		t.Fatalf("docker config not persisted: %+v", got.Docker)
+	}
+
+	raw, err := manager.ReadRawString()
+	if err != nil {
+		t.Fatalf("ReadRawString() error = %v", err)
+	}
+	layer, err := config.LoadLayerBytes([]byte(raw))
+	if err != nil {
+		t.Fatalf("LoadLayerBytes() error = %v", err)
+	}
+	if layer.Runtime == nil || layer.Runtime.Sandbox == nil || layer.Runtime.Sandbox.BoxLite == nil || layer.Runtime.Sandbox.Docker == nil {
+		t.Fatalf("expected runtime sandbox sections written back")
+	}
+	if layer.Runtime.Sandbox.BoxLite.Image == nil || *layer.Runtime.Sandbox.BoxLite.Image != "ghcr.io/example/boxlite:latest" {
+		t.Fatalf("boxlite image missing in raw layer: %+v", layer.Runtime.Sandbox.BoxLite)
+	}
+	if layer.Runtime.Sandbox.Docker.Image == nil || *layer.Runtime.Sandbox.Docker.Image != "node:20-bookworm" {
+		t.Fatalf("docker image missing in raw layer: %+v", layer.Runtime.Sandbox.Docker)
+	}
+}
+
 func newManagerForTest(t *testing.T) (*Manager, string) {
 	t.Helper()
 	dir := t.TempDir()

@@ -77,11 +77,13 @@ describe("apiClient", () => {
           os: "windows",
           arch: "amd64",
           enabled: false,
+          configured_provider: "home_dir",
           current_provider: "noop",
           current_supported: false,
           providers: {
-            home_dir: { supported: true },
-            litebox: { supported: true, reason: "ok" },
+            home_dir: { supported: true, implemented: true },
+            litebox: { supported: true, implemented: true, reason: "ok" },
+            docker: { supported: false, implemented: false, reason: "missing" },
           },
         }),
         {
@@ -101,6 +103,39 @@ describe("apiClient", () => {
     expect(init.method).toBe("GET");
   });
 
+  it("updateSandboxSupport 会命中 /admin/system/sandbox-support 并 PUT JSON body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          os: "darwin",
+          arch: "arm64",
+          enabled: true,
+          configured_provider: "home_dir",
+          current_provider: "home_dir",
+          current_supported: true,
+          providers: {
+            home_dir: { supported: true, implemented: true, reason: "ok" },
+            litebox: { supported: false, implemented: true, reason: "windows only" },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
+    await client.updateSandboxSupport({ enabled: true, provider: "home_dir" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/admin/system/sandbox-support");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(String(init.body))).toEqual({ enabled: true, provider: "home_dir" });
+  });
+
   it("listFlows 会透传 archived 查询参数", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), {
@@ -117,6 +152,34 @@ describe("apiClient", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "http://localhost:8080/api/flows?project_id=7&archived=false&limit=20&offset=10",
     );
+  });
+
+  it("bootstrapPRFlow 会命中 /flows/{id}/bootstrap-pr 并 POST JSON body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          flow_id: 12,
+          implement_step_id: 101,
+          commit_push_step_id: 102,
+          open_pr_step_id: 103,
+          gate_step_id: 104,
+        }),
+        {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
+    await client.bootstrapPRFlow(12, { title: "demo", base_branch: "master" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/flows/12/bootstrap-pr");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ title: "demo", base_branch: "master" });
   });
 
   it("listDrivers 会命中 /agents/drivers", async () => {

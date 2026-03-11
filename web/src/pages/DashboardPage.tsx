@@ -30,6 +30,7 @@ import {
   isActiveFlowStatus,
 } from "@/lib/v2Workbench";
 import type { Flow, SchedulerStats, StatsResponse } from "@/types/apiV2";
+import type { SandboxSupportResponse } from "@/types/system";
 
 interface StatCard {
   title: string;
@@ -39,11 +40,42 @@ interface StatCard {
   icon: React.ReactNode;
 }
 
+const SANDBOX_PROVIDER_LABELS: Record<string, string> = {
+  home_dir: "Home Dir",
+  litebox: "LiteBox",
+  boxlite: "BoxLite",
+  docker: "Docker",
+  bwrap: "Bubblewrap",
+};
+
+const sandboxBadgeVariant = (
+  support?: { supported: boolean; implemented: boolean },
+): "success" | "warning" | "secondary" => {
+  if (!support) {
+    return "secondary";
+  }
+  if (support.supported && support.implemented) {
+    return "success";
+  }
+  if (support.supported) {
+    return "warning";
+  }
+  return "secondary";
+};
+
+const formatSandboxProvider = (provider?: string): string => {
+  if (!provider) {
+    return "-";
+  }
+  return SANDBOX_PROVIDER_LABELS[provider] ?? provider;
+};
+
 export function DashboardPage() {
   const { apiClient, selectedProject, selectedProjectId, projects } = useWorkbench();
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [flows, setFlows] = useState<Flow[]>([]);
   const [schedulerStats, setSchedulerStats] = useState<SchedulerStats | null>(null);
+  const [sandboxSupport, setSandboxSupport] = useState<SandboxSupportResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,7 +86,7 @@ export function DashboardPage() {
       setLoading(true);
       setError(null);
       try {
-        const [statsResp, flowsResp, schedulerResp] = await Promise.all([
+        const [statsResp, flowsResp, schedulerResp, sandboxResp] = await Promise.all([
           apiClient.getStats(),
           apiClient.listFlows({
             project_id: selectedProjectId ?? undefined,
@@ -63,6 +95,7 @@ export function DashboardPage() {
             offset: 0,
           }),
           apiClient.getSchedulerStats(),
+          apiClient.getSandboxSupport(),
         ]);
         if (cancelled) {
           return;
@@ -70,6 +103,7 @@ export function DashboardPage() {
         setStats(statsResp);
         setFlows(flowsResp);
         setSchedulerStats(schedulerResp);
+        setSandboxSupport(sandboxResp);
       } catch (loadError) {
         if (!cancelled) {
           setError(getErrorMessage(loadError));
@@ -246,73 +280,129 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden p-0">
-          <div className="flex items-center justify-between border-b px-5 py-4">
-            <h3 className="text-base font-semibold">调度器</h3>
-            <Badge variant={schedulerStats?.enabled ? "success" : "secondary"}>
-              {schedulerStats?.enabled ? "已启用" : "未启用"}
-            </Badge>
-          </div>
-
-          <div className="space-y-4 p-5">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">项目</span>
-              <span className="font-semibold">{selectedProject?.name ?? "全部项目"}</span>
+        <div className="space-y-6">
+          <Card className="overflow-hidden p-0">
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <h3 className="text-base font-semibold">调度器</h3>
+              <Badge variant={schedulerStats?.enabled ? "success" : "secondary"}>
+                {schedulerStats?.enabled ? "已启用" : "未启用"}
+              </Badge>
             </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">运行中</span>
-              <span className="font-semibold text-blue-500">{activeFlows.length}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">排队中</span>
-              <span className="font-semibold text-amber-500">
-                {flows.filter((flow) => flow.status === "queued").length}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">平均耗时</span>
-              <span className="font-semibold">{stats?.avg_duration ?? "-"}</span>
-            </div>
-          </div>
 
-          <div className="border-t" />
+            <div className="space-y-4 p-5">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">项目</span>
+                <span className="font-semibold">{selectedProject?.name ?? "全部项目"}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">运行中</span>
+                <span className="font-semibold text-blue-500">{activeFlows.length}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">排队中</span>
+                <span className="font-semibold text-amber-500">
+                  {flows.filter((flow) => flow.status === "queued").length}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">平均耗时</span>
+                <span className="font-semibold">{stats?.avg_duration ?? "-"}</span>
+              </div>
+            </div>
 
-          <div className="px-5 py-2">
-            <span className="text-[11px] font-medium tracking-wider text-muted-foreground">活跃队列</span>
-          </div>
+            <div className="border-t" />
 
-          <div>
-            {queueFlows.length === 0 ? (
-              <div className="px-5 py-4 text-sm text-muted-foreground">队列为空</div>
-            ) : (
-              queueFlows.map((flow, index) => (
-                <div
-                  key={flow.id}
-                  className={cn(
-                    "flex items-center gap-2.5 px-5 py-2.5",
-                    index < queueFlows.length - 1 && "border-b",
-                  )}
-                >
+            <div className="px-5 py-2">
+              <span className="text-[11px] font-medium tracking-wider text-muted-foreground">活跃队列</span>
+            </div>
+
+            <div>
+              {queueFlows.length === 0 ? (
+                <div className="px-5 py-4 text-sm text-muted-foreground">队列为空</div>
+              ) : (
+                queueFlows.map((flow, index) => (
                   <div
+                    key={flow.id}
                     className={cn(
-                      "h-2 w-2 shrink-0 rounded-full",
-                      flow.status === "running" ? "bg-blue-500" : "bg-amber-500",
+                      "flex items-center gap-2.5 px-5 py-2.5",
+                      index < queueFlows.length - 1 && "border-b",
                     )}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{flow.name}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {flow.status === "running" ? "正在执行" : "等待调度"} · {formatRelativeTime(flow.updated_at)}
+                  >
+                    <div
+                      className={cn(
+                        "h-2 w-2 shrink-0 rounded-full",
+                        flow.status === "running" ? "bg-blue-500" : "bg-amber-500",
+                      )}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{flow.name}</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {flow.status === "running" ? "正在执行" : "等待调度"} · {formatRelativeTime(flow.updated_at)}
+                      </div>
                     </div>
                   </div>
+                ))
+              )}
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle>沙盒状态</CardTitle>
+                <Badge variant={sandboxSupport?.enabled ? "success" : "secondary"}>
+                  {sandboxSupport?.enabled ? "已开启" : "未开启"}
+                </Badge>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={sandboxSupport?.current_supported ? "success" : "secondary"}>
+                  当前 Provider: {formatSandboxProvider(sandboxSupport?.current_provider)}
+                </Badge>
+                <Badge variant={sandboxSupport?.current_supported ? "success" : "warning"}>
+                  {sandboxSupport?.current_supported ? "当前可用" : "当前不可用"}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">宿主平台</span>
+                  <span className="font-medium">
+                    {sandboxSupport ? `${sandboxSupport.os} / ${sandboxSupport.arch}` : "-"}
+                  </span>
                 </div>
-              ))
-            )}
-          </div>
-        </Card>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">配置 Provider</span>
+                  <span className="font-medium">{formatSandboxProvider(sandboxSupport?.configured_provider)}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {sandboxSupport ? Object.entries(sandboxSupport.providers).map(([provider, support]) => (
+                  <div key={provider} className="rounded-lg border px-3 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-medium">{formatSandboxProvider(provider)}</div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant={support.supported ? "success" : "secondary"}>
+                          {support.supported ? "宿主支持" : "宿主不支持"}
+                        </Badge>
+                        <Badge variant={sandboxBadgeVariant(support)}>
+                          {support.implemented ? "已接入" : "未接入"}
+                        </Badge>
+                      </div>
+                    </div>
+                    {support.reason ? (
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">{support.reason}</p>
+                    ) : null}
+                  </div>
+                )) : (
+                  <div className="text-sm text-muted-foreground">正在读取沙盒支持矩阵…</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
 }
-
-

@@ -20,7 +20,7 @@ func buildAPIStack(
 	flow *flowStack,
 	bootstrapCfg *config.Config,
 ) *apiStack {
-	sb := buildSandbox(bootstrapCfg, base.dataDir)
+	sb := buildSandbox(bootstrapCfg, base.runtimeManager, base.dataDir)
 	leadAgent := chatacp.NewLeadAgent(chatacp.LeadAgentConfig{
 		Registry: base.registry,
 		Bus:      base.bus,

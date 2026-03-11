@@ -79,6 +79,7 @@ func (e *ValidationError) Unwrap() error {
 }
 
 type RuntimeConfig struct {
+	Sandbox config.RuntimeSandboxConfig `json:"sandbox"`
 	Agents  config.RuntimeAgentsConfig  `json:"agents"`
 	MCP     config.RuntimeMCPConfig     `json:"mcp"`
 	Prompts config.RuntimePromptsConfig `json:"prompts"`
@@ -162,6 +163,7 @@ func (m *Manager) GetRuntime() RuntimeConfig {
 		return RuntimeConfig{}
 	}
 	return RuntimeConfig{
+		Sandbox: snap.Config.Runtime.Sandbox,
 		Agents:  snap.Config.Runtime.Agents,
 		MCP:     snap.Config.Runtime.MCP,
 		Prompts: snap.Config.Runtime.Prompts,
@@ -225,6 +227,7 @@ func (m *Manager) UpdateRuntime(ctx context.Context, next RuntimeConfig) (*Snaps
 	if layer.Runtime == nil {
 		layer.Runtime = &config.RuntimeLayer{}
 	}
+	layer.Runtime.Sandbox = buildRuntimeSandboxLayer(next.Sandbox)
 	layer.Runtime.Agents = &config.RuntimeAgentsLayerCfg{
 		Drivers:  cloneRuntimeDrivers(next.Agents.Drivers),
 		Profiles: cloneRuntimeProfiles(next.Agents.Profiles),
@@ -251,6 +254,39 @@ func (m *Manager) UpdateRuntime(ctx context.Context, next RuntimeConfig) (*Snaps
 		return nil, fmt.Errorf("marshal runtime runtime config: %w", err)
 	}
 	return m.WriteRaw(ctx, string(raw))
+}
+
+func buildRuntimeSandboxLayer(in config.RuntimeSandboxConfig) *config.RuntimeSandboxLayer {
+	return &config.RuntimeSandboxLayer{
+		Enabled:  boolPtr(in.Enabled),
+		Provider: stringPtr(in.Provider),
+		LiteBox: &config.RuntimeLiteBoxLayer{
+			BridgeCommand: stringPtr(in.LiteBox.BridgeCommand),
+			BridgeArgs:    cloneStringSlicePtr(in.LiteBox.BridgeArgs),
+			RunnerPath:    stringPtr(in.LiteBox.RunnerPath),
+			RunnerArgs:    cloneStringSlicePtr(in.LiteBox.RunnerArgs),
+		},
+		BoxLite: &config.RuntimeBoxLiteLayer{
+			Command: stringPtr(in.BoxLite.Command),
+			Image:   stringPtr(in.BoxLite.Image),
+			RunArgs: cloneStringSlicePtr(in.BoxLite.RunArgs),
+			CPUs:    stringPtr(in.BoxLite.CPUs),
+			Memory:  stringPtr(in.BoxLite.Memory),
+			Network: stringPtr(in.BoxLite.Network),
+		},
+		Docker: &config.RuntimeDockerLayer{
+			Command:        stringPtr(in.Docker.Command),
+			Image:          stringPtr(in.Docker.Image),
+			RunArgs:        cloneStringSlicePtr(in.Docker.RunArgs),
+			CPUs:           stringPtr(in.Docker.CPUs),
+			Memory:         stringPtr(in.Docker.Memory),
+			MemorySwap:     stringPtr(in.Docker.MemorySwap),
+			PidsLimit:      stringPtr(in.Docker.PidsLimit),
+			Network:        stringPtr(in.Docker.Network),
+			ReadOnlyRootFS: boolPtr(in.Docker.ReadOnlyRootFS),
+			Tmpfs:          cloneStringSlicePtr(in.Docker.Tmpfs),
+		},
+	}
 }
 
 func buildPRProviderPromptLayer(in config.RuntimePRProviderPromptConfig) *config.RuntimePRProviderPromptLayer {
@@ -490,6 +526,18 @@ func cloneRuntimeMCPBindings(items []config.RuntimeMCPProfileBindingConfig) *[]c
 
 func stringPtr(v string) *string {
 	return &v
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+func cloneStringSlicePtr(items []string) *[]string {
+	if items == nil {
+		return nil
+	}
+	out := append([]string(nil), items...)
+	return &out
 }
 
 func StructToTomlMap(v any) (map[string]any, error) {

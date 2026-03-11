@@ -108,6 +108,8 @@ type RuntimeSandboxConfig struct {
 	Enabled  bool                 `toml:"enabled"  yaml:"enabled"`
 	Provider string               `toml:"provider" yaml:"provider"`
 	LiteBox  RuntimeLiteBoxConfig `toml:"litebox"  yaml:"litebox"`
+	BoxLite  RuntimeBoxLiteConfig `toml:"boxlite"  yaml:"boxlite"`
+	Docker   RuntimeDockerConfig  `toml:"docker"   yaml:"docker"`
 }
 
 type RuntimeLiteBoxConfig struct {
@@ -115,6 +117,28 @@ type RuntimeLiteBoxConfig struct {
 	BridgeArgs    []string `toml:"bridge_args"    yaml:"bridge_args"`
 	RunnerPath    string   `toml:"runner_path"    yaml:"runner_path"`
 	RunnerArgs    []string `toml:"runner_args"    yaml:"runner_args"`
+}
+
+type RuntimeBoxLiteConfig struct {
+	Command string   `toml:"command" yaml:"command"`
+	Image   string   `toml:"image"   yaml:"image"`
+	RunArgs []string `toml:"run_args" yaml:"run_args"`
+	CPUs    string   `toml:"cpus"    yaml:"cpus"`
+	Memory  string   `toml:"memory"  yaml:"memory"`
+	Network string   `toml:"network" yaml:"network"`
+}
+
+type RuntimeDockerConfig struct {
+	Command        string   `toml:"command"           yaml:"command"`
+	Image          string   `toml:"image"             yaml:"image"`
+	RunArgs        []string `toml:"run_args"          yaml:"run_args"`
+	CPUs           string   `toml:"cpus"              yaml:"cpus"`
+	Memory         string   `toml:"memory"            yaml:"memory"`
+	MemorySwap     string   `toml:"memory_swap"       yaml:"memory_swap"`
+	PidsLimit      string   `toml:"pids_limit"        yaml:"pids_limit"`
+	Network        string   `toml:"network"           yaml:"network"`
+	ReadOnlyRootFS bool     `toml:"read_only_rootfs"  yaml:"read_only_rootfs"`
+	Tmpfs          []string `toml:"tmpfs"             yaml:"tmpfs"`
 }
 
 // RuntimePromptsConfig stores user-maintained prompt templates for runtime runtime behaviors.
@@ -319,6 +343,7 @@ type RuntimeLayer struct {
 	Prompts        *RuntimePromptsLayer        `toml:"prompts"         yaml:"prompts"`
 	SessionManager *RuntimeSessionManagerLayer `toml:"session_manager" yaml:"session_manager"`
 	ExecutionProbe *RuntimeExecutionProbeLayer `toml:"execution_probe" yaml:"execution_probe"`
+	Cron           *RuntimeCronLayer           `toml:"cron"            yaml:"cron"`
 }
 
 type RuntimeSessionManagerLayer struct {
@@ -336,6 +361,11 @@ type RuntimeExecutionProbeLayer struct {
 	MaxAttempts *int      `toml:"max_attempts" yaml:"max_attempts"`
 }
 
+type RuntimeCronLayer struct {
+	Enabled  *bool     `toml:"enabled" yaml:"enabled"`
+	Interval *Duration `toml:"interval" yaml:"interval"`
+}
+
 type RuntimeNATSLayer struct {
 	URL             *string `toml:"url"               yaml:"url"`
 	Embedded        *bool   `toml:"embedded"          yaml:"embedded"`
@@ -347,6 +377,8 @@ type RuntimeSandboxLayer struct {
 	Enabled  *bool                `toml:"enabled"  yaml:"enabled"`
 	Provider *string              `toml:"provider" yaml:"provider"`
 	LiteBox  *RuntimeLiteBoxLayer `toml:"litebox"  yaml:"litebox"`
+	BoxLite  *RuntimeBoxLiteLayer `toml:"boxlite"  yaml:"boxlite"`
+	Docker   *RuntimeDockerLayer  `toml:"docker"   yaml:"docker"`
 }
 
 type RuntimeLiteBoxLayer struct {
@@ -354,6 +386,28 @@ type RuntimeLiteBoxLayer struct {
 	BridgeArgs    *[]string `toml:"bridge_args"    yaml:"bridge_args"`
 	RunnerPath    *string   `toml:"runner_path"    yaml:"runner_path"`
 	RunnerArgs    *[]string `toml:"runner_args"    yaml:"runner_args"`
+}
+
+type RuntimeBoxLiteLayer struct {
+	Command *string   `toml:"command" yaml:"command"`
+	Image   *string   `toml:"image" yaml:"image"`
+	RunArgs *[]string `toml:"run_args" yaml:"run_args"`
+	CPUs    *string   `toml:"cpus" yaml:"cpus"`
+	Memory  *string   `toml:"memory" yaml:"memory"`
+	Network *string   `toml:"network" yaml:"network"`
+}
+
+type RuntimeDockerLayer struct {
+	Command        *string   `toml:"command" yaml:"command"`
+	Image          *string   `toml:"image" yaml:"image"`
+	RunArgs        *[]string `toml:"run_args" yaml:"run_args"`
+	CPUs           *string   `toml:"cpus" yaml:"cpus"`
+	Memory         *string   `toml:"memory" yaml:"memory"`
+	MemorySwap     *string   `toml:"memory_swap" yaml:"memory_swap"`
+	PidsLimit      *string   `toml:"pids_limit" yaml:"pids_limit"`
+	Network        *string   `toml:"network" yaml:"network"`
+	ReadOnlyRootFS *bool     `toml:"read_only_rootfs" yaml:"read_only_rootfs"`
+	Tmpfs          *[]string `toml:"tmpfs" yaml:"tmpfs"`
 }
 
 type RuntimePromptsLayer struct {
@@ -488,4 +542,3 @@ type MCPConfig struct {
 	Enabled bool     `toml:"enabled" yaml:"enabled" json:"enabled"`
 	Tools   []string `toml:"tools"   yaml:"tools" json:"tools"`
 }
-

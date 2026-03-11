@@ -225,6 +225,58 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 					cfg.Runtime.Sandbox.LiteBox.RunnerArgs = cloneStringSlice(*litebox.RunnerArgs)
 				}
 			}
+			if boxlite := sandbox.BoxLite; boxlite != nil {
+				if boxlite.Command != nil {
+					cfg.Runtime.Sandbox.BoxLite.Command = *boxlite.Command
+				}
+				if boxlite.Image != nil {
+					cfg.Runtime.Sandbox.BoxLite.Image = *boxlite.Image
+				}
+				if boxlite.RunArgs != nil {
+					cfg.Runtime.Sandbox.BoxLite.RunArgs = cloneStringSlice(*boxlite.RunArgs)
+				}
+				if boxlite.CPUs != nil {
+					cfg.Runtime.Sandbox.BoxLite.CPUs = *boxlite.CPUs
+				}
+				if boxlite.Memory != nil {
+					cfg.Runtime.Sandbox.BoxLite.Memory = *boxlite.Memory
+				}
+				if boxlite.Network != nil {
+					cfg.Runtime.Sandbox.BoxLite.Network = *boxlite.Network
+				}
+			}
+			if docker := sandbox.Docker; docker != nil {
+				if docker.Command != nil {
+					cfg.Runtime.Sandbox.Docker.Command = *docker.Command
+				}
+				if docker.Image != nil {
+					cfg.Runtime.Sandbox.Docker.Image = *docker.Image
+				}
+				if docker.RunArgs != nil {
+					cfg.Runtime.Sandbox.Docker.RunArgs = cloneStringSlice(*docker.RunArgs)
+				}
+				if docker.CPUs != nil {
+					cfg.Runtime.Sandbox.Docker.CPUs = *docker.CPUs
+				}
+				if docker.Memory != nil {
+					cfg.Runtime.Sandbox.Docker.Memory = *docker.Memory
+				}
+				if docker.MemorySwap != nil {
+					cfg.Runtime.Sandbox.Docker.MemorySwap = *docker.MemorySwap
+				}
+				if docker.Network != nil {
+					cfg.Runtime.Sandbox.Docker.Network = *docker.Network
+				}
+				if docker.PidsLimit != nil {
+					cfg.Runtime.Sandbox.Docker.PidsLimit = *docker.PidsLimit
+				}
+				if docker.ReadOnlyRootFS != nil {
+					cfg.Runtime.Sandbox.Docker.ReadOnlyRootFS = *docker.ReadOnlyRootFS
+				}
+				if docker.Tmpfs != nil {
+					cfg.Runtime.Sandbox.Docker.Tmpfs = cloneStringSlice(*docker.Tmpfs)
+				}
+			}
 		}
 		if agents := runtime.Agents; agents != nil {
 			if agents.Drivers != nil {
@@ -282,6 +334,14 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 			}
 			if probe.MaxAttempts != nil {
 				cfg.Runtime.ExecutionProbe.MaxAttempts = *probe.MaxAttempts
+			}
+		}
+		if cron := runtime.Cron; cron != nil {
+			if cron.Enabled != nil {
+				cfg.Runtime.Cron.Enabled = *cron.Enabled
+			}
+			if cron.Interval != nil {
+				cfg.Runtime.Cron.Interval = *cron.Interval
 			}
 		}
 		if prompts := runtime.Prompts; prompts != nil {
@@ -385,6 +445,9 @@ func cloneRuntimeConfig(in RuntimeConfig) RuntimeConfig {
 	out := in
 	out.Sandbox.LiteBox.BridgeArgs = cloneStringSlice(in.Sandbox.LiteBox.BridgeArgs)
 	out.Sandbox.LiteBox.RunnerArgs = cloneStringSlice(in.Sandbox.LiteBox.RunnerArgs)
+	out.Sandbox.BoxLite.RunArgs = cloneStringSlice(in.Sandbox.BoxLite.RunArgs)
+	out.Sandbox.Docker.RunArgs = cloneStringSlice(in.Sandbox.Docker.RunArgs)
+	out.Sandbox.Docker.Tmpfs = cloneStringSlice(in.Sandbox.Docker.Tmpfs)
 	out.Agents.Drivers = cloneRuntimeDrivers(in.Agents.Drivers)
 	out.Agents.Profiles = cloneRuntimeProfiles(in.Agents.Profiles)
 	out.MCP.Servers = cloneRuntimeMCPServers(in.MCP.Servers)

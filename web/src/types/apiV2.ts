@@ -138,6 +138,20 @@ export interface CancelFlowResponse {
   status: "cancelled" | string;
 }
 
+export interface BootstrapPRFlowRequest {
+  base_branch?: string;
+  title?: string;
+  body?: string;
+}
+
+export interface BootstrapPRFlowResponse {
+  flow_id: number;
+  implement_step_id: number;
+  commit_push_step_id: number;
+  open_pr_step_id: number;
+  gate_step_id: number;
+}
+
 export interface CreateFlowRequest {
   project_id?: number;
   name: string;

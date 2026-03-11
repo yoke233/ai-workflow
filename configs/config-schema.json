@@ -333,6 +333,40 @@
         "profiles"
       ]
     },
+    "RuntimeBoxLiteConfig": {
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "run_args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cpus": {
+          "type": "string"
+        },
+        "memory": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "required": [
+        "command",
+        "image",
+        "run_args",
+        "cpus",
+        "memory",
+        "network"
+      ]
+    },
     "RuntimeCollectorConfig": {
       "properties": {
         "max_retries": {
@@ -379,6 +413,9 @@
         },
         "execution_probe": {
           "$ref": "#/$defs/RuntimeExecutionProbeConfig"
+        },
+        "cron": {
+          "$ref": "#/$defs/RuntimeCronConfig"
         }
       },
       "type": "object",
@@ -390,7 +427,82 @@
         "mcp",
         "prompts",
         "session_manager",
-        "execution_probe"
+        "execution_probe",
+        "cron"
+      ]
+    },
+    "RuntimeCronConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "interval": {
+          "type": "string",
+          "examples": [
+            "2h",
+            "30m",
+            "10s",
+            "500ms"
+          ]
+        }
+      },
+      "type": "object",
+      "required": [
+        "enabled",
+        "interval"
+      ]
+    },
+    "RuntimeDockerConfig": {
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "run_args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cpus": {
+          "type": "string"
+        },
+        "memory": {
+          "type": "string"
+        },
+        "memory_swap": {
+          "type": "string"
+        },
+        "pids_limit": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "read_only_rootfs": {
+          "type": "boolean"
+        },
+        "tmpfs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object",
+      "required": [
+        "command",
+        "image",
+        "run_args",
+        "cpus",
+        "memory",
+        "memory_swap",
+        "pids_limit",
+        "network",
+        "read_only_rootfs",
+        "tmpfs"
       ]
     },
     "RuntimeDriverConfig": {
@@ -841,13 +953,21 @@
         },
         "litebox": {
           "$ref": "#/$defs/RuntimeLiteBoxConfig"
+        },
+        "boxlite": {
+          "$ref": "#/$defs/RuntimeBoxLiteConfig"
+        },
+        "docker": {
+          "$ref": "#/$defs/RuntimeDockerConfig"
         }
       },
       "type": "object",
       "required": [
         "enabled",
         "provider",
-        "litebox"
+        "litebox",
+        "boxlite",
+        "docker"
       ]
     },
     "RuntimeSessionConfig": {
