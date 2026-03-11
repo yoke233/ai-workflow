@@ -21,6 +21,8 @@ type Store interface {
 	core.AgentContextStore
 	core.EventStore
 	core.ExecutionProbeStore
+	core.AnalyticsStore
+	core.DAGTemplateStore
 	Close() error
 }
 

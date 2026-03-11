@@ -2,6 +2,10 @@ import type {
   CancelFlowResponse,
   AgentDriver,
   AgentProfile,
+  AnalyticsFilter,
+  AnalyticsSummary,
+  CronStatus,
+  SetupCronRequest,
   CreateSkillRequest,
   Artifact,
   Briefing,
@@ -31,6 +35,12 @@ import type {
   Step,
   UpdateStepRequest,
   UpdateProjectRequest,
+  DAGTemplate,
+  CreateDAGTemplateRequest,
+  UpdateDAGTemplateRequest,
+  SaveFlowAsTemplateRequest,
+  CreateFlowFromTemplateRequest,
+  CreateFlowFromTemplateResponse,
 } from "../types/apiV2";
 import type { SandboxSupportResponse } from "../types/system";
 
@@ -204,6 +214,28 @@ export interface ApiClient {
   getSkill(name: string): Promise<SkillDetail>;
   createSkill(body: CreateSkillRequest): Promise<SkillInfo>;
   importGitHubSkill(body: ImportGitHubSkillRequest): Promise<SkillInfo>;
+
+  getAnalyticsSummary(params?: AnalyticsFilter): Promise<AnalyticsSummary>;
+
+  listCronFlows(): Promise<CronStatus[]>;
+  getFlowCronStatus(flowId: number): Promise<CronStatus>;
+  setupFlowCron(flowId: number, body: SetupCronRequest): Promise<CronStatus>;
+  disableFlowCron(flowId: number): Promise<CronStatus>;
+
+  // DAG Templates
+  listDAGTemplates(params?: {
+    project_id?: number;
+    tag?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<DAGTemplate[]>;
+  createDAGTemplate(body: CreateDAGTemplateRequest): Promise<DAGTemplate>;
+  getDAGTemplate(templateId: number): Promise<DAGTemplate>;
+  updateDAGTemplate(templateId: number, body: UpdateDAGTemplateRequest): Promise<DAGTemplate>;
+  deleteDAGTemplate(templateId: number): Promise<void>;
+  saveFlowAsTemplate(flowId: number, body: SaveFlowAsTemplateRequest): Promise<DAGTemplate>;
+  createFlowFromTemplate(templateId: number, body: CreateFlowFromTemplateRequest): Promise<CreateFlowFromTemplateResponse>;
 }
 
 export const createApiClient = (opts: ApiClientOptions): ApiClient => {
@@ -501,6 +533,83 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     importGitHubSkill: (body) =>
       request<SkillInfo, ImportGitHubSkillRequest>({
         path: "/skills/import/github",
+        method: "POST",
+        body,
+      }),
+
+    getAnalyticsSummary: (params) =>
+      request<AnalyticsSummary>({
+        path: "/analytics/summary",
+        query: {
+          project_id: params?.project_id,
+          since: params?.since,
+          until: params?.until,
+          limit: params?.limit,
+        },
+      }),
+
+    listCronFlows: () =>
+      request<CronStatus[]>({
+        path: "/cron/flows",
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    getFlowCronStatus: (flowId) =>
+      request<CronStatus>({
+        path: `/flows/${flowId}/cron`,
+      }),
+    setupFlowCron: (flowId, body) =>
+      request<CronStatus, SetupCronRequest>({
+        path: `/flows/${flowId}/cron`,
+        method: "POST",
+        body,
+      }),
+    disableFlowCron: (flowId) =>
+      request<CronStatus>({
+        path: `/flows/${flowId}/cron`,
+        method: "DELETE",
+      }),
+
+    // DAG Templates
+    listDAGTemplates: (params) =>
+      request<DAGTemplate[]>({
+        path: "/templates",
+        query: {
+          project_id: params?.project_id,
+          tag: params?.tag,
+          search: params?.search,
+          limit: params?.limit,
+          offset: params?.offset,
+        },
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    createDAGTemplate: (body) =>
+      request<DAGTemplate, CreateDAGTemplateRequest>({
+        path: "/templates",
+        method: "POST",
+        body,
+      }),
+    getDAGTemplate: (templateId) =>
+      request<DAGTemplate>({
+        path: `/templates/${templateId}`,
+      }),
+    updateDAGTemplate: (templateId, body) =>
+      request<DAGTemplate, UpdateDAGTemplateRequest>({
+        path: `/templates/${templateId}`,
+        method: "PUT",
+        body,
+      }),
+    deleteDAGTemplate: (templateId) =>
+      request<void>({
+        path: `/templates/${templateId}`,
+        method: "DELETE",
+      }),
+    saveFlowAsTemplate: (flowId, body) =>
+      request<DAGTemplate, SaveFlowAsTemplateRequest>({
+        path: `/flows/${flowId}/save-as-template`,
+        method: "POST",
+        body,
+      }),
+    createFlowFromTemplate: (templateId, body) =>
+      request<CreateFlowFromTemplateResponse, CreateFlowFromTemplateRequest>({
+        path: `/templates/${templateId}/create-flow`,
         method: "POST",
         body,
       }),

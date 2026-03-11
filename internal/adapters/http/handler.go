@@ -135,6 +135,17 @@ func (h *Handler) Register(r chi.Router) {
 	// DAG generation (AI-powered)
 	r.Post("/flows/{flowID}/generate-steps", h.generateSteps)
 
+	// Save flow as template
+	r.Post("/flows/{flowID}/save-as-template", h.saveFlowAsTemplate)
+
+	// DAG Templates
+	r.Post("/templates", h.createDAGTemplate)
+	r.Get("/templates", h.listDAGTemplates)
+	r.Get("/templates/{templateID}", h.getDAGTemplate)
+	r.Put("/templates/{templateID}", h.updateDAGTemplate)
+	r.Delete("/templates/{templateID}", h.deleteDAGTemplate)
+	r.Post("/templates/{templateID}/create-flow", h.createFlowFromTemplate)
+
 	// Executions
 	r.Get("/steps/{stepID}/executions", h.listExecutions)
 	r.Get("/executions/{execID}", h.getExecution)
@@ -151,6 +162,21 @@ func (h *Handler) Register(r chi.Router) {
 	// Events
 	r.Get("/events", h.listEvents)
 	r.Get("/flows/{flowID}/events", h.listFlowEvents)
+
+	// Analytics
+	r.Get("/analytics/summary", h.getAnalyticsSummary)
+	r.Get("/analytics/project-errors", h.getProjectErrorRanking)
+	r.Get("/analytics/bottlenecks", h.getFlowBottleneckSteps)
+	r.Get("/analytics/duration-stats", h.getExecutionDurationStats)
+	r.Get("/analytics/error-breakdown", h.getErrorBreakdown)
+	r.Get("/analytics/recent-failures", h.getRecentFailures)
+	r.Get("/analytics/status-distribution", h.getFlowStatusDistribution)
+
+	// Cron (scheduled flows)
+	r.Get("/cron/flows", h.listCronFlows)
+	r.Get("/flows/{flowID}/cron", h.getFlowCronStatus)
+	r.Post("/flows/{flowID}/cron", h.setupFlowCron)
+	r.Delete("/flows/{flowID}/cron", h.disableFlowCron)
 
 	// WebSocket
 	r.Get("/ws", h.wsEvents)

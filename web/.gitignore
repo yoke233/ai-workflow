@@ -22,5 +22,8 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# TypeScript build info
+*.tsbuildinfo
+
 # Generic local overrides
 *.local

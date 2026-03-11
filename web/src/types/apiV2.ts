@@ -410,3 +410,158 @@ export interface AdminSystemEventRequest {
 export interface AdminSystemEventResponse {
   status: string;
 }
+
+// Analytics types
+
+export interface ProjectErrorRank {
+  project_id: number;
+  project_name: string;
+  total_flows: number;
+  failed_flows: number;
+  failure_rate: number;
+  failed_execs: number;
+}
+
+export interface StepBottleneck {
+  step_id: number;
+  step_name: string;
+  flow_id: number;
+  flow_name: string;
+  project_id?: number | null;
+  avg_duration_s: number;
+  max_duration_s: number;
+  exec_count: number;
+  fail_count: number;
+  retry_count: number;
+  fail_rate: number;
+}
+
+export interface FlowDurationStat {
+  flow_id: number;
+  flow_name: string;
+  project_id?: number | null;
+  exec_count: number;
+  avg_duration_s: number;
+  min_duration_s: number;
+  max_duration_s: number;
+  p50_duration_s: number;
+}
+
+export interface ErrorKindCount {
+  error_kind: string;
+  count: number;
+  pct: number;
+}
+
+export interface FailureRecord {
+  exec_id: number;
+  step_id: number;
+  step_name: string;
+  flow_id: number;
+  flow_name: string;
+  project_id?: number | null;
+  project_name?: string;
+  error_message: string;
+  error_kind: string;
+  attempt: number;
+  duration_s: number;
+  failed_at: string;
+}
+
+export interface StatusCount {
+  status: string;
+  count: number;
+}
+
+export interface AnalyticsSummary {
+  project_errors: ProjectErrorRank[];
+  bottlenecks: StepBottleneck[];
+  duration_stats: FlowDurationStat[];
+  error_breakdown: ErrorKindCount[];
+  recent_failures: FailureRecord[];
+  status_distribution: StatusCount[];
+}
+
+export interface AnalyticsFilter {
+  project_id?: number;
+  since?: string;
+  until?: string;
+  limit?: number;
+}
+
+// Cron types
+
+export interface CronStatus {
+  flow_id: number;
+  enabled: boolean;
+  is_template: boolean;
+  schedule?: string;
+  max_instances?: number;
+  last_triggered?: string;
+}
+
+export interface SetupCronRequest {
+  schedule: string;
+  max_instances?: number;
+}
+
+// --- DAG Templates ---
+
+export interface DAGTemplateStep {
+  name: string;
+  description?: string;
+  type: "exec" | "gate" | "composite" | string;
+  depends_on?: string[];
+  agent_role?: string;
+  required_capabilities?: string[];
+  acceptance_criteria?: string[];
+  profile_id?: string;
+}
+
+export interface DAGTemplate {
+  id: number;
+  name: string;
+  description?: string;
+  project_id?: number | null;
+  tags?: string[];
+  metadata?: Record<string, string>;
+  steps: DAGTemplateStep[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateDAGTemplateRequest {
+  name: string;
+  description?: string;
+  project_id?: number;
+  tags?: string[];
+  metadata?: Record<string, string>;
+  steps: DAGTemplateStep[];
+}
+
+export interface UpdateDAGTemplateRequest {
+  name?: string;
+  description?: string;
+  project_id?: number;
+  tags?: string[];
+  metadata?: Record<string, string>;
+  steps?: DAGTemplateStep[];
+}
+
+export interface SaveFlowAsTemplateRequest {
+  name?: string;
+  description?: string;
+  tags?: string[];
+  metadata?: Record<string, string>;
+}
+
+export interface CreateFlowFromTemplateRequest {
+  name?: string;
+  project_id?: number;
+  metadata?: Record<string, string>;
+}
+
+export interface CreateFlowFromTemplateResponse {
+  flow: Flow;
+  steps: Step[];
+}
