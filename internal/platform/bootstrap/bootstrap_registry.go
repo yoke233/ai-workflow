@@ -36,3 +36,7 @@ func seedRegistry(ctx context.Context, store *sqlite.Store, cfg *config.Config, 
 	}
 	slog.Info("registry: seeded from config", "drivers", len(drivers), "profiles", len(profiles))
 }
+
+func SeedRegistry(ctx context.Context, store *sqlite.Store, cfg *config.Config) {
+	seedRegistry(ctx, store, cfg, nil)
+}

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/yoke233/ai-workflow/internal/platform/bootstrap"
+	"github.com/yoke233/ai-workflow/internal/platform/appcmd"
 )
 
 func main() {
@@ -28,9 +28,9 @@ func runWithArgs(args []string) error {
 	case "version":
 		fmt.Println("ai-flow v0.1.0-dev")
 	case "server":
-		return bootstrap.RunServer(args[1:])
+		return appcmd.RunServer(args[1:])
 	case "executor":
-		return bootstrap.RunExecutor(args[1:])
+		return appcmd.RunExecutor(args[1:])
 	default:
 		return fmt.Errorf("unknown command: %s", args[0])
 	}
@@ -45,4 +45,3 @@ Usage:
   ai-flow server [--port <port>]
   ai-flow executor --nats-url <url> [--agents claude,codex] [--max-concurrent 2]`)
 }
-

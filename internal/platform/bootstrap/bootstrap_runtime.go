@@ -17,7 +17,7 @@ func buildRuntimeManager(store *sqlite.Store) *configruntime.Manager {
 	}
 
 	cfgPath := filepath.Join(dataDir, "config.toml")
-	secretsPath := secretsFilePath(dataDir)
+	secretsPath := resolveSecretsFilePath(dataDir)
 	runtimeManager, err := configruntime.NewManager(cfgPath, secretsPath, configruntime.DisabledMCPEnv(), slog.Default(), func(ctx context.Context, snap *configruntime.Snapshot) error {
 		return configruntime.SyncRegistry(ctx, store, snap)
 	})

@@ -19,7 +19,7 @@ import (
 	agentruntime "github.com/yoke233/ai-workflow/internal/runtime/agent"
 )
 
-func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, ghTokens gitHubTokens, upgradeFn executoradapter.UpgradeFunc) (*flowStack, error) {
+func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, ghTokens GitHubTokens, upgradeFn executoradapter.UpgradeFunc) (*flowStack, error) {
 	sb := buildSandbox(bootstrapCfg, base.dataDir)
 	acpPool := agentruntime.NewACPSessionPool(base.store, base.bus)
 
@@ -69,7 +69,7 @@ func buildStepExecutor(
 	registry core.AgentRegistry,
 	sessionMgr runtimeapp.SessionManager,
 	bootstrapCfg *config.Config,
-	ghTokens gitHubTokens,
+	ghTokens GitHubTokens,
 	upgradeFn executoradapter.UpgradeFunc,
 ) flowapp.StepExecutor {
 	mockEnabled := bootstrapCfg != nil && bootstrapCfg.Runtime.MockExecutor
@@ -110,7 +110,7 @@ func buildFlowEngine(
 	executor flowapp.StepExecutor,
 	runtimeManager *configruntime.Manager,
 	bootstrapCfg *config.Config,
-	ghTokens gitHubTokens,
+	ghTokens GitHubTokens,
 	llmClient *llm.Client,
 ) *flowapp.FlowEngine {
 	opts := []flowapp.Option{

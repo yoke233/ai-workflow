@@ -1,4 +1,4 @@
-package bootstrap
+package appcmd
 
 import (
 	"errors"
@@ -18,11 +18,6 @@ const (
 	repoFrontendDir    = "web/dist"
 	frontendDirEnvVar  = "AI_WORKFLOW_FRONTEND_DIR"
 )
-
-type GitHubTokens struct {
-	CommitPAT string
-	MergePAT  string
-}
 
 func LoadConfig() (*config.Config, string, *config.Secrets, error) {
 	dataDir, err := appdata.ResolveDataDir()
@@ -107,7 +102,7 @@ func secretsFilePath(dataDir string) string {
 	return tomlPath
 }
 
-func expandStorePath(path string) string {
+func ExpandStorePath(path string) string {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
 		return trimmed
@@ -124,4 +119,3 @@ func expandStorePath(path string) string {
 	}
 	return trimmed
 }
-

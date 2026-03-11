@@ -12,14 +12,14 @@ import (
 	"github.com/yoke233/ai-workflow/internal/platform/configruntime"
 )
 
-type gitHubTokens struct {
+type GitHubTokens struct {
 	CommitPAT string
 	MergePAT  string
 }
 
-// bootstrap creates the runtime store, event bus, engine, event persister, and API handler.
+// Build creates the runtime store, event bus, engine, event persister, and API handler.
 // Returns the store (for lifecycle), the agent registry, runtime manager, cleanup func, and route registrar.
-func bootstrap(storePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config, ghTokens gitHubTokens, upgradeFn executoradapter.UpgradeFunc) (*sqlite.Store, core.AgentRegistry, *configruntime.Manager, func(), func(chi.Router)) {
+func Build(storePath string, roleResolver *acpclient.RoleResolver, bootstrapCfg *config.Config, ghTokens GitHubTokens, upgradeFn executoradapter.UpgradeFunc) (*sqlite.Store, core.AgentRegistry, *configruntime.Manager, func(), func(chi.Router)) {
 	base, err := initBootstrapBase(storePath, roleResolver, bootstrapCfg)
 	if err != nil {
 		slog.Error("bootstrap: init failed", "error", err)

@@ -1,4 +1,4 @@
-package bootstrap
+package appcmd
 
 import (
 	"context"
@@ -10,7 +10,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/yoke233/ai-workflow/internal/adapters/http/server"
+	httpx "github.com/yoke233/ai-workflow/internal/adapters/http/server"
+	"github.com/yoke233/ai-workflow/internal/platform/bootstrap"
 )
 
 func RunServer(args []string) error {
@@ -30,7 +31,7 @@ func RunServer(args []string) error {
 		return err
 	}
 	tokenRegistry := httpx.NewTokenRegistry(secrets.Tokens)
-	store, _, runtimeManager, cleanup, registrar := bootstrap(expandStorePath(cfg.Store.Path), nil, cfg, gitHubTokens{
+	store, _, runtimeManager, cleanup, registrar := bootstrap.Build(ExpandStorePath(cfg.Store.Path), nil, cfg, bootstrap.GitHubTokens{
 		CommitPAT: strings.TrimSpace(secrets.CommitPAT),
 		MergePAT:  strings.TrimSpace(secrets.MergePAT),
 	}, nil)

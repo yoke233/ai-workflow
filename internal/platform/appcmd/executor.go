@@ -1,4 +1,4 @@
-package bootstrap
+package appcmd
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
+	"github.com/yoke233/ai-workflow/internal/platform/bootstrap"
 	agentruntime "github.com/yoke233/ai-workflow/internal/runtime/agent"
 )
 
@@ -34,14 +35,14 @@ func RunExecutor(args []string) error {
 	if err != nil {
 		return err
 	}
-	dbPath := expandStorePath(cfg.Store.Path)
+	dbPath := ExpandStorePath(cfg.Store.Path)
 	runtimeDBPath := strings.TrimSuffix(dbPath, ".db") + "_runtime.db"
 	store, err := sqlite.New(runtimeDBPath)
 	if err != nil {
 		return fmt.Errorf("open runtime store: %w", err)
 	}
 	defer store.Close()
-	seedRegistry(context.Background(), store, cfg, nil)
+	bootstrap.SeedRegistry(context.Background(), store, cfg)
 	nc, err := nats.Connect(natsURL, nats.RetryOnFailedConnect(true), nats.MaxReconnects(-1), nats.ReconnectWait(2*time.Second))
 	if err != nil {
 		return fmt.Errorf("connect to NATS at %s: %w", natsURL, err)
