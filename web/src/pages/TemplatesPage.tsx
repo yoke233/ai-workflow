@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   Plus,
   Search,
@@ -27,6 +28,7 @@ import type { DAGTemplate } from "@/types/apiV2";
 
 export function TemplatesPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { apiClient, selectedProjectId } = useWorkbench();
   const [search, setSearch] = useState("");
   const [templates, setTemplates] = useState<DAGTemplate[]>([]);
@@ -94,19 +96,19 @@ export function TemplatesPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">模板</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t("templates.title")}</h1>
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             ) : null}
           </div>
           <p className="text-sm text-muted-foreground">
-            管理 DAG 模板，可从模板快速创建流程
+            {t("templates.subtitle")}
           </p>
         </div>
         <Link to="/issues/new">
           <Button>
             <Plus className="mr-2 h-4 w-4" />
-            新建流程
+            {t("templates.newFlow")}
           </Button>
         </Link>
       </div>
@@ -121,13 +123,13 @@ export function TemplatesPage() {
         <CardHeader className="flex flex-row items-center gap-4 space-y-0">
           <CardTitle className="flex items-center gap-2">
             <FileStack className="h-5 w-5" />
-            全部模板
+            {t("templates.allTemplates")}
           </CardTitle>
           <div className="ml-auto flex w-72 items-center gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="搜索模板..."
+                placeholder={t("templates.searchPlaceholder")}
                 className="pl-9"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
@@ -139,11 +141,11 @@ export function TemplatesPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>模板名称</TableHead>
-                <TableHead>步骤数</TableHead>
-                <TableHead>标签</TableHead>
-                <TableHead>创建时间</TableHead>
-                <TableHead>操作</TableHead>
+                <TableHead>{t("templates.templateName")}</TableHead>
+                <TableHead>{t("templates.stepCount")}</TableHead>
+                <TableHead>{t("templates.tags")}</TableHead>
+                <TableHead>{t("templates.createdAt")}</TableHead>
+                <TableHead>{t("templates.operations")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -154,8 +156,8 @@ export function TemplatesPage() {
                     className="text-center text-muted-foreground"
                   >
                     {loading
-                      ? "加载中..."
-                      : "还没有模板。可以从已有流程保存为模板，或手动创建。"}
+                      ? t("common.loading")
+                      : t("templates.noTemplates")}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -173,7 +175,7 @@ export function TemplatesPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">
-                        {template.steps.length} 步骤
+                        {t("templates.nSteps", { count: template.steps.length })}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -194,10 +196,10 @@ export function TemplatesPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => void handleCreateIssue(template)}
-                          title="从此模板创建流程"
+                          title={t("templates.createFlowFromTemplate")}
                         >
                           <Play className="mr-1 h-3.5 w-3.5" />
-                          创建流程
+                          {t("templates.createFlow")}
                         </Button>
                         <Button
                           variant="ghost"
@@ -205,7 +207,7 @@ export function TemplatesPage() {
                           className="text-destructive hover:text-destructive"
                           disabled={deleting === template.id}
                           onClick={() => void handleDelete(template.id)}
-                          title="删除模板"
+                          title={t("templates.deleteTemplate")}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>

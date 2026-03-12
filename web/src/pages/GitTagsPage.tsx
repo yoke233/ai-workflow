@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import { Tag, GitCommit, Upload, RefreshCw, Check, AlertCircle, ArrowLeft } from
 type TabType = "commits" | "tags";
 
 export function GitTagsPage() {
+  const { t, i18n } = useTranslation();
   const { apiClient } = useWorkbench();
   const { projectId: projectIdParam } = useParams<{ projectId: string }>();
   const selectedProjectId = projectIdParam ? Number(projectIdParam) : null;
@@ -36,6 +38,7 @@ export function GitTagsPage() {
   const [pushAfterCreate, setPushAfterCreate] = useState(true);
   const [creating, setCreating] = useState(false);
   const [createResult, setCreateResult] = useState<string | null>(null);
+  const [resultIsError, setResultIsError] = useState(false);
 
   // Push state
   const [pushing, setPushing] = useState<string | null>(null);
@@ -80,6 +83,7 @@ export function GitTagsPage() {
     if (!selectedProjectId || !tagName.trim()) return;
     setCreating(true);
     setCreateResult(null);
+    setResultIsError(false);
     try {
       const res = await apiClient.createGitTag(selectedProjectId, {
         name: tagName.trim(),
@@ -88,18 +92,22 @@ export function GitTagsPage() {
         push: pushAfterCreate,
       });
       if (res.push_error) {
-        setCreateResult(`Tag ${res.name} 已创建 (${res.sha.slice(0, 7)})，但推送失败: ${res.push_error}`);
+        setCreateResult(t("gitTags.tagCreatedPushFailed", { name: res.name, sha: res.sha.slice(0, 7), error: res.push_error }));
+        setResultIsError(true);
       } else if (res.pushed) {
-        setCreateResult(`Tag ${res.name} 已创建并推送成功 (${res.sha.slice(0, 7)})`);
+        setCreateResult(t("gitTags.tagCreatedPushed", { name: res.name, sha: res.sha.slice(0, 7) }));
+        setResultIsError(false);
       } else {
-        setCreateResult(`Tag ${res.name} 已创建 (${res.sha.slice(0, 7)})，尚未推送`);
+        setCreateResult(t("gitTags.tagCreatedNotPushed", { name: res.name, sha: res.sha.slice(0, 7) }));
+        setResultIsError(false);
       }
       setTagName("");
       setTagRef("");
       setTagMessage("");
       void loadTags();
     } catch (e) {
-      setCreateResult(`创建失败: ${e instanceof Error ? e.message : String(e)}`);
+      setCreateResult(t("gitTags.createFailed", { error: e instanceof Error ? e.message : String(e) }));
+      setResultIsError(true);
     } finally {
       setCreating(false);
     }
@@ -110,10 +118,12 @@ export function GitTagsPage() {
     setPushing(name);
     try {
       await apiClient.pushGitTag(selectedProjectId, { name });
-      setCreateResult(`Tag ${name} 推送成功`);
+      setCreateResult(t("gitTags.tagPushed", { name }));
+      setResultIsError(false);
       void loadTags();
     } catch (e) {
-      setCreateResult(`推送失败: ${e instanceof Error ? e.message : String(e)}`);
+      setCreateResult(t("gitTags.pushFailed", { error: e instanceof Error ? e.message : String(e) }));
+      setResultIsError(true);
     } finally {
       setPushing(null);
     }
@@ -121,7 +131,7 @@ export function GitTagsPage() {
 
   const formatTime = (ts: string) => {
     try {
-      return new Date(ts).toLocaleString("zh-CN", {
+      return new Date(ts).toLocaleString(i18n.language, {
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
@@ -136,7 +146,7 @@ export function GitTagsPage() {
   if (!selectedProjectId) {
     return (
       <div className="px-6 py-8">
-        <p className="text-sm text-muted-foreground">请先选择一个项目</p>
+        <p className="text-sm text-muted-foreground">{t("gitTags.selectProject")}</p>
       </div>
     );
   }
@@ -151,11 +161,11 @@ export function GitTagsPage() {
             className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="h-3 w-3" />
-            返回项目
+            {t("gitTags.backToProjects")}
           </Link>
-          <h1 className="text-2xl font-semibold tracking-tight">版本标签</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("gitTags.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            查看提交记录、创建 Git Tag 并推送到远程触发 CI/CD
+            {t("gitTags.subtitle")}
           </p>
         </div>
         <Button
@@ -165,7 +175,7 @@ export function GitTagsPage() {
           disabled={loading}
         >
           <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          刷新
+          {t("common.refresh")}
         </Button>
       </div>
 
@@ -180,7 +190,7 @@ export function GitTagsPage() {
           }`}
         >
           <GitCommit className="h-3.5 w-3.5" />
-          提交记录
+          {t("gitTags.commitsTab")}
         </button>
         <button
           onClick={() => setActiveTab("tags")}
@@ -191,7 +201,7 @@ export function GitTagsPage() {
           }`}
         >
           <Tag className="h-3.5 w-3.5" />
-          标签列表
+          {t("gitTags.tagsTab")}
         </button>
       </div>
 
@@ -206,11 +216,11 @@ export function GitTagsPage() {
       {/* Result message */}
       {createResult ? (
         <div className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-sm ${
-          createResult.includes("失败")
+          resultIsError
             ? "border-rose-200 bg-rose-50 text-rose-700"
             : "border-emerald-200 bg-emerald-50 text-emerald-700"
         }`}>
-          {createResult.includes("失败") ? (
+          {resultIsError ? (
             <AlertCircle className="h-4 w-4 shrink-0" />
           ) : (
             <Check className="h-4 w-4 shrink-0" />
@@ -221,25 +231,25 @@ export function GitTagsPage() {
 
       {/* Create Tag Form */}
       <div className="rounded-xl border bg-card p-5">
-        <h2 className="mb-4 text-base font-medium">创建新标签</h2>
+        <h2 className="mb-4 text-base font-medium">{t("gitTags.createNewTag")}</h2>
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                标签名称 *
+                {t("gitTags.tagName")}
               </label>
               <Input
-                placeholder="例如: v1.0.0"
+                placeholder={t("gitTags.tagNamePlaceholder")}
                 value={tagName}
                 onChange={(e) => setTagName(e.target.value)}
               />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                目标 Commit (留空 = HEAD)
+                {t("gitTags.targetCommit")}
               </label>
               <Input
-                placeholder="SHA 或分支名"
+                placeholder={t("gitTags.commitPlaceholder")}
                 value={tagRef}
                 onChange={(e) => setTagRef(e.target.value)}
               />
@@ -252,16 +262,16 @@ export function GitTagsPage() {
                   onChange={(e) => setPushAfterCreate(e.target.checked)}
                   className="rounded"
                 />
-                创建后自动推送
+                {t("gitTags.pushAfterCreate")}
               </label>
             </div>
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">
-              标签描述 (可选，填写后创建 annotated tag)
+              {t("gitTags.tagDescription")}
             </label>
             <Textarea
-              placeholder="版本说明..."
+              placeholder={t("gitTags.descPlaceholder")}
               value={tagMessage}
               onChange={(e) => setTagMessage(e.target.value)}
               rows={2}
@@ -274,7 +284,7 @@ export function GitTagsPage() {
               size="sm"
             >
               <Tag className="mr-1.5 h-3.5 w-3.5" />
-              {creating ? "创建中..." : "创建标签"}
+              {creating ? t("common.creating") : t("gitTags.createTag")}
             </Button>
           </div>
         </div>
@@ -286,24 +296,24 @@ export function GitTagsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-24">SHA</TableHead>
-                <TableHead>提交信息</TableHead>
-                <TableHead className="w-32">作者</TableHead>
-                <TableHead className="w-40">时间</TableHead>
-                <TableHead className="w-24">操作</TableHead>
+                <TableHead className="w-24">{t("gitTags.sha")}</TableHead>
+                <TableHead>{t("gitTags.commitMessage")}</TableHead>
+                <TableHead className="w-32">{t("gitTags.author")}</TableHead>
+                <TableHead className="w-40">{t("common.time")}</TableHead>
+                <TableHead className="w-24">{t("common.operations")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading && commits.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                    加载中...
+                    {t("common.loading")}
                   </TableCell>
                 </TableRow>
               ) : commits.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                    暂无提交记录
+                    {t("gitTags.noCommits")}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -331,7 +341,7 @@ export function GitTagsPage() {
                         }}
                       >
                         <Tag className="mr-1 h-3 w-3" />
-                        打标签
+                        {t("gitTags.makeTag")}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -348,56 +358,56 @@ export function GitTagsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-40">标签名</TableHead>
-                <TableHead className="w-24">SHA</TableHead>
-                <TableHead>描述</TableHead>
-                <TableHead className="w-40">创建时间</TableHead>
-                <TableHead className="w-24">操作</TableHead>
+                <TableHead className="w-40">{t("gitTags.tagNameCol")}</TableHead>
+                <TableHead className="w-24">{t("gitTags.sha")}</TableHead>
+                <TableHead>{t("gitTags.descriptionCol")}</TableHead>
+                <TableHead className="w-40">{t("gitTags.createTime")}</TableHead>
+                <TableHead className="w-24">{t("common.operations")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading && tags.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                    加载中...
+                    {t("common.loading")}
                   </TableCell>
                 </TableRow>
               ) : tags.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                    暂无标签
+                    {t("gitTags.noTags")}
                   </TableCell>
                 </TableRow>
               ) : (
-                tags.map((t) => (
-                  <TableRow key={t.name}>
+                tags.map((tg) => (
+                  <TableRow key={tg.name}>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
                         <Tag className="h-3.5 w-3.5 text-indigo-500" />
-                        <span className="font-medium text-sm">{t.name}</span>
+                        <span className="font-medium text-sm">{tg.name}</span>
                       </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary" className="font-mono text-xs">
-                        {t.sha.slice(0, 7)}
+                        {tg.sha.slice(0, 7)}
                       </Badge>
                     </TableCell>
                     <TableCell className="max-w-md truncate text-sm text-muted-foreground">
-                      {t.message || "-"}
+                      {tg.message || "-"}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {t.timestamp ? formatTime(t.timestamp) : "-"}
+                      {tg.timestamp ? formatTime(tg.timestamp) : "-"}
                     </TableCell>
                     <TableCell>
                       <Button
                         variant="ghost"
                         size="sm"
                         className="h-7 text-xs"
-                        disabled={pushing === t.name}
-                        onClick={() => handlePushTag(t.name)}
+                        disabled={pushing === tg.name}
+                        onClick={() => handlePushTag(tg.name)}
                       >
                         <Upload className="mr-1 h-3 w-3" />
-                        {pushing === t.name ? "推送中..." : "推送"}
+                        {pushing === tg.name ? t("gitTags.pushing") : t("gitTags.push")}
                       </Button>
                     </TableCell>
                   </TableRow>

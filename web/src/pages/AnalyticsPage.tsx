@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   BarChart3,
@@ -35,13 +36,7 @@ import {
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage, formatRelativeTime } from "@/lib/v2Workbench";
 import type { AnalyticsSummary, CronStatus } from "@/types/apiV2";
-
-const TIME_RANGES = [
-  { label: "24h", value: 1 },
-  { label: "7d", value: 7 },
-  { label: "30d", value: 30 },
-  { label: "全部", value: 0 },
-] as const;
+import type { TFunction } from "i18next";
 
 // --- Cron expression parser & human-readable description ---
 
@@ -51,13 +46,19 @@ interface CronParseResult {
   description?: string;
 }
 
-function parseCronExpr(expr: string): CronParseResult {
+function parseCronExpr(expr: string, t: TFunction): CronParseResult {
   const parts = expr.trim().split(/\s+/);
   if (parts.length !== 5) {
-    return { valid: false, error: `需要 5 个字段 (分 时 日 月 周)，当前 ${parts.length} 个` };
+    return { valid: false, error: t("analytics.cronNeedFields", { count: parts.length }) };
   }
 
-  const fieldNames = ["分钟", "小时", "日", "月", "星期"];
+  const fieldNames = [
+    t("analytics.cronFieldMinute"),
+    t("analytics.cronFieldHour"),
+    t("analytics.cronFieldDay"),
+    t("analytics.cronFieldMonth"),
+    t("analytics.cronFieldWeekday"),
+  ];
   const ranges: [number, number][] = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]];
 
   for (let i = 0; i < 5; i++) {
@@ -65,7 +66,7 @@ function parseCronExpr(expr: string): CronParseResult {
     if (err) return { valid: false, error: `${fieldNames[i]}: ${err}` };
   }
 
-  const desc = describeCron(parts[0], parts[1], parts[2], parts[3], parts[4]);
+  const desc = describeCron(parts[0], parts[1], parts[2], parts[3], parts[4], t);
   return { valid: true, description: desc };
 }
 
@@ -91,69 +92,80 @@ function validateField(field: string, min: number, max: number): string | null {
   return null;
 }
 
-const WEEKDAY_NAMES = ["日", "一", "二", "三", "四", "五", "六"];
+function getWeekdayNames(t: TFunction): string[] {
+  return [
+    t("analytics.weekdaySun"),
+    t("analytics.weekdayMon"),
+    t("analytics.weekdayTue"),
+    t("analytics.weekdayWed"),
+    t("analytics.weekdayThu"),
+    t("analytics.weekdayFri"),
+    t("analytics.weekdaySat"),
+  ];
+}
 
-function describeCron(minute: string, hour: string, day: string, month: string, weekday: string): string {
+function describeCron(minute: string, hour: string, day: string, month: string, weekday: string, t: TFunction): string {
   const parts: string[] = [];
+  const weekdayNames = getWeekdayNames(t);
 
   // Month
   if (month !== "*") {
-    parts.push(describeList(month, (v) => `${v}月`));
+    parts.push(describeList(month, (v) => t("analytics.cronMonthN", { n: v }), t));
   }
 
   // Day of month
   if (day !== "*") {
-    parts.push(describeList(day, (v) => `${v}号`));
+    parts.push(describeList(day, (v) => t("analytics.cronDayN", { n: v }), t));
   }
 
   // Weekday
   if (weekday !== "*") {
     if (weekday === "1-5") {
-      parts.push("工作日");
+      parts.push(t("analytics.cronWeekdays"));
     } else if (weekday === "0,6") {
-      parts.push("周末");
+      parts.push(t("analytics.cronWeekends"));
     } else {
-      parts.push(describeList(weekday, (v) => `周${WEEKDAY_NAMES[v] ?? v}`));
+      parts.push(describeList(weekday, (v) => t("analytics.cronWeekdayN", { name: weekdayNames[v] ?? v }), t));
     }
   }
 
   // Hour + minute combined
   if (hour === "*" && minute === "*") {
-    parts.push("每分钟");
+    parts.push(t("analytics.cronEveryMinute"));
   } else if (hour === "*") {
     if (minute.startsWith("*/")) {
-      parts.push(`每 ${minute.slice(2)} 分钟`);
+      parts.push(t("analytics.cronEveryNMinutes", { n: minute.slice(2) }));
     } else if (minute === "0") {
-      parts.push("每小时整点");
+      parts.push(t("analytics.cronEveryHourOnTheHour"));
     } else {
-      parts.push(`每小时的第 ${minute} 分钟`);
+      parts.push(t("analytics.cronEveryHourAtMinute", { m: minute }));
     }
   } else if (minute === "*") {
-    parts.push(describeList(hour, (v) => `${v}时`) + "的每分钟");
+    parts.push(describeList(hour, (v) => t("analytics.cronHourN", { n: v }), t) + t("analytics.cronEveryMinuteOf"));
   } else {
     // Both specified
     if (hour.startsWith("*/")) {
-      const m = minute === "0" ? "整" : `${minute}分`;
-      parts.push(`每 ${hour.slice(2)} 小时 (${m})`);
+      const m = minute === "0" ? t("analytics.cronOnTheHour") : t("analytics.cronAtMinute", { m: minute });
+      parts.push(t("analytics.cronEveryNHours", { n: hour.slice(2), m }));
     } else {
       const hours = expandList(hour);
       const mins = minute === "0" ? "00" : minute.padStart(2, "0");
       if (hours.length <= 3) {
         parts.push(hours.map((h) => `${String(h).padStart(2, "0")}:${mins}`).join(", "));
       } else {
-        parts.push(`${describeList(hour, (v) => `${v}时`)} ${mins}分`);
+        parts.push(`${describeList(hour, (v) => t("analytics.cronHourN", { n: v }), t)} ${mins}${t("analytics.cronMinuteSuffix")}`);
       }
     }
   }
 
-  return parts.join(" ") || "每分钟";
+  return parts.join(" ") || t("analytics.cronEveryMinute");
 }
 
-function describeList(field: string, fmt: (v: number) => string): string {
-  if (field.startsWith("*/")) return `每 ${field.slice(2)} 个`;
+function describeList(field: string, fmt: (v: number) => string, t: TFunction): string {
+  if (field.startsWith("*/")) return t("analytics.cronEveryN", { n: field.slice(2) });
   const values = expandList(field);
   if (values.length <= 5) return values.map(fmt).join(", ");
-  return `${fmt(values[0])} - ${fmt(values[values.length - 1])} (共${values.length}个)`;
+  return t("analytics.cronRangeSummary", { from: fmt(values[0]), to: fmt(values[values.length - 1]), count: values.length });
 }
 
 function expandList(field: string): number[] {
@@ -205,14 +217,8 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "bg-slate-300",
 };
 
-const ERROR_KIND_LABELS: Record<string, string> = {
-  transient: "瞬态错误 (可重试)",
-  permanent: "永久错误",
-  need_help: "需要人工介入",
-  unknown: "未分类",
-};
-
 export function AnalyticsPage() {
+  const { t } = useTranslation();
   const { apiClient, selectedProjectId } = useWorkbench();
   const [data, setData] = useState<AnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -224,6 +230,20 @@ export function AnalyticsPage() {
   const [cronForm, setCronForm] = useState({ issueId: "", schedule: "", maxInstances: "1" });
   const [cronSaving, setCronSaving] = useState(false);
   const [cronError, setCronError] = useState<string | null>(null);
+
+  const TIME_RANGES = [
+    { label: "24h", value: 1 },
+    { label: "7d", value: 7 },
+    { label: "30d", value: 30 },
+    { label: t("common.all"), value: 0 },
+  ] as const;
+
+  const ERROR_KIND_LABELS: Record<string, string> = {
+    transient: t("analytics.errorTransient"),
+    permanent: t("analytics.errorPermanent"),
+    need_help: t("analytics.errorNeedHelp"),
+    unknown: t("analytics.errorUnknown"),
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -271,11 +291,11 @@ export function AnalyticsPage() {
         <div>
           <div className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-muted-foreground" />
-            <h1 className="text-2xl font-bold tracking-tight">运行分析</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t("analytics.title")}</h1>
             {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
           </div>
           <p className="text-sm text-muted-foreground">
-            Issue / Step / Execution 执行质量与瓶颈分析
+            {t("analytics.subtitle")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -304,10 +324,10 @@ export function AnalyticsPage() {
             className={autoRefresh ? "border-emerald-300 text-emerald-600" : ""}
           >
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${autoRefresh ? "animate-spin" : ""}`} />
-            {autoRefresh ? "自动刷新" : "手动"}
+            {autoRefresh ? t("common.autoRefresh") : t("common.manual")}
           </Button>
           <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-            刷新
+            {t("common.refresh")}
           </Button>
         </div>
       </div>
@@ -321,7 +341,7 @@ export function AnalyticsPage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">总流程数</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("analytics.totalFlows")}</CardTitle>
               <BarChart3 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -339,7 +359,7 @@ export function AnalyticsPage() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">失败执行</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("analytics.failedExecs")}</CardTitle>
               <AlertTriangle className="h-4 w-4 text-red-500" />
             </CardHeader>
             <CardContent>
@@ -359,7 +379,7 @@ export function AnalyticsPage() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">最慢 Issue</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("analytics.slowestFlow")}</CardTitle>
               <Clock className="h-4 w-4 text-amber-500" />
             </CardHeader>
             <CardContent>
@@ -372,18 +392,18 @@ export function AnalyticsPage() {
                     <Link to={`/issues/${data.duration_stats[0].issue_id}`} className="hover:underline">
                       {data.duration_stats[0].issue_title}
                     </Link>
-                    {" / "}最大 {formatDuration(data.duration_stats[0].max_duration_s)}
+                    {" / "}{t("analytics.max")} {formatDuration(data.duration_stats[0].max_duration_s)}
                   </p>
                 </>
               ) : (
-                <p className="text-sm text-muted-foreground">暂无数据</p>
+                <p className="text-sm text-muted-foreground">{t("common.noData")}</p>
               )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">最大卡点</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("analytics.biggestBottleneck")}</CardTitle>
               <TrendingDown className="h-4 w-4 text-orange-500" />
             </CardHeader>
             <CardContent>
@@ -394,12 +414,12 @@ export function AnalyticsPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {data.bottlenecks[0].step_name}
-                    {" / 失败率 "}
+                    {" / "}{t("analytics.failRate")}{" "}
                     {Math.round(data.bottlenecks[0].fail_rate * 100)}%
                   </p>
                 </>
               ) : (
-                <p className="text-sm text-muted-foreground">暂无数据</p>
+                <p className="text-sm text-muted-foreground">{t("common.noData")}</p>
               )}
             </CardContent>
           </Card>
@@ -412,25 +432,25 @@ export function AnalyticsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-red-500" />
-              项目错误排名
+              {t("analytics.projectErrorRanking")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>项目</TableHead>
-                  <TableHead>Issue 总数</TableHead>
-                  <TableHead>失败 Issue</TableHead>
-                  <TableHead>失败率</TableHead>
-                  <TableHead>失败执行</TableHead>
+                  <TableHead>{t("common.project")}</TableHead>
+                  <TableHead>{t("analytics.flowTotal")}</TableHead>
+                  <TableHead>{t("analytics.failedFlows")}</TableHead>
+                  <TableHead>{t("analytics.failureRate")}</TableHead>
+                  <TableHead>{t("analytics.failedExecs")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {!data || data.project_errors.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-muted-foreground">
-                      暂无数据
+                      {t("common.noData")}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -456,26 +476,26 @@ export function AnalyticsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-amber-500" />
-              Step 卡点分析
+              {t("analytics.stepBottleneck")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Step</TableHead>
-                  <TableHead>Issue</TableHead>
-                  <TableHead>平均耗时</TableHead>
-                  <TableHead>最大耗时</TableHead>
-                  <TableHead>失败率</TableHead>
-                  <TableHead>重试</TableHead>
+                  <TableHead>{t("analytics.step")}</TableHead>
+                  <TableHead>{t("analytics.flow")}</TableHead>
+                  <TableHead>{t("analytics.avgDuration")}</TableHead>
+                  <TableHead>{t("analytics.maxDuration")}</TableHead>
+                  <TableHead>{t("analytics.failureRate")}</TableHead>
+                  <TableHead>{t("analytics.retries")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {!data || data.bottlenecks.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center text-muted-foreground">
-                      暂无数据
+                      {t("common.noData")}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -511,25 +531,25 @@ export function AnalyticsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="h-4 w-4 text-blue-500" />
-            Issue 执行耗时统计
+            {t("analytics.flowDurationStats")}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Issue</TableHead>
-                <TableHead>执行次数</TableHead>
-                <TableHead>平均耗时</TableHead>
-                <TableHead>最短</TableHead>
-                <TableHead>最长</TableHead>
+                <TableHead>{t("analytics.flow")}</TableHead>
+                <TableHead>{t("analytics.execCount")}</TableHead>
+                <TableHead>{t("analytics.avgDuration")}</TableHead>
+                <TableHead>{t("analytics.minDuration")}</TableHead>
+                <TableHead>{t("analytics.maxDuration")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {!data || data.duration_stats.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    暂无数据
+                    {t("common.noData")}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -557,28 +577,28 @@ export function AnalyticsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-red-500" />
-            最近失败记录
+            {t("analytics.recentFailures")}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>时间</TableHead>
-                <TableHead>项目</TableHead>
-                <TableHead>Issue</TableHead>
-                <TableHead>Step</TableHead>
-                <TableHead>错误类型</TableHead>
-                <TableHead>尝试次数</TableHead>
-                <TableHead>耗时</TableHead>
-                <TableHead>错误信息</TableHead>
+                <TableHead>{t("analytics.time")}</TableHead>
+                <TableHead>{t("common.project")}</TableHead>
+                <TableHead>{t("analytics.flow")}</TableHead>
+                <TableHead>{t("analytics.step")}</TableHead>
+                <TableHead>{t("analytics.errorType")}</TableHead>
+                <TableHead>{t("analytics.attempts")}</TableHead>
+                <TableHead>{t("analytics.duration")}</TableHead>
+                <TableHead>{t("analytics.errorMessage")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {!data || data.recent_failures.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center text-muted-foreground">
-                    暂无失败记录
+                    {t("analytics.noFailures")}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -621,7 +641,7 @@ export function AnalyticsPage() {
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4 text-indigo-500" />
-              定时任务
+              {t("analytics.cronJobs")}
             </CardTitle>
             <Button
               variant="outline"
@@ -633,7 +653,7 @@ export function AnalyticsPage() {
               }}
             >
               <Plus className="mr-1.5 h-3.5 w-3.5" />
-              添加定时任务
+              {t("analytics.addCronJob")}
             </Button>
           </div>
         </CardHeader>
@@ -641,19 +661,19 @@ export function AnalyticsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Issue ID</TableHead>
-                <TableHead>Cron 表达式</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>最大并发</TableHead>
-                <TableHead>上次触发</TableHead>
-                <TableHead>操作</TableHead>
+                <TableHead>{t("analytics.flowId")}</TableHead>
+                <TableHead>{t("analytics.cronExpression")}</TableHead>
+                <TableHead>{t("analytics.status")}</TableHead>
+                <TableHead>{t("analytics.maxConcurrent")}</TableHead>
+                <TableHead>{t("analytics.lastTriggered")}</TableHead>
+                <TableHead>{t("analytics.actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {cronIssues.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    暂无定时任务
+                    {t("analytics.noCronJobs")}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -668,18 +688,18 @@ export function AnalyticsPage() {
                       <span className="font-mono text-xs">{c.schedule}</span>
                       {c.schedule ? (
                         <span className="ml-2 text-xs text-muted-foreground">
-                          {parseCronExpr(c.schedule).description ?? ""}
+                          {parseCronExpr(c.schedule, t).description ?? ""}
                         </span>
                       ) : null}
                     </TableCell>
                     <TableCell>
                       <Badge variant={c.enabled ? "success" : "secondary"} className="text-xs">
-                        {c.enabled ? "已启用" : "已停用"}
+                        {c.enabled ? t("analytics.cronEnabled") : t("analytics.cronDisabled")}
                       </Badge>
                     </TableCell>
                     <TableCell>{c.max_instances ?? 1}</TableCell>
                     <TableCell className="text-muted-foreground">
-                      {c.last_triggered ? formatRelativeTime(c.last_triggered) : "从未触发"}
+                      {c.last_triggered ? formatRelativeTime(c.last_triggered) : t("analytics.neverTriggered")}
                     </TableCell>
                     <TableCell>
                       <Button
@@ -705,12 +725,12 @@ export function AnalyticsPage() {
                         {c.enabled ? (
                           <>
                             <Pause className="mr-1 h-3 w-3" />
-                            停用
+                            {t("analytics.disable")}
                           </>
                         ) : (
                           <>
                             <Play className="mr-1 h-3 w-3" />
-                            启用
+                            {t("analytics.enable")}
                           </>
                         )}
                       </Button>
@@ -726,9 +746,9 @@ export function AnalyticsPage() {
       {/* Setup Cron Dialog */}
       <Dialog open={cronDialogOpen} onClose={() => setCronDialogOpen(false)}>
         <DialogHeader>
-          <DialogTitle>添加定时任务</DialogTitle>
+          <DialogTitle>{t("analytics.addCronTitle")}</DialogTitle>
           <DialogDescription>
-            为 Issue 设置 Cron 定时触发。Issue 将作为模板，每次触发时自动克隆并执行。
+            {t("analytics.addCronDesc")}
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -739,23 +759,23 @@ export function AnalyticsPage() {
           ) : null}
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Issue ID</label>
+              <label className="text-sm font-medium">{t("analytics.flowId")}</label>
               <Input
                 type="number"
-                placeholder="输入 Issue ID"
+                placeholder={t("analytics.enterFlowId")}
                 value={cronForm.issueId}
                 onChange={(e) => setCronForm((f) => ({ ...f, issueId: e.target.value }))}
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Cron 表达式</label>
+              <label className="text-sm font-medium">{t("analytics.cronExpression")}</label>
               <Input
-                placeholder="例如: 0 */6 * * * (每6小时)"
+                placeholder={t("analytics.cronPlaceholder")}
                 value={cronForm.schedule}
                 onChange={(e) => setCronForm((f) => ({ ...f, schedule: e.target.value }))}
                 className={
                   cronForm.schedule.trim()
-                    ? parseCronExpr(cronForm.schedule).valid
+                    ? parseCronExpr(cronForm.schedule, t).valid
                       ? "border-emerald-300 focus:border-emerald-400"
                       : "border-rose-300 focus:border-rose-400"
                     : undefined
@@ -763,7 +783,7 @@ export function AnalyticsPage() {
               />
               {cronForm.schedule.trim() ? (
                 (() => {
-                  const result = parseCronExpr(cronForm.schedule);
+                  const result = parseCronExpr(cronForm.schedule, t);
                   if (result.valid) {
                     return (
                       <p className="flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700">
@@ -781,12 +801,12 @@ export function AnalyticsPage() {
                 })()
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  标准 5 字段格式: 分 时 日 月 周 (例: */15 * * * * = 每15分钟)
+                  {t("analytics.cronHelp")}
                 </p>
               )}
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">最大并发实例数</label>
+              <label className="text-sm font-medium">{t("analytics.maxConcurrentInstances")}</label>
               <Input
                 type="number"
                 min={1}
@@ -799,10 +819,11 @@ export function AnalyticsPage() {
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={() => setCronDialogOpen(false)}>
-            取消
+            {t("common.cancel")}
           </Button>
           <Button
             disabled={cronSaving || !cronForm.issueId || !cronForm.schedule || !parseCronExpr(cronForm.schedule).valid}
+            disabled={cronSaving || !cronForm.issueId || !cronForm.schedule || !parseCronExpr(cronForm.schedule, t).valid}
             onClick={async () => {
               setCronSaving(true);
               setCronError(null);
@@ -821,7 +842,7 @@ export function AnalyticsPage() {
             }}
           >
             {cronSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-            确认
+            {t("common.confirm")}
           </Button>
         </DialogFooter>
       </Dialog>

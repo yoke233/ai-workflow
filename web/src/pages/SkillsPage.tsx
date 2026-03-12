@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Plus,
   Loader2,
@@ -31,6 +32,7 @@ import { getErrorMessage } from "@/lib/v2Workbench";
 import type { SkillInfo, SkillDetail } from "@/types/apiV2";
 
 export function SkillsPage() {
+  const { t } = useTranslation();
   const { apiClient } = useWorkbench();
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -188,23 +190,23 @@ export function SkillsPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">技能管理</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t("skills.title")}</h1>
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             ) : null}
           </div>
           <p className="text-sm text-muted-foreground">
-            管理代理技能（Skills）：创建、编辑、导入和删除。
+            {t("skills.subtitle")}
           </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <Github className="mr-2 h-4 w-4" />
-            从 GitHub 导入
+            {t("skills.importGithub")}
           </Button>
           <Button onClick={() => setCreateOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
-            新建技能
+            {t("skills.newSkill")}
           </Button>
         </div>
       </div>
@@ -227,7 +229,7 @@ export function SkillsPage() {
             </div>
             <div>
               <p className="text-2xl font-bold">{skills.length}</p>
-              <p className="text-xs text-muted-foreground">全部技能</p>
+              <p className="text-xs text-muted-foreground">{t("skills.allSkills")}</p>
             </div>
           </CardContent>
         </Card>
@@ -238,7 +240,7 @@ export function SkillsPage() {
             </div>
             <div>
               <p className="text-2xl font-bold">{validCount}</p>
-              <p className="text-xs text-muted-foreground">有效</p>
+              <p className="text-xs text-muted-foreground">{t("skills.valid")}</p>
             </div>
           </CardContent>
         </Card>
@@ -249,7 +251,7 @@ export function SkillsPage() {
             </div>
             <div>
               <p className="text-2xl font-bold">{invalidCount}</p>
-              <p className="text-xs text-muted-foreground">需修复</p>
+              <p className="text-xs text-muted-foreground">{t("skills.needsFix")}</p>
             </div>
           </CardContent>
         </Card>
@@ -259,7 +261,7 @@ export function SkillsPage() {
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="搜索技能名称或描述..."
+          placeholder={t("skills.searchPlaceholder")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
@@ -270,7 +272,7 @@ export function SkillsPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.length === 0 && !loading ? (
           <div className="col-span-full py-12 text-center text-muted-foreground">
-            {search ? "没有匹配的技能" : "暂无技能，点击「新建技能」开始创建"}
+            {search ? t("skills.noMatchingSkills") : t("skills.noSkillsHint")}
           </div>
         ) : null}
         {filtered.map((skill) => (
@@ -287,9 +289,9 @@ export function SkillsPage() {
                 </CardTitle>
                 <div className="flex items-center gap-1">
                   {skill.valid ? (
-                    <Badge variant="success" className="text-xs">有效</Badge>
+                    <Badge variant="success" className="text-xs">{t("skills.valid")}</Badge>
                   ) : (
-                    <Badge variant="warning" className="text-xs">无效</Badge>
+                    <Badge variant="warning" className="text-xs">{t("skills.invalid")}</Badge>
                   )}
                 </div>
               </div>
@@ -305,7 +307,7 @@ export function SkillsPage() {
                   </div>
                 </>
               ) : (
-                <p className="text-sm italic text-muted-foreground">缺少 SKILL.md 元数据</p>
+                <p className="text-sm italic text-muted-foreground">{t("skills.missingMeta")}</p>
               )}
 
               {skill.validation_errors && skill.validation_errors.length > 0 ? (
@@ -336,26 +338,26 @@ export function SkillsPage() {
       {/* Create Skill Dialog */}
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>新建技能</DialogTitle>
+          <DialogTitle>{t("skills.createTitle")}</DialogTitle>
           <DialogDescription>
-            创建一个新的技能目录，名称需符合格式：小写字母、数字和连字符。
+            {t("skills.createDesc")}
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">技能名称</label>
+            <label className="text-sm font-medium">{t("skills.skillName")}</label>
             <Input
-              placeholder="例如：code-review"
+              placeholder={t("skills.skillNamePlaceholder")}
               value={createName}
               onChange={(e) => setCreateName(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              仅允许小写字母、数字和连字符，最长 64 字符。
+              {t("skills.skillNameHint")}
             </p>
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">
-              SKILL.md 内容 <span className="font-normal text-muted-foreground">（可选）</span>
+              {t("skills.skillMdLabel")} <span className="font-normal text-muted-foreground">{t("skills.skillMdOptional")}</span>
             </label>
             <Textarea
               placeholder={"---\nname: code-review\ndescription: 代码审查技能\nassign_when: 需要代码审查时\nversion: 1\n---\n\n# 技能说明\n\n..."}
@@ -364,15 +366,15 @@ export function SkillsPage() {
               className="min-h-[200px] font-mono text-xs"
             />
             <p className="text-xs text-muted-foreground">
-              留空将使用默认模板。
+              {t("skills.skillMdHint")}
             </p>
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setCreateOpen(false)}>取消</Button>
+          <Button variant="outline" onClick={() => setCreateOpen(false)}>{t("common.cancel")}</Button>
           <Button onClick={() => void handleCreate()} disabled={!createName.trim() || createSubmitting}>
             {createSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            创建技能
+            {t("skills.createSkill")}
           </Button>
         </DialogFooter>
       </Dialog>
@@ -380,14 +382,14 @@ export function SkillsPage() {
       {/* Import GitHub Dialog */}
       <Dialog open={importOpen} onClose={() => setImportOpen(false)} className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>从 GitHub 导入技能</DialogTitle>
+          <DialogTitle>{t("skills.importTitle")}</DialogTitle>
           <DialogDescription>
-            从 GitHub 仓库导入一个技能定义。
+            {t("skills.importDesc")}
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">GitHub 仓库 URL</label>
+            <label className="text-sm font-medium">{t("skills.githubUrl")}</label>
             <Input
               placeholder="https://github.com/owner/repo"
               value={importRepoUrl}
@@ -395,25 +397,25 @@ export function SkillsPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">技能名称</label>
+            <label className="text-sm font-medium">{t("skills.importSkillName")}</label>
             <Input
-              placeholder="例如：my-imported-skill"
+              placeholder={t("skills.importNamePlaceholder")}
               value={importSkillName}
               onChange={(e) => setImportSkillName(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              导入后的本地技能目录名。
+              {t("skills.importNameHint")}
             </p>
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setImportOpen(false)}>取消</Button>
+          <Button variant="outline" onClick={() => setImportOpen(false)}>{t("common.cancel")}</Button>
           <Button
             onClick={() => void handleImport()}
             disabled={!importRepoUrl.trim() || !importSkillName.trim() || importSubmitting}
           >
             {importSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            导入
+            {t("skills.import")}
           </Button>
         </DialogFooter>
       </Dialog>
@@ -437,9 +439,9 @@ export function SkillsPage() {
               <div className="flex items-center gap-3">
                 <DialogTitle>{detailSkill.name}</DialogTitle>
                 {detailSkill.valid ? (
-                  <Badge variant="success">有效</Badge>
+                  <Badge variant="success">{t("skills.valid")}</Badge>
                 ) : (
-                  <Badge variant="warning">无效</Badge>
+                  <Badge variant="warning">{t("skills.invalid")}</Badge>
                 )}
               </div>
               {detailSkill.metadata ? (
@@ -451,11 +453,11 @@ export function SkillsPage() {
               {detailSkill.metadata ? (
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <span className="text-muted-foreground">触发条件：</span>
+                    <span className="text-muted-foreground">{t("skills.triggerCondition")}</span>
                     <span>{detailSkill.metadata.assign_when}</span>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">版本：</span>
+                    <span className="text-muted-foreground">{t("skills.version")}</span>
                     <span>v{detailSkill.metadata.version}</span>
                   </div>
                 </div>
@@ -464,7 +466,7 @@ export function SkillsPage() {
               {/* Validation errors */}
               {detailSkill.validation_errors && detailSkill.validation_errors.length > 0 ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-                  <p className="mb-1 text-sm font-medium text-amber-800">校验错误</p>
+                  <p className="mb-1 text-sm font-medium text-amber-800">{t("skills.validationErrors")}</p>
                   {detailSkill.validation_errors.map((err, i) => (
                     <p key={i} className="text-xs text-amber-700">{err}</p>
                   ))}
@@ -474,7 +476,7 @@ export function SkillsPage() {
               {/* Profiles using */}
               {detailSkill.profiles_using && detailSkill.profiles_using.length > 0 ? (
                 <div>
-                  <p className="mb-1.5 text-sm font-medium">使用此技能的配置</p>
+                  <p className="mb-1.5 text-sm font-medium">{t("skills.profilesUsing")}</p>
                   <div className="flex flex-wrap gap-1">
                     {detailSkill.profiles_using.map((pid) => (
                       <Badge key={pid} variant="info" className="text-xs">{pid}</Badge>
@@ -497,7 +499,7 @@ export function SkillsPage() {
                       }}
                     >
                       <Eye className="mr-1 h-3.5 w-3.5" />
-                      编辑
+                      {t("skills.editBtn")}
                     </Button>
                   ) : null}
                 </div>
@@ -509,7 +511,7 @@ export function SkillsPage() {
                   />
                 ) : (
                   <pre className="max-h-[300px] overflow-auto rounded-lg border bg-slate-50 p-4 text-xs">
-                    {detailSkill.skill_md || "(空)"}
+                    {detailSkill.skill_md || t("skills.empty")}
                   </pre>
                 )}
               </div>
@@ -524,29 +526,29 @@ export function SkillsPage() {
                 }
                 title={
                   detailSkill.profiles_using && detailSkill.profiles_using.length > 0
-                    ? "技能正在被配置使用，无法删除"
+                    ? t("skills.skillInUse")
                     : undefined
                 }
               >
                 <Trash2 className="mr-1 h-3.5 w-3.5" />
-                删除
+                {t("common.delete")}
               </Button>
               <div className="flex-1" />
               {isEditing ? (
                 <>
                   <Button variant="outline" onClick={() => setIsEditing(false)}>
-                    取消编辑
+                    {t("skills.cancelEdit")}
                   </Button>
                   <Button onClick={() => void handleSave()} disabled={saveSubmitting}>
                     {saveSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (
                       <Save className="mr-1 h-3.5 w-3.5" />
                     )}
-                    保存
+                    {t("common.save")}
                   </Button>
                 </>
               ) : (
                 <Button variant="outline" onClick={() => setDetailOpen(false)}>
-                  关闭
+                  {t("common.close")}
                 </Button>
               )}
             </DialogFooter>
@@ -557,16 +559,24 @@ export function SkillsPage() {
       {/* Delete confirm dialog */}
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>确认删除</DialogTitle>
+          <DialogTitle>{t("skills.confirmDelete")}</DialogTitle>
           <DialogDescription>
-            确定要删除技能 <strong>{deleteTarget}</strong> 吗？此操作不可撤销。
+            {t("skills.confirmDeleteDesc", { name: deleteTarget }).split(`<strong>${deleteTarget}</strong>`).length > 1 ? (
+              <>
+                {t("skills.confirmDeleteDesc", { name: deleteTarget }).split(`<strong>${deleteTarget}</strong>`)[0]}
+                <strong>{deleteTarget}</strong>
+                {t("skills.confirmDeleteDesc", { name: deleteTarget }).split(`<strong>${deleteTarget}</strong>`)[1]}
+              </>
+            ) : (
+              <span dangerouslySetInnerHTML={{ __html: t("skills.confirmDeleteDesc", { name: deleteTarget }) }} />
+            )}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setDeleteTarget(null)}>取消</Button>
+          <Button variant="outline" onClick={() => setDeleteTarget(null)}>{t("common.cancel")}</Button>
           <Button variant="destructive" onClick={() => void handleDelete()} disabled={deleteSubmitting}>
             {deleteSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            确认删除
+            {t("skills.confirmDeleteBtn")}
           </Button>
         </DialogFooter>
       </Dialog>

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Coins,
   Loader2,
@@ -20,13 +21,6 @@ import {
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage } from "@/lib/v2Workbench";
 import type { UsageAnalyticsSummary } from "@/types/apiV2";
-
-const TIME_RANGES = [
-  { label: "24h", value: 1 },
-  { label: "7d", value: 7 },
-  { label: "30d", value: 30 },
-  { label: "全部", value: 0 },
-] as const;
 
 function formatTokens(n: number): string {
   if (n === 0) return "0";
@@ -61,12 +55,20 @@ function tokenBar(input: number, output: number, total: number): React.ReactNode
 }
 
 export function UsagePage() {
+  const { t } = useTranslation();
   const { apiClient, selectedProjectId } = useWorkbench();
   const [data, setData] = useState<UsageAnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rangeDays, setRangeDays] = useState(7);
   const [autoRefresh, setAutoRefresh] = useState(true);
+
+  const TIME_RANGES = [
+    { label: "24h", value: 1 },
+    { label: "7d", value: 7 },
+    { label: "30d", value: 30 },
+    { label: t("common.all"), value: 0 },
+  ] as const;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -104,11 +106,11 @@ export function UsagePage() {
         <div>
           <div className="flex items-center gap-2">
             <Coins className="h-5 w-5 text-muted-foreground" />
-            <h1 className="text-2xl font-bold tracking-tight">用量统计</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t("usage.title")}</h1>
             {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
           </div>
           <p className="text-sm text-muted-foreground">
-            Token 消耗分析 - 按项目 / Agent / Profile 维度统计
+            {t("usage.subtitle")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -136,10 +138,10 @@ export function UsagePage() {
             className={autoRefresh ? "border-emerald-300 text-emerald-600" : ""}
           >
             <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${autoRefresh ? "animate-spin" : ""}`} />
-            {autoRefresh ? "自动刷新" : "手动"}
+            {autoRefresh ? t("common.autoRefresh") : t("common.manual")}
           </Button>
           <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-            刷新
+            {t("common.refresh")}
           </Button>
         </div>
       </div>
@@ -153,7 +155,7 @@ export function UsagePage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">总 Token 消耗</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("usage.totalTokens")}</CardTitle>
               <Coins className="h-4 w-4 text-amber-500" />
             </CardHeader>
             <CardContent>
@@ -173,43 +175,45 @@ export function UsagePage() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">执行次数</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("usage.execCount")}</CardTitle>
               <ArrowDownUp className="h-4 w-4 text-blue-500" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{data.totals.execution_count}</div>
               <p className="text-xs text-muted-foreground">
-                平均 {data.totals.execution_count > 0
-                  ? formatTokens(Math.round(data.totals.total_tokens / data.totals.execution_count))
-                  : "0"} tokens/次
+                {t("usage.avgTokensPerExec", {
+                  tokens: data.totals.execution_count > 0
+                    ? formatTokens(Math.round(data.totals.total_tokens / data.totals.execution_count))
+                    : "0",
+                })}
               </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">缓存命中</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("usage.cacheHit")}</CardTitle>
               <Database className="h-4 w-4 text-purple-500" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatTokens(data.totals.cache_read_tokens)}</div>
               <p className="text-xs text-muted-foreground">
-                缓存写入 {formatTokens(data.totals.cache_write_tokens)}
+                {t("usage.cacheWrite", { tokens: formatTokens(data.totals.cache_write_tokens) })}
               </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">推理 Token</CardTitle>
+              <CardTitle className="text-sm font-medium">{t("usage.reasoningTokens")}</CardTitle>
               <Coins className="h-4 w-4 text-indigo-500" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatTokens(data.totals.reasoning_tokens)}</div>
               <p className="text-xs text-muted-foreground">
                 {data.totals.total_tokens > 0
-                  ? `占总量 ${Math.round((data.totals.reasoning_tokens / data.totals.total_tokens) * 100)}%`
-                  : "暂无数据"}
+                  ? t("usage.percentOfTotal", { pct: Math.round((data.totals.reasoning_tokens / data.totals.total_tokens) * 100) })
+                  : t("common.noData")}
               </p>
             </CardContent>
           </Card>
@@ -222,25 +226,25 @@ export function UsagePage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Coins className="h-4 w-4 text-amber-500" />
-              按项目
+              {t("usage.byProject")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>项目</TableHead>
-                  <TableHead>执行数</TableHead>
+                  <TableHead>{t("common.project")}</TableHead>
+                  <TableHead>{t("usage.execCountCol")}</TableHead>
                   <TableHead>Input</TableHead>
                   <TableHead>Output</TableHead>
-                  <TableHead>总计</TableHead>
+                  <TableHead>{t("usage.total")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {!data || data.by_project.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-muted-foreground">
-                      暂无数据
+                      {t("common.noData")}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -266,7 +270,7 @@ export function UsagePage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Coins className="h-4 w-4 text-blue-500" />
-              按 Agent
+              {t("usage.byAgent")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -274,18 +278,18 @@ export function UsagePage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Agent</TableHead>
-                  <TableHead>项目</TableHead>
-                  <TableHead>执行数</TableHead>
+                  <TableHead>{t("common.project")}</TableHead>
+                  <TableHead>{t("usage.execCountCol")}</TableHead>
                   <TableHead>Input</TableHead>
                   <TableHead>Output</TableHead>
-                  <TableHead>总计</TableHead>
+                  <TableHead>{t("usage.total")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {!data || data.by_agent.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center text-muted-foreground">
-                      暂无数据
+                      {t("common.noData")}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -313,7 +317,7 @@ export function UsagePage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Coins className="h-4 w-4 text-indigo-500" />
-            按 Profile
+            {t("usage.byProfile")}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -322,21 +326,21 @@ export function UsagePage() {
               <TableRow>
                 <TableHead>Profile</TableHead>
                 <TableHead>Agent</TableHead>
-                <TableHead>项目</TableHead>
-                <TableHead>执行数</TableHead>
+                <TableHead>{t("common.project")}</TableHead>
+                <TableHead>{t("usage.execCountCol")}</TableHead>
                 <TableHead>Input</TableHead>
                 <TableHead>Output</TableHead>
                 <TableHead>Cache Read</TableHead>
                 <TableHead>Cache Write</TableHead>
                 <TableHead>Reasoning</TableHead>
-                <TableHead>总计</TableHead>
+                <TableHead>{t("usage.total")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {!data || data.by_profile.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={10} className="text-center text-muted-foreground">
-                    暂无数据
+                    {t("common.noData")}
                   </TableCell>
                 </TableRow>
               ) : (

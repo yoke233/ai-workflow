@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Plus, Search, FolderOpen, GitBranch, Loader2, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,7 @@ interface ProjectMetrics {
 }
 
 export function ProjectsPage() {
+  const { t } = useTranslation();
   const { apiClient, projects, selectedProjectId, setSelectedProjectId, reloadProjects } = useWorkbench();
   const [search, setSearch] = useState("");
   const [metrics, setMetrics] = useState<Record<number, ProjectMetrics>>({});
@@ -95,19 +97,19 @@ export function ProjectsPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">项目</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t("projects.title")}</h1>
             {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
           </div>
-          <p className="text-sm text-muted-foreground">真实读取项目与资源绑定，支持切换当前工作区。</p>
+          <p className="text-sm text-muted-foreground">{t("projects.subtitle")}</p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="outline" onClick={() => void reloadProjects(selectedProjectId)}>
-            刷新
+            {t("common.refresh")}
           </Button>
           <div className="relative w-64">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="搜索项目..."
+              placeholder={t("projects.searchPlaceholder")}
               className="pl-9"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -116,7 +118,7 @@ export function ProjectsPage() {
           <Link to="/projects/new">
             <Button>
               <Plus className="mr-2 h-4 w-4" />
-              新建项目
+              {t("projects.newProject")}
             </Button>
           </Link>
         </div>
@@ -140,14 +142,14 @@ export function ProjectsPage() {
                     <GitBranch className="h-5 w-5" />
                   </div>
                   <Badge variant={isSelected ? "success" : "secondary"}>
-                    {isSelected ? "当前项目" : project.kind}
+                    {isSelected ? t("projects.currentProject") : project.kind}
                   </Badge>
                 </div>
 
                 <div className="mt-4">
                   <h3 className="font-semibold">{project.name}</h3>
                   <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                    {project.description || "未填写项目描述"}
+                    {project.description || t("projects.noDescription")}
                   </p>
                 </div>
 
@@ -161,17 +163,17 @@ export function ProjectsPage() {
                 <div className="mt-5 grid grid-cols-3 gap-4 border-t pt-4">
                   <div>
                     <div className="text-lg font-bold">{projectMetrics?.issueCount ?? 0}</div>
-                    <div className="text-xs text-muted-foreground">流程</div>
+                    <div className="text-xs text-muted-foreground">{t("projects.flowCount")}</div>
                   </div>
                   <div>
                     <div className="text-lg font-bold">{projectMetrics?.activeIssueCount ?? 0}</div>
-                    <div className="text-xs text-muted-foreground">运行中</div>
+                    <div className="text-xs text-muted-foreground">{t("projects.activeCount")}</div>
                   </div>
                   <div>
                     <div className="text-lg font-bold">
                       {projectMetrics?.successRate == null ? "--" : `${projectMetrics.successRate}%`}
                     </div>
-                    <div className="text-xs text-muted-foreground">成功率</div>
+                    <div className="text-xs text-muted-foreground">{t("projects.successRate")}</div>
                   </div>
                 </div>
 
@@ -183,7 +185,7 @@ export function ProjectsPage() {
                     >
                       <Button variant="outline" size="sm" className="h-7 w-full text-xs">
                         <Tag className="mr-1.5 h-3 w-3" />
-                        版本标签
+                        {t("projects.versionTags")}
                       </Button>
                     </Link>
                   </div>
@@ -197,7 +199,7 @@ export function ProjectsPage() {
           <Card className="flex cursor-pointer items-center justify-center border-dashed transition-colors hover:border-primary hover:bg-muted/50">
             <CardContent className="flex flex-col items-center gap-2 p-6 text-muted-foreground">
               <FolderOpen className="h-8 w-8" />
-              <span className="text-sm font-medium">创建新项目</span>
+              <span className="text-sm font-medium">{t("projects.createNew")}</span>
             </CardContent>
           </Card>
         </Link>

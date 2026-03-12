@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Shield, RefreshCw, CheckCircle2, XCircle, Cpu, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,7 +13,6 @@ import { getErrorMessage } from "@/lib/v2Workbench";
 import type { SandboxSupportResponse } from "@/types/system";
 
 const PROVIDER_LABELS: Record<string, string> = {
-  noop: "未启用",
   home_dir: "home_dir",
   litebox: "litebox",
   boxlite: "boxlite",
@@ -21,6 +21,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 export function SandboxPage() {
+  const { t } = useTranslation();
   const { apiClient } = useWorkbench();
   const [data, setData] = useState<SandboxSupportResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -76,24 +77,29 @@ export function SandboxPage() {
   const changed = data != null && (enabled !== data.enabled || provider !== data.configured_provider);
   const selectedSupport = data?.providers?.[provider];
 
+  const getProviderLabel = (key: string): string => {
+    if (key === "noop") return t("sandbox.providerNoop");
+    return PROVIDER_LABELS[key] ?? key;
+  };
+
   return (
     <div className="flex-1 space-y-6 p-8">
       <div className="flex items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <Shield className="h-6 w-6 text-primary" />
-            <h1 className="text-2xl font-bold tracking-tight">沙盒状态</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t("sandbox.title")}</h1>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">查询当前运行环境支持哪些沙盒 provider，并直接在前端开启、关闭或切换。</p>
+          <p className="mt-2 text-sm text-muted-foreground">{t("sandbox.subtitle")}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => void load()} disabled={loading || saving}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            刷新
+            {t("common.refresh")}
           </Button>
           <Button onClick={() => void save()} disabled={loading || saving || !changed}>
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-            保存配置
+            {t("sandbox.saveConfig")}
           </Button>
         </div>
       </div>
@@ -103,27 +109,27 @@ export function SandboxPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">当前状态</CardTitle>
+            <CardTitle className="text-base">{t("sandbox.currentStatus")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-muted-foreground">沙盒开关</span>
+              <span className="text-sm text-muted-foreground">{t("sandbox.sandboxSwitch")}</span>
               <Badge variant={data?.enabled ? "default" : "secondary"}>
-                {data?.enabled ? "已开启" : "未开启"}
+                {data?.enabled ? t("sandbox.sandboxOn") : t("sandbox.sandboxOff")}
               </Badge>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-muted-foreground">配置 provider</span>
+              <span className="text-sm text-muted-foreground">{t("sandbox.configuredProvider")}</span>
               <Badge variant="outline">{data?.configured_provider ?? "-"}</Badge>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-muted-foreground">当前 provider</span>
-              <Badge variant="outline">{PROVIDER_LABELS[data?.current_provider ?? ""] ?? data?.current_provider ?? "-"}</Badge>
+              <span className="text-sm text-muted-foreground">{t("sandbox.currentProvider")}</span>
+              <Badge variant="outline">{getProviderLabel(data?.current_provider ?? "") || data?.current_provider || "-"}</Badge>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-muted-foreground">当前 provider 可用</span>
+              <span className="text-sm text-muted-foreground">{t("sandbox.currentProviderAvailable")}</span>
               <Badge variant={data?.current_supported ? "success" : "destructive"}>
-                {data?.current_supported ? "支持" : "不支持"}
+                {data?.current_supported ? t("common.supported") : t("common.notSupported")}
               </Badge>
             </div>
           </CardContent>
@@ -133,7 +139,7 @@ export function SandboxPage() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Cpu className="h-4 w-4" />
-              运行平台
+              {t("sandbox.runtimePlatform")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -150,21 +156,21 @@ export function SandboxPage() {
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">支持概览</CardTitle>
+            <CardTitle className="text-base">{t("sandbox.overview")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-muted-foreground">已识别 provider</span>
+              <span className="text-sm text-muted-foreground">{t("sandbox.identifiedProviders")}</span>
               <Badge variant="secondary">{providers.length}</Badge>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-muted-foreground">可用 provider</span>
+              <span className="text-sm text-muted-foreground">{t("sandbox.availableProviders")}</span>
               <Badge variant="outline">
                 {providers.filter(([, support]) => support.supported).length}
               </Badge>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-muted-foreground">已接入 provider</span>
+              <span className="text-sm text-muted-foreground">{t("sandbox.connectedProviders")}</span>
               <Badge variant="outline">
                 {providers.filter(([, support]) => support.implemented).length}
               </Badge>
@@ -175,12 +181,12 @@ export function SandboxPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">前端开关</CardTitle>
-          <CardDescription>修改后会写回 runtime 配置；后续新建的 ACP 进程将按新配置准备沙盒。</CardDescription>
+          <CardTitle className="text-base">{t("sandbox.frontendSwitch")}</CardTitle>
+          <CardDescription>{t("sandbox.frontendSwitchDesc")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <label className="space-y-2">
-            <span className="text-sm font-medium">启用沙盒</span>
+            <span className="text-sm font-medium">{t("sandbox.enableSandbox")}</span>
             <button
               type="button"
               onClick={() => setEnabled((current) => !current)}
@@ -191,18 +197,18 @@ export function SandboxPage() {
                   : "border-slate-200 bg-white text-slate-600",
               ].join(" ")}
             >
-              <span>{enabled ? "开启" : "关闭"}</span>
-              <span>{enabled ? "ON" : "OFF"}</span>
+              <span>{enabled ? t("common.on") : t("common.off")}</span>
+              <span>{enabled ? t("common.ON") : t("common.OFF")}</span>
             </button>
           </label>
 
           <label className="space-y-2">
-            <span className="text-sm font-medium">配置 provider</span>
+            <span className="text-sm font-medium">{t("sandbox.configProvider")}</span>
             <Select value={provider} onChange={(event) => setProvider(event.target.value)}>
               {providers.map(([name, support]) => (
                 <option key={name} value={name}>
                   {name}
-                  {support.supported ? "" : " (当前平台不支持)"}
+                  {support.supported ? "" : ` ${t("sandbox.platformNotSupported")}`}
                 </option>
               ))}
             </Select>
@@ -210,41 +216,41 @@ export function SandboxPage() {
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-slate-500">选中 provider 的平台支持情况</span>
+              <span className="text-sm text-slate-500">{t("sandbox.selectedProviderSupport")}</span>
               <Badge variant={selectedSupport?.supported ? "success" : "warning"}>
-                {selectedSupport?.supported ? "可用" : "不可用"}
+                {selectedSupport?.supported ? t("common.available") : t("common.unavailable")}
               </Badge>
             </div>
             <div className="mt-3 flex items-center justify-between gap-3">
-              <span className="text-sm text-slate-500">选中 provider 的项目接入情况</span>
+              <span className="text-sm text-slate-500">{t("sandbox.selectedProviderConnected")}</span>
               <Badge variant={selectedSupport?.implemented ? "success" : "outline"}>
-                {selectedSupport?.implemented ? "已接入" : "未接入"}
+                {selectedSupport?.implemented ? t("common.connected") : t("common.notConnected")}
               </Badge>
             </div>
-            <p className="mt-2 text-sm text-slate-600">{selectedSupport?.reason || "无附加说明"}</p>
+            <p className="mt-2 text-sm text-slate-600">{selectedSupport?.reason || t("sandbox.noAdditionalInfo")}</p>
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Provider 列表</CardTitle>
+          <CardTitle className="text-base">{t("sandbox.providerList")}</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Provider</TableHead>
-                <TableHead>宿主支持</TableHead>
-                <TableHead>项目接入</TableHead>
-                <TableHead>说明</TableHead>
+                <TableHead>{t("sandbox.hostSupport")}</TableHead>
+                <TableHead>{t("sandbox.projectConnected")}</TableHead>
+                <TableHead>{t("sandbox.explanation")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {providers.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center text-muted-foreground">
-                    暂无 provider 信息
+                    {t("sandbox.noProviderInfo")}
                   </TableCell>
                 </TableRow>
               ) : providers.map(([name, support]) => (
@@ -252,7 +258,7 @@ export function SandboxPage() {
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
                       <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">{name}</code>
-                      {name === data?.current_provider ? <Badge variant="secondary">当前</Badge> : null}
+                      {name === data?.current_provider ? <Badge variant="secondary">{t("sandbox.current")}</Badge> : null}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -262,16 +268,16 @@ export function SandboxPage() {
                       ) : (
                         <XCircle className="h-4 w-4 text-rose-600" />
                       )}
-                      <span>{support.supported ? "支持" : "不支持"}</span>
+                      <span>{support.supported ? t("common.supported") : t("common.notSupported")}</span>
                     </div>
                   </TableCell>
                   <TableCell>
                     <Badge variant={support.implemented ? "success" : "outline"}>
-                      {support.implemented ? "已接入" : "未接入"}
+                      {support.implemented ? t("common.connected") : t("common.notConnected")}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {support.reason || "无附加说明"}
+                    {support.reason || t("sandbox.noAdditionalInfo")}
                   </TableCell>
                 </TableRow>
               ))}

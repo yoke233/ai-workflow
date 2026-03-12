@@ -1,6 +1,8 @@
 import { NavLink } from "react-router-dom";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import { saveLanguage } from "@/i18n";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -14,23 +16,25 @@ import {
   Shield,
   Coins,
   LogOut,
+  Globe,
 } from "lucide-react";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 
 const navItems = [
-  { to: "/", icon: LayoutDashboard, label: "仪表盘" },
-  { to: "/chat", icon: MessageSquare, label: "对话" },
-  { to: "/issues", icon: GitBranch, label: "流程" },
-  { to: "/analytics", icon: BarChart3, label: "运行分析" },
-  { to: "/usage", icon: Coins, label: "用量统计" },
-  { to: "/sandbox", icon: Shield, label: "沙盒" },
-  { to: "/templates", icon: FileStack, label: "模板" },
-  { to: "/agents", icon: Bot, label: "代理" },
-  { to: "/skills", icon: Sparkles, label: "技能" },
-  { to: "/projects", icon: FolderOpen, label: "项目" },
+  { to: "/", icon: LayoutDashboard, labelKey: "nav.dashboard" },
+  { to: "/chat", icon: MessageSquare, labelKey: "nav.chat" },
+  { to: "/issues", icon: GitBranch, labelKey: "nav.flows" },
+  { to: "/analytics", icon: BarChart3, labelKey: "nav.analytics" },
+  { to: "/usage", icon: Coins, labelKey: "nav.usage" },
+  { to: "/sandbox", icon: Shield, labelKey: "nav.sandbox" },
+  { to: "/templates", icon: FileStack, labelKey: "nav.templates" },
+  { to: "/agents", icon: Bot, labelKey: "nav.agents" },
+  { to: "/skills", icon: Sparkles, labelKey: "nav.skills" },
+  { to: "/projects", icon: FolderOpen, labelKey: "nav.projects" },
 ];
 
 export function AppSidebar() {
+  const { t, i18n } = useTranslation();
   const { projects, selectedProjectId, setSelectedProjectId, logout } = useWorkbench();
   const [showPicker, setShowPicker] = useState(false);
   const currentProject = useMemo(
@@ -59,7 +63,7 @@ export function AppSidebar() {
               <GitBranch className="h-3.5 w-3.5 text-indigo-500" />
             </div>
             <span className="flex-1 truncate text-left text-[13px] font-medium">
-              {currentProject?.name ?? "未选择项目"}
+              {currentProject?.name ?? t("nav.noProject")}
             </span>
             <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           </button>
@@ -90,7 +94,7 @@ export function AppSidebar() {
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 py-3">
         <div className="mb-2 px-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-          导航
+          {t("nav.navigation")}
         </div>
         {navItems.map((item) => (
           <NavLink
@@ -107,22 +111,32 @@ export function AppSidebar() {
             }
           >
             <item.icon className="h-4 w-4" />
-            {item.label}
+            {t(item.labelKey)}
           </NavLink>
         ))}
       </nav>
 
-      {/* Logout */}
-      <div className="border-t px-3 py-3">
+      {/* Language switcher + Logout */}
+      <div className="border-t px-3 py-3 space-y-1">
+        <button
+          onClick={() => {
+            const next = i18n.language === "zh-CN" ? "en" : "zh-CN";
+            void i18n.changeLanguage(next);
+            saveLanguage(next);
+          }}
+          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          <Globe className="h-4 w-4" />
+          {i18n.language === "zh-CN" ? "English" : "中文"}
+        </button>
         <button
           onClick={logout}
           className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           <LogOut className="h-4 w-4" />
-          Logout
+          {t("nav.logout")}
         </button>
       </div>
     </aside>
   );
 }
-

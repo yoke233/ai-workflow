@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { WsClient } from "../lib/wsClient";
 import type { SystemEventPayload } from "../types/ws";
 
@@ -31,6 +32,7 @@ interface Props {
 }
 
 const SystemEventBanner = ({ wsClient }: Props) => {
+  const { t } = useTranslation();
   const [state, setState] = useState<BannerState>(INITIAL_STATE);
   const pendingReload = useRef(false);
 
@@ -74,7 +76,7 @@ const SystemEventBanner = ({ wsClient }: Props) => {
             setState({
               visible: true,
               variant: "info",
-              title: "Preflight quality gate running...",
+              title: t("systemEvent.preflightRunning"),
               steps: [],
               countdown: null,
             });
@@ -85,7 +87,7 @@ const SystemEventBanner = ({ wsClient }: Props) => {
               ...prev,
               visible: true,
               variant: "info",
-              title: data.message ?? "Preflight running...",
+              title: data.message ?? t("systemEvent.preflightRunning"),
               steps: [
                 ...prev.steps,
                 {
@@ -102,7 +104,7 @@ const SystemEventBanner = ({ wsClient }: Props) => {
               ...prev,
               visible: true,
               variant: "success",
-              title: data.message ?? "Preflight passed",
+              title: data.message ?? t("systemEvent.preflightPassed"),
             }));
             autoHide();
             break;
@@ -112,7 +114,7 @@ const SystemEventBanner = ({ wsClient }: Props) => {
               ...prev,
               visible: true,
               variant: "error",
-              title: data.message ?? "Preflight failed",
+              title: data.message ?? t("systemEvent.preflightFailed"),
             }));
             autoHide();
             break;
@@ -123,7 +125,7 @@ const SystemEventBanner = ({ wsClient }: Props) => {
               ...prev,
               visible: true,
               variant: "warning",
-              title: data.message ?? "Server restarting...",
+              title: data.message ?? t("systemEvent.serverRestarting"),
               countdown: data.seconds ?? null,
             }));
             break;
@@ -134,7 +136,7 @@ const SystemEventBanner = ({ wsClient }: Props) => {
             setState({
               visible: true,
               variant: "warning",
-              title: "Server restarting now — reconnecting...",
+              title: t("systemEvent.serverRestartingNow"),
               steps: [],
               countdown: 0,
             });
@@ -147,7 +149,7 @@ const SystemEventBanner = ({ wsClient }: Props) => {
       unsub();
       clearHideTimer();
     };
-  }, [wsClient]);
+  }, [wsClient, t]);
 
   if (!state.visible) return null;
 
