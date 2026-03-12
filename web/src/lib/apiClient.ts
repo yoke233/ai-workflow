@@ -60,6 +60,7 @@ import type {
   AddThreadParticipantRequest,
   ThreadWorkItemLink,
   CreateThreadWorkItemLinkRequest,
+  ThreadAgentSession,
 } from "../types/apiV2";
 import type { SandboxSupportResponse, UpdateSandboxSupportRequest } from "../types/system";
 
@@ -286,6 +287,12 @@ export interface ApiClient {
   listWorkItemsByThread(threadId: number): Promise<ThreadWorkItemLink[]>;
   deleteThreadWorkItemLink(threadId: number, workItemId: number): Promise<void>;
   listThreadsByWorkItem(issueId: number): Promise<ThreadWorkItemLink[]>;
+  createWorkItemFromThread(threadId: number, body: { title: string; body?: string; project_id?: number }): Promise<Issue>;
+
+  // Thread Agent Sessions
+  inviteThreadAgent(threadId: number, body: { agent_profile_id: string }): Promise<ThreadAgentSession>;
+  listThreadAgents(threadId: number): Promise<ThreadAgentSession[]>;
+  removeThreadAgent(threadId: number, agentSessionId: number): Promise<void>;
 }
 
 export const createApiClient = (opts: ApiClientOptions): ApiClient => {
@@ -792,5 +799,26 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       request<ThreadWorkItemLink[]>({
         path: `/issues/${issueId}/threads`,
       }).then((items) => (Array.isArray(items) ? items : [])),
+    createWorkItemFromThread: (threadId, body) =>
+      request<Issue, { title: string; body?: string; project_id?: number }>({
+        path: `/threads/${threadId}/create-work-item`,
+        method: "POST",
+        body,
+      }),
+    inviteThreadAgent: (threadId, body) =>
+      request<ThreadAgentSession, { agent_profile_id: string }>({
+        path: `/threads/${threadId}/agents`,
+        method: "POST",
+        body,
+      }),
+    listThreadAgents: (threadId) =>
+      request<ThreadAgentSession[]>({
+        path: `/threads/${threadId}/agents`,
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    removeThreadAgent: (threadId, agentSessionId) =>
+      request<void>({
+        path: `/threads/${threadId}/agents/${agentSessionId}`,
+        method: "DELETE",
+      }),
   };
 };

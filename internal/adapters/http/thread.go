@@ -60,6 +60,8 @@ func registerThreadRoutes(r chi.Router, h *Handler) {
 	r.Get("/threads/{threadID}/participants", h.listThreadParticipants)
 	r.Delete("/threads/{threadID}/participants/{userID}", h.removeThreadParticipant)
 
+	r.Post("/threads/{threadID}/create-work-item", h.createWorkItemFromThread)
+
 	r.Post("/threads/{threadID}/agents", h.inviteThreadAgent)
 	r.Get("/threads/{threadID}/agents", h.listThreadAgents)
 	r.Delete("/threads/{threadID}/agents/{agentSessionID}", h.removeThreadAgent)
@@ -477,6 +479,69 @@ func (h *Handler) listThreadsByWorkItem(w http.ResponseWriter, r *http.Request) 
 		links = []*core.ThreadWorkItemLink{}
 	}
 	writeJSON(w, http.StatusOK, links)
+}
+
+// ---------------------------------------------------------------------------
+// Create WorkItem from Thread (convenience endpoint)
+// ---------------------------------------------------------------------------
+
+func (h *Handler) createWorkItemFromThread(w http.ResponseWriter, r *http.Request) {
+	threadID, ok := urlParamInt64(r, "threadID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid thread ID", "BAD_ID")
+		return
+	}
+
+	// Verify thread exists.
+	if _, err := h.store.GetThread(r.Context(), threadID); err != nil {
+		if err == core.ErrNotFound {
+			writeError(w, http.StatusNotFound, "thread not found", "THREAD_NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+
+	var req struct {
+		Title     string `json:"title"`
+		Body      string `json:"body,omitempty"`
+		ProjectID *int64 `json:"project_id,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
+		return
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		writeError(w, http.StatusBadRequest, "title is required", "MISSING_TITLE")
+		return
+	}
+
+	// Create issue.
+	issue := &core.Issue{
+		Title:     title,
+		Body:      req.Body,
+		Status:    core.IssueOpen,
+		Priority:  core.PriorityMedium,
+		ProjectID: req.ProjectID,
+	}
+	issueID, err := h.store.CreateIssue(r.Context(), issue)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_ISSUE_FAILED")
+		return
+	}
+	issue.ID = issueID
+
+	// Auto-create primary link.
+	link := &core.ThreadWorkItemLink{
+		ThreadID:     threadID,
+		WorkItemID:   issueID,
+		RelationType: "drives",
+		IsPrimary:    true,
+	}
+	h.store.CreateThreadWorkItemLink(r.Context(), link)
+
+	writeJSON(w, http.StatusCreated, issue)
 }
 
 // ---------------------------------------------------------------------------

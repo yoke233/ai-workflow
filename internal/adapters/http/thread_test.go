@@ -344,6 +344,37 @@ func TestThreadAgentSessionCRUD(t *testing.T) {
 	}
 }
 
+func TestThreadCreateWorkItem(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	// Create thread.
+	resp, _ := post(ts, "/threads", map[string]any{"title": "create-wi-thread"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	// Create work item from thread.
+	resp, err := post(ts, fmt.Sprintf("/threads/%d/create-work-item", thread.ID), map[string]any{
+		"title": "spawned work item",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	// Verify link was created.
+	resp, _ = get(ts, fmt.Sprintf("/threads/%d/work-items", thread.ID))
+	var links []core.ThreadWorkItemLink
+	decodeJSON(resp, &links)
+	if len(links) != 1 {
+		t.Fatalf("expected 1 auto-created link, got %d", len(links))
+	}
+	if !links[0].IsPrimary {
+		t.Fatal("expected auto-created link to be primary")
+	}
+}
+
 func TestThreadAndIssueRoutesIndependent(t *testing.T) {
 	_, ts := setupAPI(t)
 

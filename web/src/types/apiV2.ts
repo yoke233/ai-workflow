@@ -799,6 +799,20 @@ export interface CreateThreadWorkItemLinkRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Thread Agent Sessions
+// ---------------------------------------------------------------------------
+
+export interface ThreadAgentSession {
+  id: number;
+  thread_id: number;
+  agent_profile_id: string;
+  acp_session_id: string;
+  status: string;
+  joined_at: string;
+  last_active_at: string;
+}
+
+// ---------------------------------------------------------------------------
 // Terminology aliases (external names → internal types)
 // ---------------------------------------------------------------------------
 

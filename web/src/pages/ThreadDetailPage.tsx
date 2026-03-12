@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Link2, Loader2, Send, Users } from "lucide-react";
+import { ArrowLeft, Link2, Loader2, Plus, Send, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +26,10 @@ export function ThreadDetailPage() {
   const [linkedIssues, setLinkedIssues] = useState<Record<number, Issue>>({});
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [showCreateWI, setShowCreateWI] = useState(false);
+  const [newWITitle, setNewWITitle] = useState("");
+  const [showLinkWI, setShowLinkWI] = useState(false);
+  const [linkWIId, setLinkWIId] = useState("");
 
   const id = Number(threadId);
 
@@ -82,6 +86,38 @@ export function ThreadDetailPage() {
       setError(getErrorMessage(e));
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleCreateWorkItem = async () => {
+    if (!newWITitle.trim() || !id) return;
+    try {
+      const issue = await apiClient.createWorkItemFromThread(id, { title: newWITitle.trim() });
+      const links = await apiClient.listWorkItemsByThread(id);
+      setWorkItemLinks(links);
+      setLinkedIssues((prev) => ({ ...prev, [issue.id]: issue }));
+      setNewWITitle("");
+      setShowCreateWI(false);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
+  };
+
+  const handleLinkWorkItem = async () => {
+    const wiId = Number(linkWIId);
+    if (!wiId || isNaN(wiId) || !id) return;
+    try {
+      await apiClient.createThreadWorkItemLink(id, { work_item_id: wiId, relation_type: "related" });
+      const links = await apiClient.listWorkItemsByThread(id);
+      setWorkItemLinks(links);
+      try {
+        const issue = await apiClient.getIssue(wiId);
+        setLinkedIssues((prev) => ({ ...prev, [wiId]: issue }));
+      } catch { /* ignore if issue fetch fails */ }
+      setLinkWIId("");
+      setShowLinkWI(false);
+    } catch (e) {
+      setError(getErrorMessage(e));
     }
   };
 
@@ -213,15 +249,57 @@ export function ThreadDetailPage() {
       </div>
 
       {/* Linked Work Items */}
-      {workItemLinks.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center justify-between text-sm">
+            <span className="flex items-center gap-2">
               <Link2 className="h-4 w-4" />
               {t("threads.linkedWorkItems", "Linked Work Items")} ({workItemLinks.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+            </span>
+            <span className="flex gap-1">
+              <Button variant="ghost" size="sm" onClick={() => setShowCreateWI(!showCreateWI)}>
+                <Plus className="mr-1 h-3 w-3" />
+                {t("threads.createWorkItem", "Create")}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setShowLinkWI(!showLinkWI)}>
+                <Link2 className="mr-1 h-3 w-3" />
+                {t("threads.linkExisting", "Link")}
+              </Button>
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {showCreateWI && (
+            <div className="mb-3 flex gap-2">
+              <Input
+                placeholder={t("threads.workItemTitle", "Work item title...")}
+                value={newWITitle}
+                onChange={(e) => setNewWITitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleCreateWorkItem()}
+              />
+              <Button size="sm" onClick={handleCreateWorkItem} disabled={!newWITitle.trim()}>
+                {t("common.create", "Create")}
+              </Button>
+            </div>
+          )}
+          {showLinkWI && (
+            <div className="mb-3 flex gap-2">
+              <Input
+                placeholder={t("threads.workItemId", "Work item ID...")}
+                value={linkWIId}
+                onChange={(e) => setLinkWIId(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLinkWorkItem()}
+              />
+              <Button size="sm" onClick={handleLinkWorkItem} disabled={!linkWIId.trim()}>
+                {t("threads.linkBtn", "Link")}
+              </Button>
+            </div>
+          )}
+          {workItemLinks.length === 0 ? (
+            <p className="py-2 text-center text-xs text-muted-foreground">
+              {t("threads.noLinkedWorkItems", "No linked work items")}
+            </p>
+          ) : (
             <div className="space-y-2">
               {workItemLinks.map((link) => {
                 const issue = linkedIssues[link.work_item_id];
@@ -250,9 +328,9 @@ export function ThreadDetailPage() {
                 );
               })}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
 
       {thread.summary && (
         <Card>
