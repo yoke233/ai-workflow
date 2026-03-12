@@ -38,7 +38,8 @@ const (
 	EventExecAgentOutput EventType = "exec.agent_output"
 
 	// Chat events for LeadAgent direct conversations.
-	EventChatOutput EventType = "chat.output"
+	EventChatOutput            EventType = "chat.output"
+	EventChatPermissionRequest EventType = "chat.permission_request"
 
 	// Thread events for multi-participant discussion.
 	EventThreadMessage     EventType = "thread.message"
