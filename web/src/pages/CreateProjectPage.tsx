@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   ChevronRight,
   Plus,
@@ -29,6 +30,7 @@ interface ResourceDraft {
 
 export function CreateProjectPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { apiClient, reloadProjects } = useWorkbench();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"dev" | "general">("dev");
@@ -37,7 +39,7 @@ export function CreateProjectPage() {
     {
       kind: "local_fs",
       uri: "",
-      label: "工作目录",
+      label: t("createProject.workingDir"),
       git: { provider: "", enableScmFlow: false, baseBranch: "main", mergeMethod: "squash" },
     },
   ]);
@@ -86,7 +88,7 @@ export function CreateProjectPage() {
 
   const createProject = async () => {
     if (!name.trim()) {
-      setError("项目名称不能为空。");
+      setError(t("createProject.projectNameRequired"));
       return;
     }
 
@@ -137,12 +139,12 @@ export function CreateProjectPage() {
     <div className="flex-1 space-y-6 p-8">
       <div>
         <div className="mb-1 flex items-center gap-2 text-sm text-muted-foreground">
-          <Link to="/projects" className="hover:text-foreground">项目</Link>
+          <Link to="/projects" className="hover:text-foreground">{t("createProject.breadcrumbProjects")}</Link>
           <ChevronRight className="h-3 w-3" />
-          <span className="font-medium text-foreground">新建项目</span>
+          <span className="font-medium text-foreground">{t("createProject.breadcrumbNew")}</span>
         </div>
-        <h1 className="text-2xl font-bold tracking-tight">新建项目</h1>
-        <p className="text-sm text-muted-foreground">真实写入项目表，并可同时创建资源绑定。</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t("createProject.title")}</h1>
+        <p className="text-sm text-muted-foreground">{t("createProject.subtitle")}</p>
       </div>
 
       {error ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
@@ -151,21 +153,21 @@ export function CreateProjectPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">基本信息</CardTitle>
-              <CardDescription>填写项目的基本配置信息</CardDescription>
+              <CardTitle className="text-base">{t("createProject.basicInfo")}</CardTitle>
+              <CardDescription>{t("createProject.basicInfoDesc")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">项目名称</label>
+                <label className="text-sm font-medium">{t("createProject.projectName")}</label>
                 <Input
-                  placeholder="例如：ai-workflow"
+                  placeholder={t("createProject.projectNamePlaceholder")}
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">项目类型</label>
+                <label className="text-sm font-medium">{t("createProject.projectType")}</label>
                 <select
                   className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
                   value={kind}
@@ -177,10 +179,10 @@ export function CreateProjectPage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">项目描述</label>
+                <label className="text-sm font-medium">{t("createProject.projectDesc")}</label>
                 <textarea
                   className="flex min-h-[80px] w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  placeholder="描述项目的目标、技术栈和范围..."
+                  placeholder={t("createProject.projectDescPlaceholder")}
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                 />
@@ -192,12 +194,12 @@ export function CreateProjectPage() {
           <Card className="overflow-hidden p-0">
             <div className="flex items-center justify-between border-b px-6 py-5">
               <div>
-                <h3 className="text-base font-semibold">资源绑定</h3>
-                <p className="mt-1 text-[13px] text-muted-foreground">支持本地目录、git 仓库等真实资源。</p>
+                <h3 className="text-base font-semibold">{t("createProject.resourceBindings")}</h3>
+                <p className="mt-1 text-[13px] text-muted-foreground">{t("createProject.resourceHint")}</p>
               </div>
               <Button variant="outline" size="sm" className="gap-1.5" onClick={addResource}>
                 <Plus className="h-3.5 w-3.5" />
-                添加资源
+                {t("createProject.addResource")}
               </Button>
             </div>
             <div className="space-y-4 p-6">
@@ -214,7 +216,7 @@ export function CreateProjectPage() {
                       <option value="s3">s3</option>
                     </select>
                     <Input
-                      placeholder="URI / 路径 / 仓库地址"
+                      placeholder={t("createProject.uriPlaceholder")}
                       value={resource.uri}
                       onChange={(event) => {
                         const uri = event.target.value;
@@ -230,7 +232,7 @@ export function CreateProjectPage() {
                       }}
                     />
                     <Input
-                      placeholder="标签"
+                      placeholder={t("createProject.labelPlaceholder")}
                       value={resource.label}
                       onChange={(event) => updateResource(index, { label: event.target.value })}
                     />
@@ -238,7 +240,7 @@ export function CreateProjectPage() {
                       variant="ghost"
                       size="icon"
                       className="h-10 w-10"
-                      aria-label={`删除第 ${index + 1} 个资源`}
+                      aria-label={t("createProject.deleteResourceLabel", { index: index + 1 })}
                       onClick={() => removeResource(index)}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -263,7 +265,7 @@ export function CreateProjectPage() {
                                   provider: event.target.value as GitResourceDraftConfig["provider"],
                                 })}
                               >
-                                <option value="">自动识别/未指定</option>
+                                <option value="">{t("createProject.autoDetect")}</option>
                                 <option value="github">github</option>
                                 <option value="codeup">codeup</option>
                               </select>
@@ -276,22 +278,22 @@ export function CreateProjectPage() {
                                     checked={resource.git.enableScmFlow}
                                     onChange={(event) => updateGitResource(index, { enableScmFlow: event.target.checked })}
                                   />
-                                  <span>启用 PR/CR 流程</span>
+                                  <span>{t("createProject.enableScmFlow")}</span>
                                 </label>
                                 <div className="flex items-center text-xs text-muted-foreground">
-                                  当前识别：{scmProvider === "codeup" ? "Codeup CR" : "GitHub PR"}
+                                  {t("createProject.currentDetected", { provider: scmProvider === "codeup" ? t("createProject.codeupCR") : t("createProject.githubPR") })}
                                 </div>
                               </>
                             ) : (
                               <div className="md:col-span-2 flex items-center text-xs text-muted-foreground">
-                                仅 GitHub / Codeup 仓库支持 PR/CR 流程开关。
+                                {t("createProject.scmOnlyHint")}
                               </div>
                             )}
                           </div>
                           {scmProvider ? (
                             <div className="space-y-2">
                               <div className="text-[11px] text-muted-foreground">
-                                同一个项目当前只建议启用一个 GitHub / Codeup PR/CR 资源。
+                                {t("createProject.scmSingleHint")}
                               </div>
                               <div className="grid gap-3 md:grid-cols-2">
                                 <div className="space-y-1.5">
@@ -330,24 +332,24 @@ export function CreateProjectPage() {
         <div className="space-y-6">
           <Card className="overflow-hidden p-0">
             <div className="border-b px-5 py-3.5">
-              <span className="text-sm font-semibold">项目预览</span>
+              <span className="text-sm font-semibold">{t("createProject.projectPreview")}</span>
             </div>
             <div className="space-y-4 p-5">
               <div className="flex justify-between text-[13px]">
-                <span className="text-muted-foreground">名称</span>
-                <span className="font-medium">{name || "未填写"}</span>
+                <span className="text-muted-foreground">{t("common.name")}</span>
+                <span className="font-medium">{name || t("common.notFilled")}</span>
               </div>
               <div className="flex items-center justify-between text-[13px]">
-                <span className="text-muted-foreground">类型</span>
+                <span className="text-muted-foreground">{t("common.type")}</span>
                 <Badge variant="secondary">{kind}</Badge>
               </div>
               <div className="flex justify-between text-[13px]">
-                <span className="text-muted-foreground">有效资源</span>
-                <span className="font-medium">{filledResourceCount} 个绑定</span>
+                <span className="text-muted-foreground">{t("createProject.validResources")}</span>
+                <span className="font-medium">{t("common.bindings", { count: filledResourceCount })}</span>
               </div>
               <div className="flex justify-between gap-3 text-[13px]">
-                <span className="text-muted-foreground">描述</span>
-                <span className="text-right font-medium">{description || "未填写"}</span>
+                <span className="text-muted-foreground">{t("common.description")}</span>
+                <span className="text-right font-medium">{description || t("common.notFilled")}</span>
               </div>
             </div>
           </Card>
@@ -355,11 +357,11 @@ export function CreateProjectPage() {
           <div className="space-y-2.5">
             <Button className="w-full gap-2" disabled={submitting} onClick={() => void createProject()}>
               <Plus className="h-4 w-4" />
-              {submitting ? "创建中..." : "创建项目"}
+              {submitting ? t("common.creating") : t("createProject.createProject")}
             </Button>
             <Link to="/projects" className="block">
               <Button variant="ghost" className="w-full text-muted-foreground">
-                取消
+                {t("common.cancel")}
               </Button>
             </Link>
           </div>
@@ -368,5 +370,4 @@ export function CreateProjectPage() {
     </div>
   );
 }
-
 

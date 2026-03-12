@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Plus, Settings2, Bot, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SandboxSupportPanel } from "@/components/SandboxSupportPanel";
@@ -27,6 +28,7 @@ const roleBadgeVariant: Record<string, "info" | "warning" | "default" | "seconda
 const ALL_CAPS = ["fs_read", "fs_write", "terminal"] as const;
 
 export function AgentsPage() {
+  const { t } = useTranslation();
   const { apiClient } = useWorkbench();
   const [drivers, setDrivers] = useState<AgentDriver[]>([]);
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
@@ -140,19 +142,19 @@ export function AgentsPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">代理管理</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t("agents.title")}</h1>
             {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
           </div>
-          <p className="text-sm text-muted-foreground">读取和写入 runtime registry 中的 drivers 与 profiles。</p>
+          <p className="text-sm text-muted-foreground">{t("agents.subtitle")}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setDriverDialogOpen(true)}>
             <Settings2 className="mr-2 h-4 w-4" />
-            新建驱动
+            {t("agents.newDriver")}
           </Button>
           <Button onClick={() => setProfileDialogOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
-            新建配置
+            {t("agents.newProfile")}
           </Button>
         </div>
       </div>
@@ -172,22 +174,22 @@ export function AgentsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Bot className="h-5 w-5" />
-            驱动 <Badge variant="secondary" className="ml-1">{drivers.length}</Badge>
+            {t("agents.drivers")} <Badge variant="secondary" className="ml-1">{drivers.length}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>名称</TableHead>
-                <TableHead>启动命令</TableHead>
-                <TableHead>最大能力</TableHead>
+                <TableHead>{t("agents.driverName")}</TableHead>
+                <TableHead>{t("agents.launchCommand")}</TableHead>
+                <TableHead>{t("agents.maxCapabilities")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {drivers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={3} className="text-center text-muted-foreground">暂无驱动</TableCell>
+                  <TableCell colSpan={3} className="text-center text-muted-foreground">{t("agents.noDrivers")}</TableCell>
                 </TableRow>
               ) : (
                 drivers.map((driver) => (
@@ -216,24 +218,24 @@ export function AgentsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            配置 <Badge variant="secondary" className="ml-1">{profiles.length}</Badge>
+            {t("agents.profiles")} <Badge variant="secondary" className="ml-1">{profiles.length}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>名称</TableHead>
-                <TableHead>角色</TableHead>
-                <TableHead>驱动</TableHead>
-                <TableHead>能力标签</TableHead>
-                <TableHead>操作权限</TableHead>
+                <TableHead>{t("agents.driverName")}</TableHead>
+                <TableHead>{t("agents.role")}</TableHead>
+                <TableHead>{t("agents.boundDriver")}</TableHead>
+                <TableHead>{t("agents.capabilityTags")}</TableHead>
+                <TableHead>{t("agents.actionPermissions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {profiles.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">暂无 profile</TableCell>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">{t("agents.noProfiles")}</TableCell>
                 </TableRow>
               ) : (
                 profiles.map((profile) => (
@@ -267,24 +269,24 @@ export function AgentsPage() {
 
       <Dialog open={driverDialogOpen} onClose={() => setDriverDialogOpen(false)} className="max-w-md">
         <DialogHeader>
-          <DialogTitle>新建驱动</DialogTitle>
-          <DialogDescription>创建后直接写入 `/api/agents/drivers`。</DialogDescription>
+          <DialogTitle>{t("agents.newDriver")}</DialogTitle>
+          <DialogDescription>{t("agents.createDriverDesc")}</DialogDescription>
         </DialogHeader>
         <DialogBody>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">驱动 ID</label>
+            <label className="text-sm font-medium">{t("agents.driverId")}</label>
             <Input value={driverName} onChange={(event) => setDriverName(event.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">启动命令</label>
+            <label className="text-sm font-medium">{t("agents.launchCommand")}</label>
             <Input value={driverCmd} onChange={(event) => setDriverCmd(event.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">启动参数</label>
+            <label className="text-sm font-medium">{t("agents.launchArgs")}</label>
             <Input value={driverArgs} onChange={(event) => setDriverArgs(event.target.value)} />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium">最大能力</label>
+            <label className="text-sm font-medium">{t("agents.maxCapabilities")}</label>
             <div className="flex gap-4">
               {ALL_CAPS.map((cap) => (
                 <label key={cap} className="flex cursor-pointer items-center gap-2">
@@ -307,24 +309,24 @@ export function AgentsPage() {
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setDriverDialogOpen(false)}>取消</Button>
-          <Button onClick={() => void createDriver()}>创建驱动</Button>
+          <Button variant="outline" onClick={() => setDriverDialogOpen(false)}>{t("common.cancel")}</Button>
+          <Button onClick={() => void createDriver()}>{t("agents.createDriver")}</Button>
         </DialogFooter>
       </Dialog>
 
       <Dialog open={profileDialogOpen} onClose={() => setProfileDialogOpen(false)} className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>新建配置</DialogTitle>
-          <DialogDescription>创建 profile 并绑定到现有 driver。</DialogDescription>
+          <DialogTitle>{t("agents.newProfile")}</DialogTitle>
+          <DialogDescription>{t("agents.createProfileDesc")}</DialogDescription>
         </DialogHeader>
         <DialogBody>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">配置 ID</label>
+              <label className="text-sm font-medium">{t("agents.profileId")}</label>
               <Input value={profileName} onChange={(event) => setProfileName(event.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">角色</label>
+              <label className="text-sm font-medium">{t("agents.role")}</label>
               <select
                 className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
                 value={profileRole}
@@ -338,7 +340,7 @@ export function AgentsPage() {
             </div>
           </div>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">绑定驱动</label>
+            <label className="text-sm font-medium">{t("agents.bindDriver")}</label>
             <select
               className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
               value={profileDriver}
@@ -350,21 +352,21 @@ export function AgentsPage() {
             </select>
           </div>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">能力标签（逗号分隔）</label>
+            <label className="text-sm font-medium">{t("agents.capabilityTagsComma")}</label>
             <Input value={profileCaps} onChange={(event) => setProfileCaps(event.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">允许动作（逗号分隔）</label>
+            <label className="text-sm font-medium">{t("agents.allowedActionsComma")}</label>
             <Input value={profileActions} onChange={(event) => setProfileActions(event.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">最大轮次</label>
+            <label className="text-sm font-medium">{t("agents.maxTurns")}</label>
             <Input value={profileMaxTurns} onChange={(event) => setProfileMaxTurns(event.target.value)} />
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setProfileDialogOpen(false)}>取消</Button>
-          <Button onClick={() => void createProfile()}>创建配置</Button>
+          <Button variant="outline" onClick={() => setProfileDialogOpen(false)}>{t("common.cancel")}</Button>
+          <Button onClick={() => void createProfile()}>{t("agents.createProfile")}</Button>
         </DialogFooter>
       </Dialog>
     </div>

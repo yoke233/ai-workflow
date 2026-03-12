@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import {
   Activity,
@@ -71,6 +72,7 @@ const formatSandboxProvider = (provider?: string): string => {
 };
 
 export function DashboardPage() {
+  const { t } = useTranslation();
   const { apiClient, selectedProject, selectedProjectId, projects } = useWorkbench();
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -132,30 +134,30 @@ export function DashboardPage() {
     const successRate = typeof stats?.success_rate === "number" ? `${Math.round(stats.success_rate * 100)}%` : "--";
     return [
       {
-        title: "执行中流程",
+        title: t("dashboard.activeFlows"),
         value: activeIssues.length,
-        change: selectedProject ? `${selectedProject.name} 范围` : `${projects.length} 个项目`,
+        change: selectedProject ? t("dashboard.projectScope", { name: selectedProject.name }) : t("dashboard.projectCount", { count: projects.length }),
         changeType: "neutral",
         icon: <Activity className="h-4 w-4 text-muted-foreground" />,
       },
       {
-        title: "完成流程",
+        title: t("dashboard.doneFlows"),
         value: doneIssues.length,
-        change: stats ? `总计 ${stats.total_issues} 个 issue` : "等待统计",
+        change: stats ? t("dashboard.totalFlows", { count: stats.total_issues }) : t("dashboard.waitingStats"),
         changeType: "neutral",
         icon: <CheckCircle2 className="h-4 w-4 text-muted-foreground" />,
       },
       {
-        title: "成功率",
+        title: t("dashboard.successRate"),
         value: successRate,
-        change: stats ? `平均耗时 ${stats.avg_duration}` : "等待统计",
+        change: stats ? t("dashboard.avgDuration", { duration: stats.avg_duration }) : t("dashboard.waitingStats"),
         changeType: "up",
         icon: <GitBranch className="h-4 w-4 text-muted-foreground" />,
       },
       {
-        title: "排队任务",
+        title: t("dashboard.queuedTasks"),
         value: issues.filter((issue) => issue.status === "queued").length,
-        change: schedulerStats?.enabled ? "调度器已启用" : schedulerStats?.message ?? "调度器未启用",
+        change: schedulerStats?.enabled ? t("dashboard.schedulerEnabled") : schedulerStats?.message ?? t("dashboard.schedulerDisabled"),
         changeType: "neutral",
         icon: <Clock className="h-4 w-4 text-muted-foreground" />,
       },
@@ -166,21 +168,21 @@ export function DashboardPage() {
     return (
       <div className="flex-1 space-y-6 p-8">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">仪表盘</h1>
-          <p className="text-sm text-muted-foreground">当前还没有项目，先创建项目并绑定资源。</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t("dashboard.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("dashboard.noProjectHint")}</p>
         </div>
         <Card className="border-dashed">
           <CardHeader>
-            <CardTitle>尚未建立工作区</CardTitle>
+            <CardTitle>{t("dashboard.noWorkspace")}</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-3">
             <Link to="/projects/new">
               <Button>
                 <Play className="mr-2 h-4 w-4" />
-                创建第一个项目
+                {t("dashboard.createFirst")}
               </Button>
             </Link>
-            <p className="text-sm text-muted-foreground">创建完成后，仪表盘会自动展示真实 Issue 数据。</p>
+            <p className="text-sm text-muted-foreground">{t("dashboard.createHint")}</p>
           </CardContent>
         </Card>
       </div>
@@ -192,18 +194,18 @@ export function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">仪表盘</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t("dashboard.title")}</h1>
             {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
           </div>
           <p className="text-sm text-muted-foreground">
-            {selectedProject ? `当前项目：${selectedProject.name}` : "跨项目总览"}
-            {stats ? ` / 总计 ${stats.total_issues} 个流程` : ""}
+            {selectedProject ? t("dashboard.currentProject", { name: selectedProject.name }) : t("dashboard.crossProjectOverview")}
+            {stats ? t("dashboard.totalFlowsSuffix", { count: stats.total_issues }) : ""}
           </p>
         </div>
         <Link to="/issues/new">
           <Button>
             <Play className="mr-2 h-4 w-4" />
-            新建流程
+            {t("dashboard.newFlow")}
           </Button>
         </Link>
       </div>
@@ -237,26 +239,26 @@ export function DashboardPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>运行中流程</CardTitle>
+            <CardTitle>{t("dashboard.runningFlows")}</CardTitle>
             <Link to="/issues" className="text-sm text-muted-foreground hover:text-foreground">
-              查看全部 <ArrowUpRight className="ml-1 inline h-3 w-3" />
+              {t("dashboard.viewAll")} <ArrowUpRight className="ml-1 inline h-3 w-3" />
             </Link>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>流程名称</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead>创建时间</TableHead>
-                  <TableHead>耗时</TableHead>
+                  <TableHead>{t("dashboard.flowName")}</TableHead>
+                  <TableHead>{t("common.status")}</TableHead>
+                  <TableHead>{t("dashboard.createdAt")}</TableHead>
+                  <TableHead>{t("dashboard.duration")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {activeIssues.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={4} className="text-center text-muted-foreground">
-                      当前没有运行中的流程
+                      {t("dashboard.noRunningFlows")}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -283,29 +285,29 @@ export function DashboardPage() {
         <div className="space-y-6">
           <Card className="overflow-hidden p-0">
             <div className="flex items-center justify-between border-b px-5 py-4">
-              <h3 className="text-base font-semibold">调度器</h3>
+              <h3 className="text-base font-semibold">{t("dashboard.scheduler")}</h3>
               <Badge variant={schedulerStats?.enabled ? "success" : "secondary"}>
-                {schedulerStats?.enabled ? "已启用" : "未启用"}
+                {schedulerStats?.enabled ? t("common.enabled") : t("common.disabled")}
               </Badge>
             </div>
 
             <div className="space-y-4 p-5">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">项目</span>
-                <span className="font-semibold">{selectedProject?.name ?? "全部项目"}</span>
+                <span className="text-muted-foreground">{t("common.project")}</span>
+                <span className="font-semibold">{selectedProject?.name ?? t("dashboard.allProjects")}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">运行中</span>
+                <span className="text-muted-foreground">{t("dashboard.runningCount")}</span>
                 <span className="font-semibold text-blue-500">{activeIssues.length}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">排队中</span>
+                <span className="text-muted-foreground">{t("dashboard.queuedCount")}</span>
                 <span className="font-semibold text-amber-500">
                   {issues.filter((issue) => issue.status === "queued").length}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">平均耗时</span>
+                <span className="text-muted-foreground">{t("dashboard.avgDurationLabel")}</span>
                 <span className="font-semibold">{stats?.avg_duration ?? "-"}</span>
               </div>
             </div>
@@ -313,12 +315,12 @@ export function DashboardPage() {
             <div className="border-t" />
 
             <div className="px-5 py-2">
-              <span className="text-[11px] font-medium tracking-wider text-muted-foreground">活跃队列</span>
+              <span className="text-[11px] font-medium tracking-wider text-muted-foreground">{t("dashboard.activeQueue")}</span>
             </div>
 
             <div>
               {queueIssues.length === 0 ? (
-                <div className="px-5 py-4 text-sm text-muted-foreground">队列为空</div>
+                <div className="px-5 py-4 text-sm text-muted-foreground">{t("dashboard.queueEmpty")}</div>
               ) : (
                 queueIssues.map((issue, index) => (
                   <div
@@ -337,7 +339,7 @@ export function DashboardPage() {
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{issue.title}</div>
                       <div className="text-[11px] text-muted-foreground">
-                        {issue.status === "running" ? "正在执行" : "等待调度"} · {formatRelativeTime(issue.updated_at)}
+                        {issue.status === "running" ? t("dashboard.executing") : t("dashboard.waitingSchedule")} · {formatRelativeTime(issue.updated_at)}
                       </div>
                     </div>
                   </div>
@@ -349,30 +351,30 @@ export function DashboardPage() {
           <Card>
             <CardHeader className="space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <CardTitle>沙盒状态</CardTitle>
+                <CardTitle>{t("dashboard.sandboxStatus")}</CardTitle>
                 <Badge variant={sandboxSupport?.enabled ? "success" : "secondary"}>
-                  {sandboxSupport?.enabled ? "已开启" : "未开启"}
+                  {sandboxSupport?.enabled ? t("dashboard.sandboxOn") : t("dashboard.sandboxOff")}
                 </Badge>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant={sandboxSupport?.current_supported ? "success" : "secondary"}>
-                  当前 Provider: {formatSandboxProvider(sandboxSupport?.current_provider)}
+                  {t("dashboard.currentProvider", { provider: formatSandboxProvider(sandboxSupport?.current_provider) })}
                 </Badge>
                 <Badge variant={sandboxSupport?.current_supported ? "success" : "warning"}>
-                  {sandboxSupport?.current_supported ? "当前可用" : "当前不可用"}
+                  {sandboxSupport?.current_supported ? t("dashboard.currentAvailable") : t("dashboard.currentUnavailable")}
                 </Badge>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-2 text-sm">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">宿主平台</span>
+                  <span className="text-muted-foreground">{t("dashboard.hostPlatform")}</span>
                   <span className="font-medium">
                     {sandboxSupport ? `${sandboxSupport.os} / ${sandboxSupport.arch}` : "-"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">配置 Provider</span>
+                  <span className="text-muted-foreground">{t("dashboard.configuredProvider")}</span>
                   <span className="font-medium">{formatSandboxProvider(sandboxSupport?.configured_provider)}</span>
                 </div>
               </div>
@@ -384,10 +386,10 @@ export function DashboardPage() {
                       <div className="font-medium">{formatSandboxProvider(provider)}</div>
                       <div className="flex flex-wrap gap-2">
                         <Badge variant={support.supported ? "success" : "secondary"}>
-                          {support.supported ? "宿主支持" : "宿主不支持"}
+                          {support.supported ? t("common.hostSupported") : t("common.hostNotSupported")}
                         </Badge>
                         <Badge variant={sandboxBadgeVariant(support)}>
-                          {support.implemented ? "已接入" : "未接入"}
+                          {support.implemented ? t("common.connected") : t("common.notConnected")}
                         </Badge>
                       </div>
                     </div>
@@ -396,7 +398,7 @@ export function DashboardPage() {
                     ) : null}
                   </div>
                 )) : (
-                  <div className="text-sm text-muted-foreground">正在读取沙盒支持矩阵…</div>
+                  <div className="text-sm text-muted-foreground">{t("dashboard.loadingSandbox")}</div>
                 )}
               </div>
             </CardContent>
