@@ -35,6 +35,10 @@ type addThreadParticipantRequest struct {
 	Role   string `json:"role,omitempty"`
 }
 
+type inviteThreadAgentRequest struct {
+	AgentProfileID string `json:"agent_profile_id"`
+}
+
 type createThreadWorkItemLinkRequest struct {
 	WorkItemID   int64  `json:"work_item_id"`
 	RelationType string `json:"relation_type,omitempty"`
@@ -55,6 +59,10 @@ func registerThreadRoutes(r chi.Router, h *Handler) {
 	r.Post("/threads/{threadID}/participants", h.addThreadParticipant)
 	r.Get("/threads/{threadID}/participants", h.listThreadParticipants)
 	r.Delete("/threads/{threadID}/participants/{userID}", h.removeThreadParticipant)
+
+	r.Post("/threads/{threadID}/agents", h.inviteThreadAgent)
+	r.Get("/threads/{threadID}/agents", h.listThreadAgents)
+	r.Delete("/threads/{threadID}/agents/{agentSessionID}", h.removeThreadAgent)
 
 	r.Post("/threads/{threadID}/links/work-items", h.createThreadWorkItemLink)
 	r.Get("/threads/{threadID}/work-items", h.listWorkItemsByThread)
@@ -469,4 +477,86 @@ func (h *Handler) listThreadsByWorkItem(w http.ResponseWriter, r *http.Request) 
 		links = []*core.ThreadWorkItemLink{}
 	}
 	writeJSON(w, http.StatusOK, links)
+}
+
+// ---------------------------------------------------------------------------
+// Thread Agent Sessions
+// ---------------------------------------------------------------------------
+
+func (h *Handler) inviteThreadAgent(w http.ResponseWriter, r *http.Request) {
+	threadID, ok := urlParamInt64(r, "threadID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid thread ID", "BAD_ID")
+		return
+	}
+
+	// Verify thread exists.
+	if _, err := h.store.GetThread(r.Context(), threadID); err != nil {
+		if err == core.ErrNotFound {
+			writeError(w, http.StatusNotFound, "thread not found", "THREAD_NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+
+	var req inviteThreadAgentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
+		return
+	}
+	profileID := strings.TrimSpace(req.AgentProfileID)
+	if profileID == "" {
+		writeError(w, http.StatusBadRequest, "agent_profile_id is required", "MISSING_PROFILE_ID")
+		return
+	}
+
+	sess := &core.ThreadAgentSession{
+		ThreadID:       threadID,
+		AgentProfileID: profileID,
+		Status:         "active",
+	}
+	id, err := h.store.CreateThreadAgentSession(r.Context(), sess)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
+		return
+	}
+	sess.ID = id
+	writeJSON(w, http.StatusCreated, sess)
+}
+
+func (h *Handler) listThreadAgents(w http.ResponseWriter, r *http.Request) {
+	threadID, ok := urlParamInt64(r, "threadID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid thread ID", "BAD_ID")
+		return
+	}
+
+	sessions, err := h.store.ListThreadAgentSessions(r.Context(), threadID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+	if sessions == nil {
+		sessions = []*core.ThreadAgentSession{}
+	}
+	writeJSON(w, http.StatusOK, sessions)
+}
+
+func (h *Handler) removeThreadAgent(w http.ResponseWriter, r *http.Request) {
+	agentSessionID, ok := urlParamInt64(r, "agentSessionID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid agent session ID", "BAD_ID")
+		return
+	}
+
+	if err := h.store.DeleteThreadAgentSession(r.Context(), agentSessionID); err != nil {
+		if err == core.ErrNotFound {
+			writeError(w, http.StatusNotFound, "agent session not found", "AGENT_SESSION_NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error(), "REMOVE_AGENT_FAILED")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
 }

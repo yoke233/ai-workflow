@@ -293,6 +293,57 @@ func TestThreadWorkItemLinkCRUD(t *testing.T) {
 	}
 }
 
+func TestThreadAgentSessionCRUD(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	// Create thread.
+	resp, _ := post(ts, "/threads", map[string]any{"title": "agent-thread"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	// Invite agent.
+	resp, err := post(ts, fmt.Sprintf("/threads/%d/agents", thread.ID), map[string]any{
+		"agent_profile_id": "worker-claude",
+	})
+	if err != nil {
+		t.Fatalf("invite agent: %v", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var sess core.ThreadAgentSession
+	decodeJSON(resp, &sess)
+	if sess.AgentProfileID != "worker-claude" || sess.Status != "active" {
+		t.Fatalf("unexpected session: %+v", sess)
+	}
+
+	// List agents.
+	resp, _ = get(ts, fmt.Sprintf("/threads/%d/agents", thread.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var sessions []core.ThreadAgentSession
+	decodeJSON(resp, &sessions)
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	// Remove agent.
+	req, _ := http.NewRequest(http.MethodDelete,
+		ts.URL+fmt.Sprintf("/threads/%d/agents/%d", thread.ID, sess.ID), nil)
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// Verify removed.
+	resp, _ = get(ts, fmt.Sprintf("/threads/%d/agents", thread.ID))
+	decodeJSON(resp, &sessions)
+	if len(sessions) != 0 {
+		t.Fatalf("expected 0 sessions after remove, got %d", len(sessions))
+	}
+}
+
 func TestThreadAndIssueRoutesIndependent(t *testing.T) {
 	_, ts := setupAPI(t)
 

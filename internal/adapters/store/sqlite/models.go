@@ -393,6 +393,34 @@ func (m *ThreadWorkItemLinkModel) toCore() *core.ThreadWorkItemLink {
 	}
 }
 
+// ThreadAgentSessionModel persists thread agent sessions.
+type ThreadAgentSessionModel struct {
+	ID             int64     `gorm:"column:id;primaryKey;autoIncrement"`
+	ThreadID       int64     `gorm:"column:thread_id;not null"`
+	AgentProfileID string    `gorm:"column:agent_profile_id;not null"`
+	ACPSessionID   string    `gorm:"column:acp_session_id;not null;default:''"`
+	Status         string    `gorm:"column:status;not null;default:joining"`
+	JoinedAt       time.Time `gorm:"column:joined_at"`
+	LastActiveAt   time.Time `gorm:"column:last_active_at"`
+}
+
+func (ThreadAgentSessionModel) TableName() string { return "thread_agent_sessions" }
+
+func (m *ThreadAgentSessionModel) toCore() *core.ThreadAgentSession {
+	if m == nil {
+		return nil
+	}
+	return &core.ThreadAgentSession{
+		ID:             m.ID,
+		ThreadID:       m.ThreadID,
+		AgentProfileID: m.AgentProfileID,
+		ACPSessionID:   m.ACPSessionID,
+		Status:         m.Status,
+		JoinedAt:       m.JoinedAt,
+		LastActiveAt:   m.LastActiveAt,
+	}
+}
+
 func projectModelFromCore(p *core.Project) *ProjectModel {
 	if p == nil {
 		return nil

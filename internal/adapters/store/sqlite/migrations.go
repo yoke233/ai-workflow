@@ -341,6 +341,18 @@ func runMigrations(db *sql.DB) error {
         )`,
 		`CREATE INDEX IF NOT EXISTS idx_twil_thread ON thread_work_item_links(thread_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_twil_work_item ON thread_work_item_links(work_item_id)`,
+		// thread_agent_sessions table.
+		`CREATE TABLE IF NOT EXISTS thread_agent_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            thread_id INTEGER NOT NULL REFERENCES threads(id),
+            agent_profile_id TEXT NOT NULL,
+            acp_session_id TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'joining',
+            joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_active_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(thread_id, agent_profile_id)
+        )`,
+		`CREATE INDEX IF NOT EXISTS idx_tas_thread ON thread_agent_sessions(thread_id)`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			if strings.Contains(err.Error(), "duplicate column name") {

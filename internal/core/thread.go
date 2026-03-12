@@ -65,6 +65,17 @@ type ThreadWorkItemLink struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// ThreadAgentSession represents an AI agent session within a Thread.
+type ThreadAgentSession struct {
+	ID             int64     `json:"id"`
+	ThreadID       int64     `json:"thread_id"`
+	AgentProfileID string    `json:"agent_profile_id"`
+	ACPSessionID   string    `json:"acp_session_id"`
+	Status         string    `json:"status"` // "joining", "active", "paused", "left", "failed"
+	JoinedAt       time.Time `json:"joined_at"`
+	LastActiveAt   time.Time `json:"last_active_at"`
+}
+
 // ThreadStore persists Thread aggregates.
 type ThreadStore interface {
 	CreateThread(ctx context.Context, thread *Thread) (int64, error)
@@ -86,4 +97,10 @@ type ThreadStore interface {
 	DeleteThreadWorkItemLink(ctx context.Context, threadID, workItemID int64) error
 	DeleteThreadWorkItemLinksByThread(ctx context.Context, threadID int64) error
 	DeleteThreadWorkItemLinksByWorkItem(ctx context.Context, workItemID int64) error
+
+	CreateThreadAgentSession(ctx context.Context, s *ThreadAgentSession) (int64, error)
+	GetThreadAgentSession(ctx context.Context, id int64) (*ThreadAgentSession, error)
+	ListThreadAgentSessions(ctx context.Context, threadID int64) ([]*ThreadAgentSession, error)
+	UpdateThreadAgentSession(ctx context.Context, s *ThreadAgentSession) error
+	DeleteThreadAgentSession(ctx context.Context, id int64) error
 }

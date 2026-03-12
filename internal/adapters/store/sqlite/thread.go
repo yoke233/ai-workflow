@@ -366,6 +366,117 @@ func (s *Store) DeleteThreadWorkItemLinksByWorkItem(ctx context.Context, workIte
 		Delete(&ThreadWorkItemLinkModel{}).Error
 }
 
+// ---------------------------------------------------------------------------
+// ThreadAgentSession CRUD
+// ---------------------------------------------------------------------------
+
+func (s *Store) CreateThreadAgentSession(ctx context.Context, sess *core.ThreadAgentSession) (int64, error) {
+	if s == nil || s.orm == nil {
+		return 0, fmt.Errorf("store is not initialized")
+	}
+	if sess == nil {
+		return 0, fmt.Errorf("session is nil")
+	}
+
+	now := time.Now().UTC()
+	model := &ThreadAgentSessionModel{
+		ThreadID:       sess.ThreadID,
+		AgentProfileID: strings.TrimSpace(sess.AgentProfileID),
+		ACPSessionID:   sess.ACPSessionID,
+		Status:         sess.Status,
+		JoinedAt:       now,
+		LastActiveAt:   now,
+	}
+	if model.Status == "" {
+		model.Status = "joining"
+	}
+
+	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
+		return 0, err
+	}
+	sess.ID = model.ID
+	sess.JoinedAt = now
+	sess.LastActiveAt = now
+	return model.ID, nil
+}
+
+func (s *Store) GetThreadAgentSession(ctx context.Context, id int64) (*core.ThreadAgentSession, error) {
+	if s == nil || s.orm == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+
+	var model ThreadAgentSessionModel
+	err := s.orm.WithContext(ctx).First(&model, id).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, core.ErrNotFound
+		}
+		return nil, err
+	}
+	return model.toCore(), nil
+}
+
+func (s *Store) ListThreadAgentSessions(ctx context.Context, threadID int64) ([]*core.ThreadAgentSession, error) {
+	if s == nil || s.orm == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+
+	var models []ThreadAgentSessionModel
+	if err := s.orm.WithContext(ctx).
+		Where("thread_id = ?", threadID).
+		Order("id ASC").
+		Find(&models).Error; err != nil {
+		return nil, err
+	}
+
+	out := make([]*core.ThreadAgentSession, 0, len(models))
+	for i := range models {
+		out = append(out, models[i].toCore())
+	}
+	return out, nil
+}
+
+func (s *Store) UpdateThreadAgentSession(ctx context.Context, sess *core.ThreadAgentSession) error {
+	if s == nil || s.orm == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+	if sess == nil {
+		return fmt.Errorf("session is nil")
+	}
+
+	now := time.Now().UTC()
+	result := s.orm.WithContext(ctx).Model(&ThreadAgentSessionModel{}).
+		Where("id = ?", sess.ID).
+		Updates(map[string]any{
+			"status":         sess.Status,
+			"acp_session_id": sess.ACPSessionID,
+			"last_active_at": now,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return core.ErrNotFound
+	}
+	sess.LastActiveAt = now
+	return nil
+}
+
+func (s *Store) DeleteThreadAgentSession(ctx context.Context, id int64) error {
+	if s == nil || s.orm == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+
+	result := s.orm.WithContext(ctx).Delete(&ThreadAgentSessionModel{}, id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return core.ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) RemoveThreadParticipant(ctx context.Context, threadID int64, userID string) error {
 	if s == nil || s.orm == nil {
 		return fmt.Errorf("store is not initialized")

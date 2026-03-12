@@ -281,6 +281,78 @@ func TestThreadWorkItemLinkCleanup(t *testing.T) {
 	}
 }
 
+func TestThreadAgentSessionCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Create thread.
+	thread := &core.Thread{Title: "agent-test"}
+	threadID, err := s.CreateThread(ctx, thread)
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+
+	// Create agent session.
+	sess := &core.ThreadAgentSession{
+		ThreadID:       threadID,
+		AgentProfileID: "worker-claude",
+		ACPSessionID:   "acp-sess-001",
+		Status:         "active",
+	}
+	sessID, err := s.CreateThreadAgentSession(ctx, sess)
+	if err != nil {
+		t.Fatalf("create agent session: %v", err)
+	}
+	if sessID <= 0 {
+		t.Fatal("expected positive session id")
+	}
+
+	// Get session.
+	got, err := s.GetThreadAgentSession(ctx, sessID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.AgentProfileID != "worker-claude" || got.Status != "active" {
+		t.Fatalf("unexpected session: %+v", got)
+	}
+
+	// List sessions.
+	sessions, err := s.ListThreadAgentSessions(ctx, threadID)
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	// Update status.
+	got.Status = "left"
+	if err := s.UpdateThreadAgentSession(ctx, got); err != nil {
+		t.Fatalf("update session: %v", err)
+	}
+	got2, _ := s.GetThreadAgentSession(ctx, sessID)
+	if got2.Status != "left" {
+		t.Fatalf("expected status 'left', got %q", got2.Status)
+	}
+
+	// Delete session.
+	if err := s.DeleteThreadAgentSession(ctx, sessID); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+	_, err = s.GetThreadAgentSession(ctx, sessID)
+	if err != core.ErrNotFound {
+		t.Fatalf("expected ErrNotFound after delete, got %v", err)
+	}
+
+	// Duplicate profile per thread should fail.
+	s1 := &core.ThreadAgentSession{ThreadID: threadID, AgentProfileID: "dup-prof", Status: "active"}
+	s.CreateThreadAgentSession(ctx, s1)
+	s2 := &core.ThreadAgentSession{ThreadID: threadID, AgentProfileID: "dup-prof", Status: "active"}
+	if _, err := s.CreateThreadAgentSession(ctx, s2); err == nil {
+		t.Fatal("expected error for duplicate profile per thread")
+	}
+}
+
 func TestThreadParticipantCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
