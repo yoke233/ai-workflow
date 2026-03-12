@@ -28,6 +28,7 @@ type Handler struct {
 	sandbox             sandbox.ControlService
 	prPrompts           issueapp.PRFlowPromptsProvider
 	gitPAT              string
+	threadPool          ThreadAgentRuntime
 }
 
 // NewHandler creates the workflow API handler.
@@ -96,6 +97,11 @@ func WithPRFlowPromptsProvider(provider issueapp.PRFlowPromptsProvider) HandlerO
 // WithGitPAT sets the PAT used for pushing git tags to remote.
 func WithGitPAT(pat string) HandlerOption {
 	return func(h *Handler) { h.gitPAT = pat }
+}
+
+// WithThreadAgentRuntime sets the thread agent runtime for real ACP sessions.
+func WithThreadAgentRuntime(pool ThreadAgentRuntime) HandlerOption {
+	return func(h *Handler) { h.threadPool = pool }
 }
 
 // Register mounts all workflow routes onto the given chi router.
@@ -200,6 +206,18 @@ func (h *Handler) Register(r chi.Router) {
 	// Agents (drivers + profiles)
 	registerAgentRoutes(r, h.registry)
 
+	// Feature Manifest (per-project feature checklist)
+	r.Post("/projects/{projectID}/manifest", h.createManifest)
+	r.Get("/projects/{projectID}/manifest", h.getManifest)
+	r.Put("/projects/{projectID}/manifest", h.updateManifest)
+	r.Get("/projects/{projectID}/manifest/entries", h.listManifestEntries)
+	r.Post("/projects/{projectID}/manifest/entries", h.createManifestEntry)
+	r.Get("/projects/{projectID}/manifest/summary", h.getManifestSummary)
+	r.Get("/projects/{projectID}/manifest/snapshot", h.getManifestSnapshot)
+	r.Get("/manifest/entries/{entryID}", h.getManifestEntry)
+	r.Put("/manifest/entries/{entryID}", h.updateManifestEntry)
+	r.Patch("/manifest/entries/{entryID}/status", h.updateManifestEntryStatus)
+
 	// Threads (multi-participant discussion)
 	registerThreadRoutes(r, h)
 
@@ -214,6 +232,8 @@ func (h *Handler) Register(r chi.Router) {
 		r.Get("/executions/{execID}/probes", h.listExecutionProbes)
 		r.Get("/executions/{execID}/probe/latest", h.getLatestExecutionProbe)
 		r.Post("/admin/system-event", h.sendSystemEvent)
+		r.Delete("/projects/{projectID}/manifest", h.deleteManifest)
+		r.Delete("/manifest/entries/{entryID}", h.deleteManifestEntry)
 		registerSkillRoutes(r, h.skillsRoot, h.registry, h.skillGitHubImporter)
 	})
 }

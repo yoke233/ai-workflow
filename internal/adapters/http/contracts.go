@@ -24,6 +24,7 @@ type Store interface {
 	core.AnalyticsStore
 	core.DAGTemplateStore
 	core.UsageStore
+	core.FeatureManifestStore
 	Close() error
 }
 
@@ -39,6 +40,7 @@ type LeadChatService interface {
 	StartChat(ctx context.Context, req chatapp.Request) (*chatapp.AcceptedResponse, error)
 	ListSessions(ctx context.Context) ([]chatapp.SessionSummary, error)
 	GetSession(ctx context.Context, sessionID string) (*chatapp.SessionDetail, error)
+	SetConfigOption(ctx context.Context, sessionID, configID, value string) ([]chatapp.ConfigOption, error)
 	CancelChat(sessionID string) error
 	CloseSession(sessionID string)
 	DeleteSession(sessionID string)
@@ -50,4 +52,12 @@ type LeadChatService interface {
 type DAGGenerator interface {
 	Generate(ctx context.Context, taskDescription string) (*planningapp.GeneratedDAG, error)
 	Materialize(ctx context.Context, store core.Store, issueID int64, dag *planningapp.GeneratedDAG) ([]*core.Step, error)
+}
+
+// ThreadAgentRuntime bridges Thread agent HTTP/WS endpoints to the ACP runtime.
+type ThreadAgentRuntime interface {
+	InviteAgent(ctx context.Context, threadID int64, profileID string) (*core.ThreadAgentSession, error)
+	SendMessage(ctx context.Context, threadID int64, profileID string, message string) error
+	RemoveAgent(ctx context.Context, threadID int64, agentSessionID int64) error
+	ActiveAgentProfileIDs(threadID int64) []string
 }
