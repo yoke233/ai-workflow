@@ -236,7 +236,7 @@ export function ThreadDetailPage() {
                       {link.relation_type}
                     </Badge>
                     <Link
-                      to={`/issues/${link.work_item_id}`}
+                      to={`/work-items/${link.work_item_id}`}
                       className="font-medium text-primary hover:underline"
                     >
                       {issue ? issue.title : `#${link.work_item_id}`}

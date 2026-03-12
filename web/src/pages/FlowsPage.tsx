@@ -78,7 +78,7 @@ export function IssuesPage() {
             {selectedProject ? t("flows.currentProject", { name: selectedProject.name }) : t("flows.allProjectFlows")}
           </p>
         </div>
-        <Link to="/issues/new">
+        <Link to="/work-items/new">
           <Button>
             <Plus className="mr-2 h-4 w-4" />
             {t("flows.newFlow")}
@@ -128,7 +128,7 @@ export function IssuesPage() {
                 filtered.map((issue) => (
                   <TableRow key={issue.id}>
                     <TableCell className="font-medium">
-                      <Link to={`/issues/${issue.id}`} className="hover:underline">
+                      <Link to={`/work-items/${issue.id}`} className="hover:underline">
                         {issue.title}
                       </Link>
                     </TableCell>
