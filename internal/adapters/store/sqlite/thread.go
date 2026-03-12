@@ -252,6 +252,120 @@ func (s *Store) ListThreadParticipants(ctx context.Context, threadID int64) ([]*
 	return out, nil
 }
 
+// ---------------------------------------------------------------------------
+// ThreadWorkItemLink CRUD
+// ---------------------------------------------------------------------------
+
+func (s *Store) CreateThreadWorkItemLink(ctx context.Context, link *core.ThreadWorkItemLink) (int64, error) {
+	if s == nil || s.orm == nil {
+		return 0, fmt.Errorf("store is not initialized")
+	}
+	if link == nil {
+		return 0, fmt.Errorf("link is nil")
+	}
+	if link.RelationType == "" {
+		link.RelationType = "related"
+	}
+
+	now := time.Now().UTC()
+	model := &ThreadWorkItemLinkModel{
+		ThreadID:     link.ThreadID,
+		WorkItemID:   link.WorkItemID,
+		RelationType: link.RelationType,
+		IsPrimary:    link.IsPrimary,
+		CreatedAt:    now,
+	}
+
+	// If setting as primary, demote existing primary for this thread.
+	if link.IsPrimary {
+		s.orm.WithContext(ctx).Model(&ThreadWorkItemLinkModel{}).
+			Where("thread_id = ? AND is_primary = ?", link.ThreadID, true).
+			Update("is_primary", false)
+	}
+
+	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
+		return 0, err
+	}
+	link.ID = model.ID
+	link.CreatedAt = now
+	return model.ID, nil
+}
+
+func (s *Store) ListWorkItemsByThread(ctx context.Context, threadID int64) ([]*core.ThreadWorkItemLink, error) {
+	if s == nil || s.orm == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+
+	var models []ThreadWorkItemLinkModel
+	if err := s.orm.WithContext(ctx).
+		Where("thread_id = ?", threadID).
+		Order("id ASC").
+		Find(&models).Error; err != nil {
+		return nil, err
+	}
+
+	out := make([]*core.ThreadWorkItemLink, 0, len(models))
+	for i := range models {
+		out = append(out, models[i].toCore())
+	}
+	return out, nil
+}
+
+func (s *Store) ListThreadsByWorkItem(ctx context.Context, workItemID int64) ([]*core.ThreadWorkItemLink, error) {
+	if s == nil || s.orm == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+
+	var models []ThreadWorkItemLinkModel
+	if err := s.orm.WithContext(ctx).
+		Where("work_item_id = ?", workItemID).
+		Order("id ASC").
+		Find(&models).Error; err != nil {
+		return nil, err
+	}
+
+	out := make([]*core.ThreadWorkItemLink, 0, len(models))
+	for i := range models {
+		out = append(out, models[i].toCore())
+	}
+	return out, nil
+}
+
+func (s *Store) DeleteThreadWorkItemLink(ctx context.Context, threadID, workItemID int64) error {
+	if s == nil || s.orm == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+
+	result := s.orm.WithContext(ctx).
+		Where("thread_id = ? AND work_item_id = ?", threadID, workItemID).
+		Delete(&ThreadWorkItemLinkModel{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return core.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) DeleteThreadWorkItemLinksByThread(ctx context.Context, threadID int64) error {
+	if s == nil || s.orm == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+	return s.orm.WithContext(ctx).
+		Where("thread_id = ?", threadID).
+		Delete(&ThreadWorkItemLinkModel{}).Error
+}
+
+func (s *Store) DeleteThreadWorkItemLinksByWorkItem(ctx context.Context, workItemID int64) error {
+	if s == nil || s.orm == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+	return s.orm.WithContext(ctx).
+		Where("work_item_id = ?", workItemID).
+		Delete(&ThreadWorkItemLinkModel{}).Error
+}
+
 func (s *Store) RemoveThreadParticipant(ctx context.Context, threadID int64, userID string) error {
 	if s == nil || s.orm == nil {
 		return fmt.Errorf("store is not initialized")

@@ -170,6 +170,117 @@ func TestThreadMessageCRUD(t *testing.T) {
 	}
 }
 
+func TestThreadWorkItemLinkCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Create thread and issue (work item).
+	thread := &core.Thread{Title: "link-test"}
+	threadID, err := s.CreateThread(ctx, thread)
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+
+	issue := &core.Issue{Title: "work-item-1", Status: core.IssueOpen}
+	issueID, err := s.CreateIssue(ctx, issue)
+	if err != nil {
+		t.Fatalf("create issue: %v", err)
+	}
+
+	// Create link.
+	link := &core.ThreadWorkItemLink{
+		ThreadID:     threadID,
+		WorkItemID:   issueID,
+		RelationType: "related",
+		IsPrimary:    true,
+	}
+	linkID, err := s.CreateThreadWorkItemLink(ctx, link)
+	if err != nil {
+		t.Fatalf("create link: %v", err)
+	}
+	if linkID <= 0 {
+		t.Fatal("expected positive link id")
+	}
+
+	// List by thread.
+	links, err := s.ListWorkItemsByThread(ctx, threadID)
+	if err != nil {
+		t.Fatalf("list by thread: %v", err)
+	}
+	if len(links) != 1 {
+		t.Fatalf("expected 1 link, got %d", len(links))
+	}
+	if links[0].WorkItemID != issueID || links[0].IsPrimary != true {
+		t.Fatalf("unexpected link: %+v", links[0])
+	}
+
+	// List by work item.
+	links2, err := s.ListThreadsByWorkItem(ctx, issueID)
+	if err != nil {
+		t.Fatalf("list by work item: %v", err)
+	}
+	if len(links2) != 1 || links2[0].ThreadID != threadID {
+		t.Fatalf("unexpected reverse link: %+v", links2)
+	}
+
+	// Duplicate link should fail (UNIQUE constraint).
+	dup := &core.ThreadWorkItemLink{
+		ThreadID:     threadID,
+		WorkItemID:   issueID,
+		RelationType: "drives",
+	}
+	if _, err := s.CreateThreadWorkItemLink(ctx, dup); err == nil {
+		t.Fatal("expected error for duplicate link")
+	}
+
+	// Delete specific link.
+	if err := s.DeleteThreadWorkItemLink(ctx, threadID, issueID); err != nil {
+		t.Fatalf("delete link: %v", err)
+	}
+	links, _ = s.ListWorkItemsByThread(ctx, threadID)
+	if len(links) != 0 {
+		t.Fatalf("expected 0 links after delete, got %d", len(links))
+	}
+}
+
+func TestThreadWorkItemLinkCleanup(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Setup: thread + 2 issues + links.
+	thread := &core.Thread{Title: "cleanup-test"}
+	threadID, _ := s.CreateThread(ctx, thread)
+
+	issue1 := &core.Issue{Title: "wi-1", Status: core.IssueOpen}
+	issueID1, _ := s.CreateIssue(ctx, issue1)
+	issue2 := &core.Issue{Title: "wi-2", Status: core.IssueOpen}
+	issueID2, _ := s.CreateIssue(ctx, issue2)
+
+	s.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{ThreadID: threadID, WorkItemID: issueID1, RelationType: "related"})
+	s.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{ThreadID: threadID, WorkItemID: issueID2, RelationType: "drives"})
+
+	// Cleanup by thread: deletes all links for that thread.
+	if err := s.DeleteThreadWorkItemLinksByThread(ctx, threadID); err != nil {
+		t.Fatalf("cleanup by thread: %v", err)
+	}
+	links, _ := s.ListWorkItemsByThread(ctx, threadID)
+	if len(links) != 0 {
+		t.Fatalf("expected 0 links after thread cleanup, got %d", len(links))
+	}
+
+	// Re-create links for work-item cleanup test.
+	s.CreateThreadWorkItemLink(ctx, &core.ThreadWorkItemLink{ThreadID: threadID, WorkItemID: issueID1, RelationType: "related"})
+
+	// Cleanup by work item.
+	if err := s.DeleteThreadWorkItemLinksByWorkItem(ctx, issueID1); err != nil {
+		t.Fatalf("cleanup by work item: %v", err)
+	}
+	links2, _ := s.ListThreadsByWorkItem(ctx, issueID1)
+	if len(links2) != 0 {
+		t.Fatalf("expected 0 links after work item cleanup, got %d", len(links2))
+	}
+}
+
 func TestThreadParticipantCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

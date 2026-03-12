@@ -367,6 +367,32 @@ func (m *ThreadParticipantModel) toCore() *core.ThreadParticipant {
 	}
 }
 
+// ThreadWorkItemLinkModel persists thread-workitem links.
+type ThreadWorkItemLinkModel struct {
+	ID           int64     `gorm:"column:id;primaryKey;autoIncrement"`
+	ThreadID     int64     `gorm:"column:thread_id;not null"`
+	WorkItemID   int64     `gorm:"column:work_item_id;not null"`
+	RelationType string    `gorm:"column:relation_type;not null;default:related"`
+	IsPrimary    bool      `gorm:"column:is_primary;not null;default:false"`
+	CreatedAt    time.Time `gorm:"column:created_at"`
+}
+
+func (ThreadWorkItemLinkModel) TableName() string { return "thread_work_item_links" }
+
+func (m *ThreadWorkItemLinkModel) toCore() *core.ThreadWorkItemLink {
+	if m == nil {
+		return nil
+	}
+	return &core.ThreadWorkItemLink{
+		ID:           m.ID,
+		ThreadID:     m.ThreadID,
+		WorkItemID:   m.WorkItemID,
+		RelationType: m.RelationType,
+		IsPrimary:    m.IsPrimary,
+		CreatedAt:    m.CreatedAt,
+	}
+}
+
 func projectModelFromCore(p *core.Project) *ProjectModel {
 	if p == nil {
 		return nil

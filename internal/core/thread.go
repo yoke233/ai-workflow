@@ -55,6 +55,16 @@ type ThreadParticipant struct {
 	JoinedAt time.Time `json:"joined_at"`
 }
 
+// ThreadWorkItemLink represents an explicit link between a Thread and a WorkItem (Issue).
+type ThreadWorkItemLink struct {
+	ID           int64     `json:"id"`
+	ThreadID     int64     `json:"thread_id"`
+	WorkItemID   int64     `json:"work_item_id"`
+	RelationType string    `json:"relation_type"` // "related", "drives", "blocks"
+	IsPrimary    bool      `json:"is_primary"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 // ThreadStore persists Thread aggregates.
 type ThreadStore interface {
 	CreateThread(ctx context.Context, thread *Thread) (int64, error)
@@ -69,4 +79,11 @@ type ThreadStore interface {
 	AddThreadParticipant(ctx context.Context, p *ThreadParticipant) (int64, error)
 	ListThreadParticipants(ctx context.Context, threadID int64) ([]*ThreadParticipant, error)
 	RemoveThreadParticipant(ctx context.Context, threadID int64, userID string) error
+
+	CreateThreadWorkItemLink(ctx context.Context, link *ThreadWorkItemLink) (int64, error)
+	ListWorkItemsByThread(ctx context.Context, threadID int64) ([]*ThreadWorkItemLink, error)
+	ListThreadsByWorkItem(ctx context.Context, workItemID int64) ([]*ThreadWorkItemLink, error)
+	DeleteThreadWorkItemLink(ctx context.Context, threadID, workItemID int64) error
+	DeleteThreadWorkItemLinksByThread(ctx context.Context, threadID int64) error
+	DeleteThreadWorkItemLinksByWorkItem(ctx context.Context, workItemID int64) error
 }
