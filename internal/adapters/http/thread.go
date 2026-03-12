@@ -35,6 +35,12 @@ type addThreadParticipantRequest struct {
 	Role   string `json:"role,omitempty"`
 }
 
+type createThreadWorkItemLinkRequest struct {
+	WorkItemID   int64  `json:"work_item_id"`
+	RelationType string `json:"relation_type,omitempty"`
+	IsPrimary    bool   `json:"is_primary,omitempty"`
+}
+
 // registerThreadRoutes mounts thread endpoints onto the given router.
 func registerThreadRoutes(r chi.Router, h *Handler) {
 	r.Post("/threads", h.createThread)
@@ -49,6 +55,12 @@ func registerThreadRoutes(r chi.Router, h *Handler) {
 	r.Post("/threads/{threadID}/participants", h.addThreadParticipant)
 	r.Get("/threads/{threadID}/participants", h.listThreadParticipants)
 	r.Delete("/threads/{threadID}/participants/{userID}", h.removeThreadParticipant)
+
+	r.Post("/threads/{threadID}/links/work-items", h.createThreadWorkItemLink)
+	r.Get("/threads/{threadID}/work-items", h.listWorkItemsByThread)
+	r.Delete("/threads/{threadID}/links/work-items/{workItemID}", h.deleteThreadWorkItemLink)
+
+	r.Get("/issues/{issueID}/threads", h.listThreadsByWorkItem)
 }
 
 func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
@@ -338,4 +350,123 @@ func (h *Handler) removeThreadParticipant(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+}
+
+// ---------------------------------------------------------------------------
+// Thread-WorkItem Links
+// ---------------------------------------------------------------------------
+
+func (h *Handler) createThreadWorkItemLink(w http.ResponseWriter, r *http.Request) {
+	threadID, ok := urlParamInt64(r, "threadID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid thread ID", "BAD_ID")
+		return
+	}
+
+	// Verify thread exists.
+	if _, err := h.store.GetThread(r.Context(), threadID); err != nil {
+		if err == core.ErrNotFound {
+			writeError(w, http.StatusNotFound, "thread not found", "THREAD_NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+
+	var req createThreadWorkItemLinkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
+		return
+	}
+	if req.WorkItemID <= 0 {
+		writeError(w, http.StatusBadRequest, "work_item_id is required", "MISSING_WORK_ITEM_ID")
+		return
+	}
+
+	// Verify work item (issue) exists.
+	if _, err := h.store.GetIssue(r.Context(), req.WorkItemID); err != nil {
+		if err == core.ErrNotFound {
+			writeError(w, http.StatusNotFound, "work item not found", "WORK_ITEM_NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+
+	link := &core.ThreadWorkItemLink{
+		ThreadID:     threadID,
+		WorkItemID:   req.WorkItemID,
+		RelationType: req.RelationType,
+		IsPrimary:    req.IsPrimary,
+	}
+	if link.RelationType == "" {
+		link.RelationType = "related"
+	}
+
+	id, err := h.store.CreateThreadWorkItemLink(r.Context(), link)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_LINK_FAILED")
+		return
+	}
+	link.ID = id
+	writeJSON(w, http.StatusCreated, link)
+}
+
+func (h *Handler) listWorkItemsByThread(w http.ResponseWriter, r *http.Request) {
+	threadID, ok := urlParamInt64(r, "threadID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid thread ID", "BAD_ID")
+		return
+	}
+
+	links, err := h.store.ListWorkItemsByThread(r.Context(), threadID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+	if links == nil {
+		links = []*core.ThreadWorkItemLink{}
+	}
+	writeJSON(w, http.StatusOK, links)
+}
+
+func (h *Handler) deleteThreadWorkItemLink(w http.ResponseWriter, r *http.Request) {
+	threadID, ok := urlParamInt64(r, "threadID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid thread ID", "BAD_ID")
+		return
+	}
+	workItemID, ok := urlParamInt64(r, "workItemID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid work item ID", "BAD_ID")
+		return
+	}
+
+	if err := h.store.DeleteThreadWorkItemLink(r.Context(), threadID, workItemID); err != nil {
+		if err == core.ErrNotFound {
+			writeError(w, http.StatusNotFound, "link not found", "LINK_NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error(), "DELETE_LINK_FAILED")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (h *Handler) listThreadsByWorkItem(w http.ResponseWriter, r *http.Request) {
+	issueID, ok := urlParamInt64(r, "issueID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid issue ID", "BAD_ID")
+		return
+	}
+
+	links, err := h.store.ListThreadsByWorkItem(r.Context(), issueID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+	if links == nil {
+		links = []*core.ThreadWorkItemLink{}
+	}
+	writeJSON(w, http.StatusOK, links)
 }

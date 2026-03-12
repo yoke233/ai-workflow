@@ -780,6 +780,25 @@ export interface AddThreadParticipantRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Thread-WorkItem Links
+// ---------------------------------------------------------------------------
+
+export interface ThreadWorkItemLink {
+  id: number;
+  thread_id: number;
+  work_item_id: number;
+  relation_type: string;
+  is_primary: boolean;
+  created_at: string;
+}
+
+export interface CreateThreadWorkItemLinkRequest {
+  work_item_id: number;
+  relation_type?: string;
+  is_primary?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Terminology aliases (external names → internal types)
 // ---------------------------------------------------------------------------
 

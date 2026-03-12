@@ -58,6 +58,8 @@ import type {
   CreateThreadMessageRequest,
   ThreadParticipant,
   AddThreadParticipantRequest,
+  ThreadWorkItemLink,
+  CreateThreadWorkItemLinkRequest,
 } from "../types/apiV2";
 import type { SandboxSupportResponse, UpdateSandboxSupportRequest } from "../types/system";
 
@@ -278,6 +280,12 @@ export interface ApiClient {
   listThreadParticipants(threadId: number): Promise<ThreadParticipant[]>;
   addThreadParticipant(threadId: number, body: AddThreadParticipantRequest): Promise<ThreadParticipant>;
   removeThreadParticipant(threadId: number, userId: string): Promise<void>;
+
+  // Thread-WorkItem Links
+  createThreadWorkItemLink(threadId: number, body: CreateThreadWorkItemLinkRequest): Promise<ThreadWorkItemLink>;
+  listWorkItemsByThread(threadId: number): Promise<ThreadWorkItemLink[]>;
+  deleteThreadWorkItemLink(threadId: number, workItemId: number): Promise<void>;
+  listThreadsByWorkItem(issueId: number): Promise<ThreadWorkItemLink[]>;
 }
 
 export const createApiClient = (opts: ApiClientOptions): ApiClient => {
@@ -765,5 +773,24 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: `/threads/${threadId}/participants/${encodeURIComponent(userId)}`,
         method: "DELETE",
       }),
+    createThreadWorkItemLink: (threadId, body) =>
+      request<ThreadWorkItemLink, CreateThreadWorkItemLinkRequest>({
+        path: `/threads/${threadId}/links/work-items`,
+        method: "POST",
+        body,
+      }),
+    listWorkItemsByThread: (threadId) =>
+      request<ThreadWorkItemLink[]>({
+        path: `/threads/${threadId}/work-items`,
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    deleteThreadWorkItemLink: (threadId, workItemId) =>
+      request<void>({
+        path: `/threads/${threadId}/links/work-items/${workItemId}`,
+        method: "DELETE",
+      }),
+    listThreadsByWorkItem: (issueId) =>
+      request<ThreadWorkItemLink[]>({
+        path: `/issues/${issueId}/threads`,
+      }).then((items) => (Array.isArray(items) ? items : [])),
   };
 };

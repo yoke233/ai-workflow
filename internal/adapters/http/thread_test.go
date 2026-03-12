@@ -224,6 +224,75 @@ func TestThreadParticipantCRUD(t *testing.T) {
 	}
 }
 
+func TestThreadWorkItemLinkCRUD(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	// Create thread.
+	resp, _ := post(ts, "/threads", map[string]any{"title": "link-thread"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	// Create issue (work item).
+	resp, _ = post(ts, "/issues", map[string]any{"title": "work-item-1"})
+	var issue core.Issue
+	decodeJSON(resp, &issue)
+
+	// Create link.
+	resp, err := post(ts, fmt.Sprintf("/threads/%d/links/work-items", thread.ID), map[string]any{
+		"work_item_id":  issue.ID,
+		"relation_type": "related",
+		"is_primary":    true,
+	})
+	if err != nil {
+		t.Fatalf("create link: %v", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var link core.ThreadWorkItemLink
+	decodeJSON(resp, &link)
+	if link.WorkItemID != issue.ID || !link.IsPrimary {
+		t.Fatalf("unexpected link: %+v", link)
+	}
+
+	// List work items by thread.
+	resp, _ = get(ts, fmt.Sprintf("/threads/%d/work-items", thread.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var links []core.ThreadWorkItemLink
+	decodeJSON(resp, &links)
+	if len(links) != 1 {
+		t.Fatalf("expected 1 link, got %d", len(links))
+	}
+
+	// List threads by work item.
+	resp, _ = get(ts, fmt.Sprintf("/issues/%d/threads", issue.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var reverseLinks []core.ThreadWorkItemLink
+	decodeJSON(resp, &reverseLinks)
+	if len(reverseLinks) != 1 || reverseLinks[0].ThreadID != thread.ID {
+		t.Fatalf("unexpected reverse links: %+v", reverseLinks)
+	}
+
+	// Delete link.
+	req, _ := http.NewRequest(http.MethodDelete,
+		ts.URL+fmt.Sprintf("/threads/%d/links/work-items/%d", thread.ID, issue.ID), nil)
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// Verify deleted.
+	resp, _ = get(ts, fmt.Sprintf("/threads/%d/work-items", thread.ID))
+	decodeJSON(resp, &links)
+	if len(links) != 0 {
+		t.Fatalf("expected 0 links after delete, got %d", len(links))
+	}
+}
+
 func TestThreadAndIssueRoutesIndependent(t *testing.T) {
 	_, ts := setupAPI(t)
 
