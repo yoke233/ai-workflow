@@ -1,8 +1,6 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -16,14 +14,11 @@ import (
 // Secrets holds authentication credentials loaded from secrets.toml.
 // Kept separate from config.toml for security isolation.
 type Secrets struct {
-	Tokens map[string]TokenEntry `toml:"tokens" yaml:"tokens"`
-	GitHub GitHubSecrets         `toml:"github" yaml:"github"`
-	Codeup CodeupSecrets         `toml:"codeup" yaml:"codeup"`
-
-	// Backwards-compatible top-level fine-grained PAT fields.
-	// For convenience, they can also be set under [github] / [codeup] and will be backfilled.
-	CommitPAT string `toml:"commit_pat" yaml:"commit_pat"`
-	MergePAT  string `toml:"merge_pat"  yaml:"merge_pat"`
+	Tokens    map[string]TokenEntry `toml:"tokens" yaml:"tokens"`
+	GitHub    GitHubSecrets         `toml:"github" yaml:"github"`
+	Codeup    CodeupSecrets         `toml:"codeup" yaml:"codeup"`
+	CommitPAT string                `toml:"commit_pat" yaml:"commit_pat"`
+	MergePAT  string                `toml:"merge_pat"  yaml:"merge_pat"`
 }
 
 // TokenEntry defines a named token with scoped permissions.
@@ -53,17 +48,11 @@ type GitHubSecrets struct {
 	Token          string `toml:"token"            yaml:"token"`
 	PrivateKeyPath string `toml:"private_key_path" yaml:"private_key_path"`
 	WebhookSecret  string `toml:"webhook_secret"   yaml:"webhook_secret"`
-
-	// Optional fine-grained PATs for automation flows.
-	CommitPAT string `toml:"commit_pat" yaml:"commit_pat"`
-	MergePAT  string `toml:"merge_pat"  yaml:"merge_pat"`
 }
 
 // CodeupSecrets holds Codeup-related credentials for SCM automation.
 type CodeupSecrets struct {
-	Token     string `toml:"token"      yaml:"token"`
-	CommitPAT string `toml:"commit_pat" yaml:"commit_pat"`
-	MergePAT  string `toml:"merge_pat"  yaml:"merge_pat"`
+	Token string `toml:"token" yaml:"token"`
 }
 
 // AdminToken returns the token value for the "admin" role entry, or empty if none.
@@ -92,31 +81,21 @@ func LoadSecrets(path string) (*Secrets, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".toml":
-		if err := toml.Unmarshal(data, s); err != nil {
+		dec := toml.NewDecoder(strings.NewReader(string(data)))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(s); err != nil {
 			return nil, fmt.Errorf("parse secrets toml: %w", err)
 		}
 	default:
-		if err := yaml.Unmarshal(data, s); err != nil {
+		decoder := yaml.NewDecoder(strings.NewReader(string(data)))
+		decoder.KnownFields(true)
+		if err := decoder.Decode(s); err != nil {
 			return nil, fmt.Errorf("parse secrets yaml: %w", err)
 		}
 	}
 
 	if s.Tokens == nil {
 		s.Tokens = map[string]TokenEntry{}
-	}
-
-	// Backfill PATs from [github] section if present.
-	if strings.TrimSpace(s.CommitPAT) == "" && strings.TrimSpace(s.GitHub.CommitPAT) != "" {
-		s.CommitPAT = s.GitHub.CommitPAT
-	}
-	if strings.TrimSpace(s.MergePAT) == "" && strings.TrimSpace(s.GitHub.MergePAT) != "" {
-		s.MergePAT = s.GitHub.MergePAT
-	}
-	if strings.TrimSpace(s.CommitPAT) == "" && strings.TrimSpace(s.Codeup.CommitPAT) != "" {
-		s.CommitPAT = s.Codeup.CommitPAT
-	}
-	if strings.TrimSpace(s.MergePAT) == "" && strings.TrimSpace(s.Codeup.MergePAT) != "" {
-		s.MergePAT = s.Codeup.MergePAT
 	}
 	return s, nil
 }
@@ -145,25 +124,4 @@ func ApplySecrets(cfg *Config, s *Secrets) {
 	if s.GitHub.WebhookSecret != "" {
 		cfg.GitHub.WebhookSecret = s.GitHub.WebhookSecret
 	}
-}
-
-// EnsureSecrets fills in missing admin token with a random value.
-// Returns true if any value was generated (caller should persist).
-func EnsureSecrets(s *Secrets) (changed bool) {
-	if s.AdminToken() != "" {
-		return false
-	}
-	s.Tokens["admin"] = TokenEntry{
-		Token:  mustRandomHex(32),
-		Scopes: []string{"*"},
-	}
-	return true
-}
-
-func mustRandomHex(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Sprintf("crypto/rand failed: %v", err))
-	}
-	return hex.EncodeToString(b)
 }

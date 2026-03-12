@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -93,5 +95,20 @@ func TestConfigDefaults_GitHub(t *testing.T) {
 	}
 	if cfg.GitHub.Token != "" {
 		t.Fatalf("expected github.token default empty, got %q", cfg.GitHub.Token)
+	}
+}
+
+func TestDefaultsTOML_LoadGlobalStrict(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, DefaultsTOML(), 0o644); err != nil {
+		t.Fatalf("write defaults.toml: %v", err)
+	}
+
+	cfg, err := LoadGlobal(path)
+	if err != nil {
+		t.Fatalf("LoadGlobal(defaults.toml) returned error: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected config to be loaded")
 	}
 }

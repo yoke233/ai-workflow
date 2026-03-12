@@ -23,11 +23,6 @@ func LoadConfig() (*config.Config, string, *config.Secrets, error) {
 	if err != nil {
 		return nil, "", nil, err
 	}
-	if config.EnsureSecrets(secrets) {
-		if err := config.SaveSecrets(secretsPath, secrets); err != nil {
-			return nil, "", nil, err
-		}
-	}
 	if _, statErr := os.Stat(cfgPath); errors.Is(statErr, os.ErrNotExist) {
 		if err := os.WriteFile(cfgPath, config.DefaultsTOML(), 0o644); err != nil {
 			return nil, "", nil, err
@@ -38,10 +33,6 @@ func LoadConfig() (*config.Config, string, *config.Secrets, error) {
 	cfg, err := config.LoadGlobal(cfgPath, secretsPath)
 	if err != nil {
 		return nil, "", nil, err
-	}
-	if config.EnsureSecrets(secrets) {
-		config.ApplySecrets(cfg, secrets)
-		_ = config.SaveSecrets(secretsPath, secrets)
 	}
 	if err := config.Validate(cfg); err != nil {
 		return nil, "", nil, err
