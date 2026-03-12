@@ -154,7 +154,7 @@ func EnsureSecrets(s *Secrets) (changed bool) {
 		return false
 	}
 	s.Tokens["admin"] = TokenEntry{
-		Token:  mustRandomHex(16),
+		Token:  mustRandomHex(32),
 		Scopes: []string{"*"},
 	}
 	return true

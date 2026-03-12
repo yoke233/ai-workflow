@@ -87,6 +87,9 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		if server.Port != nil {
 			cfg.Server.Port = *server.Port
 		}
+		if server.AuthRequired != nil {
+			cfg.Server.AuthRequired = server.AuthRequired
+		}
 	}
 
 	if github := layer.GitHub; github != nil {

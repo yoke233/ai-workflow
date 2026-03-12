@@ -194,11 +194,56 @@ export function WorkbenchProvider({ children }: ProviderProps) {
     const resolvedToken = resolveTokenFromLocation();
     let cancelled = false;
 
+    const checkAuthRequired = async (baseUrl: string): Promise<boolean> => {
+      try {
+        const res = await fetch(`${baseUrl}/auth/status`);
+        if (res.ok) {
+          const data = await res.json();
+          return data.auth_required !== false;
+        }
+      } catch {
+        // If endpoint unavailable, assume auth required for safety.
+      }
+      return true;
+    };
+
     const bootstrap = async (): Promise<void> => {
       let token = resolvedToken.token;
       let tokenSource = resolvedToken.source;
       let effectiveApiBaseUrl = apiBaseUrl;
       let effectiveWsBaseUrl = wsBaseUrl;
+
+      // Check if server requires authentication at all.
+      const authRequired = await checkAuthRequired(effectiveApiBaseUrl);
+      if (cancelled) {
+        return;
+      }
+
+      if (!authRequired) {
+        // No auth needed — skip token resolution entirely.
+        tokenRef.current = null;
+        setAuthStatus("checking");
+        setAuthError(null);
+        try {
+          const noAuthClient = createApiClient({
+            baseUrl: effectiveApiBaseUrl,
+            getToken: () => null,
+          });
+          const listed = await noAuthClient.listProjects({ limit: 200, offset: 0 });
+          if (cancelled) {
+            return;
+          }
+          applyProjects(Array.isArray(listed) ? listed : []);
+          setAuthStatus("ready");
+        } catch (error) {
+          if (!cancelled) {
+            setProjects([]);
+            setAuthStatus("error");
+            setAuthError(`连接服务器失败：${getErrorMessage(error)}`);
+          }
+        }
+        return;
+      }
 
       if (!token && isTauri()) {
         try {

@@ -3,6 +3,7 @@ package httpx
 import (
 	"context"
 	"crypto/subtle"
+	"log"
 	"net/http"
 	"strings"
 
@@ -87,22 +88,61 @@ func (r *TokenRegistry) IsEmpty() bool {
 	return r == nil || len(r.entries) == 0
 }
 
-func TokenAuthMiddleware(registry *TokenRegistry) func(http.Handler) http.Handler {
+func TokenAuthMiddleware(registry *TokenRegistry, opts ...AuthMiddlewareOption) func(http.Handler) http.Handler {
+	cfg := authMiddlewareCfg{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token := extractRequestToken(r)
+			token, source := extractRequestTokenWithSource(r)
 			if token == "" {
+				if cfg.rateLimiter != nil {
+					ip := extractClientIP(r)
+					cfg.rateLimiter.RecordFailure(ip)
+				}
 				WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 				return
 			}
 			info, ok := registry.Lookup(token)
 			if !ok {
+				if cfg.rateLimiter != nil {
+					ip := extractClientIP(r)
+					if cfg.rateLimiter.RecordFailure(ip) && cfg.logger != nil {
+						cfg.logger.Printf("SECURITY: IP %s blocked after too many failed auth attempts", ip)
+					}
+				}
 				WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 				return
+			}
+			// Successful auth — reset rate limiter for this IP.
+			if cfg.rateLimiter != nil {
+				cfg.rateLimiter.Reset(extractClientIP(r))
+			}
+			if source == "query" && cfg.logger != nil {
+				cfg.logger.Printf("SECURITY WARNING: token passed via URL query parameter from %s — use Authorization header instead", extractClientIP(r))
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authInfoKey, info)))
 		})
 	}
+}
+
+type authMiddlewareCfg struct {
+	rateLimiter *RateLimiter
+	logger      *log.Logger
+}
+
+// AuthMiddlewareOption configures TokenAuthMiddleware behavior.
+type AuthMiddlewareOption func(*authMiddlewareCfg)
+
+// WithRateLimiter attaches a rate limiter to the auth middleware.
+func WithRateLimiter(rl *RateLimiter) AuthMiddlewareOption {
+	return func(c *authMiddlewareCfg) { c.rateLimiter = rl }
+}
+
+// WithAuthLogger sets a logger for security-relevant auth events.
+func WithAuthLogger(l *log.Logger) AuthMiddlewareOption {
+	return func(c *authMiddlewareCfg) { c.logger = l }
 }
 
 func RequireScope(scope string) func(http.Handler) http.Handler {
@@ -123,15 +163,21 @@ func RequireScope(scope string) func(http.Handler) http.Handler {
 }
 
 func extractRequestToken(r *http.Request) string {
+	tok, _ := extractRequestTokenWithSource(r)
+	return tok
+}
+
+// extractRequestTokenWithSource returns the token and its source ("query" or "header").
+func extractRequestTokenWithSource(r *http.Request) (string, string) {
 	if tok := strings.TrimSpace(r.URL.Query().Get("token")); tok != "" {
-		return tok
+		return tok, "query"
 	}
 	auth := r.Header.Get("Authorization")
 	const prefix = "Bearer "
 	if len(auth) < len(prefix) || !strings.EqualFold(auth[:len(prefix)], prefix) {
-		return ""
+		return "", ""
 	}
-	return strings.TrimSpace(auth[len(prefix):])
+	return strings.TrimSpace(auth[len(prefix):]), "header"
 }
 
 func scopeMatches(userScopes []string, required string) bool {

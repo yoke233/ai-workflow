@@ -41,16 +41,20 @@ func RunServer(args []string) error {
 	if store == nil || registrar == nil {
 		return fmt.Errorf("bootstrap server failed")
 	}
+	skipAuth := !cfg.Server.IsAuthRequired()
 	srv := httpx.NewServer(httpx.Config{
 		Addr:           listenAddr,
 		Auth:           tokenRegistry,
 		Frontend:       frontendFS,
 		RouteRegistrar: registrar,
+		SkipAuth:       skipAuth,
 	})
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Start() }()
 	fmt.Printf("Server started on %s (api: /api).\n", listenAddr)
-	if adminToken := secrets.AdminToken(); adminToken != "" {
+	if skipAuth {
+		fmt.Println("Auth: disabled (auth_required = false).")
+	} else if adminToken := secrets.AdminToken(); adminToken != "" {
 		fmt.Printf("Admin token: %s\n", adminToken)
 	}
 	select {
@@ -120,3 +124,4 @@ func buildServerAddress(host string, port int) string {
 	}
 	return net.JoinHostPort(trimmedHost, strconv.Itoa(port))
 }
+

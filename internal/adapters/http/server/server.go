@@ -22,6 +22,9 @@ type Config struct {
 	Frontend       fs.FS
 	RouteRegistrar func(chi.Router)
 	Logger         *log.Logger
+	// SkipAuth disables token authentication entirely.
+	// Used when the server listens on localhost only (desktop / local dev).
+	SkipAuth bool
 }
 
 type Server struct {
@@ -47,14 +50,24 @@ func NewServer(cfg Config) *Server {
 	r := chi.NewRouter()
 	r.Use(RecoveryMiddleware(logger))
 	r.Use(LoggingMiddleware(logger))
+	r.Use(SecurityHeadersMiddleware())
+	r.Use(HSTSMiddleware(0))
 	r.Use(CORSMiddleware(cfg.AllowedOrigins))
+	r.Use(MaxBodySizeMiddleware(0))
+	authRequired := !cfg.SkipAuth && cfg.Auth != nil && !cfg.Auth.IsEmpty()
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	// Unauthenticated endpoint: lets frontend detect if token login is needed.
+	r.Get("/api/auth/status", func(w http.ResponseWriter, _ *http.Request) {
+		WriteJSON(w, http.StatusOK, map[string]bool{"auth_required": authRequired})
+	})
 	if cfg.RouteRegistrar != nil {
 		r.Route("/api", func(r chi.Router) {
-			if cfg.Auth != nil && !cfg.Auth.IsEmpty() {
-				r.Use(TokenAuthMiddleware(cfg.Auth))
+			if authRequired {
+				rl := NewRateLimiter()
+				r.Use(RateLimitMiddleware(rl))
+				r.Use(TokenAuthMiddleware(cfg.Auth, WithRateLimiter(rl), WithAuthLogger(logger)))
 			}
 			cfg.RouteRegistrar(r)
 		})

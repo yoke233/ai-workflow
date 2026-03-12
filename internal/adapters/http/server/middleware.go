@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -47,6 +48,57 @@ func LoggingMiddleware(logger *log.Logger) func(http.Handler) http.Handler {
 			start := time.Now()
 			next.ServeHTTP(w, r)
 			logger.Printf("method=%s path=%s duration=%s", r.Method, r.URL.Path, time.Since(start))
+		})
+	}
+}
+
+// SecurityHeadersMiddleware adds common security headers to all responses.
+// These headers protect against clickjacking, MIME-type sniffing, XSS, and more.
+func SecurityHeadersMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := w.Header()
+			h.Set("X-Content-Type-Options", "nosniff")
+			h.Set("X-Frame-Options", "DENY")
+			h.Set("X-XSS-Protection", "1; mode=block")
+			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+			// CSP: allow self, inline styles (Tailwind), and ws/wss for WebSocket.
+			h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; font-src 'self' data:")
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// MaxBodySizeMiddleware limits the size of request bodies to prevent abuse.
+// Default limit is 10MB if maxBytes <= 0.
+func MaxBodySizeMiddleware(maxBytes int64) func(http.Handler) http.Handler {
+	if maxBytes <= 0 {
+		maxBytes = 10 << 20 // 10 MB
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// HSTSMiddleware adds Strict-Transport-Security header when the request is over HTTPS
+// or when behind a reverse proxy that sets X-Forwarded-Proto.
+func HSTSMiddleware(maxAge int) func(http.Handler) http.Handler {
+	if maxAge <= 0 {
+		maxAge = 63072000 // 2 years
+	}
+	hstsValue := fmt.Sprintf("max-age=%d; includeSubDomains", maxAge)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+				w.Header().Set("Strict-Transport-Security", hstsValue)
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }

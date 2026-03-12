@@ -275,8 +275,18 @@ type WatchdogConfig struct {
 }
 
 type ServerConfig struct {
-	Host string `toml:"host" yaml:"host"`
-	Port int    `toml:"port" yaml:"port"`
+	Host         string `toml:"host"          yaml:"host"`
+	Port         int    `toml:"port"          yaml:"port"`
+	AuthRequired *bool  `toml:"auth_required" yaml:"auth_required"`
+}
+
+// IsAuthRequired returns whether token authentication is enabled.
+// Defaults to true if not explicitly set.
+func (s ServerConfig) IsAuthRequired() bool {
+	if s.AuthRequired == nil {
+		return true
+	}
+	return *s.AuthRequired
 }
 
 type GitHubConfig struct {
@@ -484,8 +494,9 @@ type WatchdogLayer struct {
 }
 
 type ServerLayer struct {
-	Host *string `toml:"host" yaml:"host"`
-	Port *int    `toml:"port" yaml:"port"`
+	Host         *string `toml:"host"          yaml:"host"`
+	Port         *int    `toml:"port"          yaml:"port"`
+	AuthRequired *bool   `toml:"auth_required" yaml:"auth_required"`
 }
 
 type GitHubLayer struct {
