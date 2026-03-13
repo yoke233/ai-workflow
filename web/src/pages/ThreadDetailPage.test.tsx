@@ -14,12 +14,13 @@ vi.mock("@/contexts/WorkbenchContext", () => ({
   useWorkbench: mockUseWorkbench,
 }));
 
-function buildThread(summary = "已有摘要") {
+function buildThread(summary = "已有摘要", metadata?: Record<string, unknown>) {
   return {
     id: 1,
     title: "讨论线程",
     status: "active",
     summary,
+    metadata,
     created_at: "2026-03-13T00:00:00Z",
     updated_at: "2026-03-13T00:00:00Z",
   };
@@ -258,5 +259,112 @@ describe("ThreadDetailPage", () => {
     await waitFor(() => {
       expect(screen.queryByText("worker-a")).toBeNull();
     });
+  });
+
+  it("支持用 @agent-id 定向发送消息", async () => {
+    const wsClient = createWsClientMock();
+    const apiClient = {
+      getThread: vi.fn().mockResolvedValue(buildThread("已有摘要")),
+      listThreadMessages: vi.fn().mockResolvedValue([]),
+      listThreadParticipants: vi.fn().mockResolvedValue([]),
+      listWorkItemsByThread: vi.fn().mockResolvedValue([]),
+      listThreadAgents: vi.fn().mockResolvedValue([buildAgentSession(11, "worker-a")]),
+      listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    renderPage();
+
+    await screen.findByText("worker-a");
+
+    const input = screen.getByPlaceholderText("Type a message...");
+    fireEvent.change(input, { target: { value: "@worker-a 请处理这个问题" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(wsClient.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "thread.send",
+        data: expect.objectContaining({
+          thread_id: 1,
+          message: "@worker-a 请处理这个问题",
+          target_agent_id: "worker-a",
+        }),
+      }),
+    );
+
+    const sendCall = wsClient.send.mock.calls.find((call) => call[0]?.type === "thread.send");
+    const requestId = sendCall?.[0]?.data?.request_id;
+    wsClient.emit("thread.ack", {
+      request_id: requestId,
+      thread_id: 1,
+      status: "accepted",
+    });
+    wsClient.emit("thread.message", {
+      thread_id: 1,
+      message: "@worker-a 请处理这个问题",
+      sender_id: "human",
+      role: "human",
+      target_agent_id: "worker-a",
+    });
+
+    expect(await screen.findByText("@worker-a 请处理这个问题")).toBeTruthy();
+    expect(await screen.findByText("@worker-a")).toBeTruthy();
+  });
+
+  it("默认仅 @ 激活，普通消息不会携带 target_agent_id", async () => {
+    const wsClient = createWsClientMock();
+    const apiClient = {
+      getThread: vi.fn().mockResolvedValue(buildThread("已有摘要")),
+      listThreadMessages: vi.fn().mockResolvedValue([]),
+      listThreadParticipants: vi.fn().mockResolvedValue([]),
+      listWorkItemsByThread: vi.fn().mockResolvedValue([]),
+      listThreadAgents: vi.fn().mockResolvedValue([buildAgentSession(11, "worker-a")]),
+      listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    renderPage();
+
+    await screen.findByText("当前为仅 @ 激活：只有输入 @agent-id 开头才会唤起对应 agent，普通消息不会打扰 agent。");
+
+    const input = screen.getByPlaceholderText("Type a message...");
+    fireEvent.change(input, { target: { value: "普通讨论消息" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(wsClient.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "thread.send",
+        data: expect.objectContaining({
+          thread_id: 1,
+          message: "普通讨论消息",
+          target_agent_id: undefined,
+        }),
+      }),
+    );
+  });
+
+  it("支持切换到广播模式", async () => {
+    const wsClient = createWsClientMock();
+    const apiClient = {
+      getThread: vi.fn().mockResolvedValue(buildThread("已有摘要")),
+      listThreadMessages: vi.fn().mockResolvedValue([]),
+      listThreadParticipants: vi.fn().mockResolvedValue([]),
+      listWorkItemsByThread: vi.fn().mockResolvedValue([]),
+      listThreadAgents: vi.fn().mockResolvedValue([buildAgentSession(11, "worker-a")]),
+      listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
+      updateThread: vi.fn().mockResolvedValue(buildThread("已有摘要", { agent_routing_mode: "broadcast" })),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "广播模式" }));
+
+    await waitFor(() => {
+      expect(apiClient.updateThread).toHaveBeenCalledWith(1, {
+        metadata: { agent_routing_mode: "broadcast" },
+      });
+    });
+    expect(await screen.findByText("当前已开启广播模式：普通消息会发给全部 active agents；输入 @agent-id 仍可定向某个 agent。")).toBeTruthy();
   });
 });

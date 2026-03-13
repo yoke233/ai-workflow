@@ -177,6 +177,7 @@ export interface WsClientMessage {
   thread_id?: number;
   message?: string;
   sender_id?: string;
+  target_agent_id?: string;
   attachments?: ChatAttachment[];
   work_dir?: string;
   project_id?: number;
@@ -207,6 +208,7 @@ export interface ThreadEventPayload {
   content?: string;
   sender_id?: string;
   profile_id?: string;
+  target_agent_id?: string;
   role?: string;
   error?: string;
   timestamp?: string;

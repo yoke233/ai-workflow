@@ -573,10 +573,11 @@ type wsErrorPayload struct {
 // ---------------------------------------------------------------------------
 
 type wsThreadSendRequest struct {
-	RequestID string `json:"request_id,omitempty"`
-	ThreadID  int64  `json:"thread_id"`
-	Message   string `json:"message"`
-	SenderID  string `json:"sender_id,omitempty"`
+	RequestID     string `json:"request_id,omitempty"`
+	ThreadID      int64  `json:"thread_id"`
+	Message       string `json:"message"`
+	SenderID      string `json:"sender_id,omitempty"`
+	TargetAgentID string `json:"target_agent_id,omitempty"`
 }
 
 type wsThreadAckPayload struct {
@@ -592,6 +593,18 @@ type wsThreadSubscribeRequest struct {
 type wsThreadSubscriptionPayload struct {
 	ThreadID int64  `json:"thread_id"`
 	Status   string `json:"status"`
+}
+
+func readThreadAgentRoutingMode(thread *core.Thread) string {
+	if thread == nil || thread.Metadata == nil {
+		return "mention_only"
+	}
+	value, _ := thread.Metadata["agent_routing_mode"].(string)
+	value = strings.TrimSpace(value)
+	if value == "broadcast" {
+		return value
+	}
+	return "mention_only"
 }
 
 func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error) {
@@ -610,6 +623,7 @@ func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error)
 	}
 
 	reqID := strings.TrimSpace(req.RequestID)
+	targetAgentID := strings.TrimSpace(req.TargetAgentID)
 	if req.ThreadID <= 0 {
 		_ = writeJSON(wsOutboundMessage{
 			Type: "thread.error",
@@ -623,7 +637,7 @@ func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error)
 	}
 
 	// Validate thread exists.
-	_, err := h.store.GetThread(context.Background(), req.ThreadID)
+	thread, err := h.store.GetThread(context.Background(), req.ThreadID)
 	if err != nil {
 		if err == core.ErrNotFound {
 			_ = writeJSON(wsOutboundMessage{
@@ -647,12 +661,50 @@ func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error)
 		return
 	}
 
+	var targetProfileIDs []string
+	if targetAgentID != "" {
+		if h.threadPool == nil {
+			_ = writeJSON(wsOutboundMessage{
+				Type: "thread.error",
+				Data: wsErrorPayload{
+					Code:      "TARGET_AGENT_UNAVAILABLE",
+					RequestID: reqID,
+					Error:     "thread agent runtime is not configured",
+				},
+			})
+			return
+		}
+		activeProfileIDs := h.threadPool.ActiveAgentProfileIDs(req.ThreadID)
+		for _, profileID := range activeProfileIDs {
+			if profileID == targetAgentID {
+				targetProfileIDs = []string{targetAgentID}
+				break
+			}
+		}
+		if len(targetProfileIDs) == 0 {
+			_ = writeJSON(wsOutboundMessage{
+				Type: "thread.error",
+				Data: wsErrorPayload{
+					Code:      "TARGET_AGENT_UNAVAILABLE",
+					RequestID: reqID,
+					Error:     "target agent is not active in this thread",
+				},
+			})
+			return
+		}
+	}
+
 	// Save human message to store.
 	humanMsg := &core.ThreadMessage{
 		ThreadID: req.ThreadID,
 		SenderID: strings.TrimSpace(req.SenderID),
 		Role:     "human",
 		Content:  req.Message,
+	}
+	if targetAgentID != "" {
+		humanMsg.Metadata = map[string]any{
+			"target_agent_id": targetAgentID,
+		}
 	}
 	if _, err := h.store.CreateThreadMessage(context.Background(), humanMsg); err != nil {
 		_ = writeJSON(wsOutboundMessage{
@@ -670,10 +722,11 @@ func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error)
 	h.bus.Publish(context.Background(), core.Event{
 		Type: core.EventThreadMessage,
 		Data: map[string]any{
-			"thread_id": req.ThreadID,
-			"message":   req.Message,
-			"sender_id": strings.TrimSpace(req.SenderID),
-			"role":      "human",
+			"thread_id":       req.ThreadID,
+			"message":         req.Message,
+			"sender_id":       strings.TrimSpace(req.SenderID),
+			"role":            "human",
+			"target_agent_id": targetAgentID,
 		},
 		Timestamp: time.Now().UTC(),
 	})
@@ -687,12 +740,17 @@ func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error)
 		},
 	})
 
-	// Route message to active agents (async, non-blocking).
+	// Route message to agents only when explicitly mentioned, or when thread
+	// routing mode is switched to broadcast for small-group collaboration.
 	if h.threadPool != nil {
-		profileIDs := h.threadPool.ActiveAgentProfileIDs(req.ThreadID)
+		profileIDs := targetProfileIDs
+		if len(profileIDs) == 0 && readThreadAgentRoutingMode(thread) == "broadcast" {
+			profileIDs = h.threadPool.ActiveAgentProfileIDs(req.ThreadID)
+		}
 		for _, pid := range profileIDs {
 			go func(profileID string) {
-				if err := h.threadPool.SendMessage(context.Background(), req.ThreadID, profileID, req.Message); err != nil {
+				routedMessage := stripLeadingThreadMention(req.Message, profileID, targetAgentID)
+				if err := h.threadPool.SendMessage(context.Background(), req.ThreadID, profileID, routedMessage); err != nil {
 					h.bus.Publish(context.Background(), core.Event{
 						Type: core.EventThreadAgentFailed,
 						Data: map[string]any{
@@ -706,6 +764,24 @@ func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error)
 			}(pid)
 		}
 	}
+}
+
+func stripLeadingThreadMention(message string, profileID string, targetAgentID string) string {
+	trimmed := strings.TrimSpace(message)
+	if trimmed == "" || targetAgentID == "" || profileID != targetAgentID {
+		return message
+	}
+
+	prefix := "@"+targetAgentID
+	if !strings.HasPrefix(trimmed, prefix) {
+		return message
+	}
+
+	rest := strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+	if rest == "" {
+		return message
+	}
+	return rest
 }
 
 func (h *Handler) handleWSSubscribeThread(msg wsMessage, writeJSON func(v any) error, state *wsConnState) {

@@ -11,6 +11,47 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
+type stubThreadAgentRuntime struct {
+	activeProfileIDs []string
+	sendCalls        []stubThreadSendCall
+	sendErr          error
+}
+
+type stubThreadSendCall struct {
+	threadID  int64
+	profileID string
+	message   string
+}
+
+func (s *stubThreadAgentRuntime) InviteAgent(context.Context, int64, string) (*core.ThreadAgentSession, error) {
+	return nil, nil
+}
+
+func (s *stubThreadAgentRuntime) SendMessage(_ context.Context, threadID int64, profileID string, message string) error {
+	if s.sendErr != nil {
+		return s.sendErr
+	}
+	s.sendCalls = append(s.sendCalls, stubThreadSendCall{
+		threadID:  threadID,
+		profileID: profileID,
+		message:   message,
+	})
+	return nil
+}
+
+func (s *stubThreadAgentRuntime) RemoveAgent(context.Context, int64, int64) error {
+	return nil
+}
+
+func (s *stubThreadAgentRuntime) ActiveAgentProfileIDs(threadID int64) []string {
+	out := make([]string, 0, len(s.activeProfileIDs))
+	for _, profileID := range s.activeProfileIDs {
+		out = append(out, profileID)
+	}
+	_ = threadID
+	return out
+}
+
 func TestAPI_WebSocket_ThreadSend(t *testing.T) {
 	_, ts := setupAPI(t)
 
@@ -75,6 +116,252 @@ func TestAPI_WebSocket_ThreadSend(t *testing.T) {
 	}
 	if ack.Data.Status != "accepted" {
 		t.Fatalf("status = %q, want accepted", ack.Data.Status)
+	}
+}
+
+func TestAPI_WebSocket_ThreadSend_TargetAgent(t *testing.T) {
+	h, ts := setupAPI(t)
+	threadPool := &stubThreadAgentRuntime{activeProfileIDs: []string{"worker-a", "worker-b"}}
+	h.threadPool = threadPool
+
+	resp, err := post(ts, "/threads", map[string]any{
+		"title":    "ws-target-thread",
+		"owner_id": "user-1",
+	})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var thread core.Thread
+	if err := decodeJSON(resp, &thread); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	wsURL := "ws" + ts.URL[4:] + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "thread.send",
+		"data": map[string]any{
+			"request_id":      "req-target",
+			"thread_id":       thread.ID,
+			"message":         "@worker-a 请处理这个问题",
+			"sender_id":       "user-1",
+			"target_agent_id": "worker-a",
+		},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var ack struct {
+		Type string `json:"type"`
+		Data struct {
+			RequestID string `json:"request_id"`
+			ThreadID  int64  `json:"thread_id"`
+			Status    string `json:"status"`
+		} `json:"data"`
+	}
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if ack.Type != "thread.ack" {
+		t.Fatalf("ack type = %q, want thread.ack", ack.Type)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if len(threadPool.sendCalls) != 1 {
+		t.Fatalf("send calls = %d, want 1", len(threadPool.sendCalls))
+	}
+	if threadPool.sendCalls[0].profileID != "worker-a" {
+		t.Fatalf("profile_id = %q, want worker-a", threadPool.sendCalls[0].profileID)
+	}
+	if threadPool.sendCalls[0].message != "请处理这个问题" {
+		t.Fatalf("message = %q, want mention-stripped content", threadPool.sendCalls[0].message)
+	}
+
+	msgs, err := h.store.ListThreadMessages(context.Background(), thread.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %d, want 1", len(msgs))
+	}
+	if got := msgs[0].Metadata["target_agent_id"]; got != "worker-a" {
+		t.Fatalf("message metadata target_agent_id = %v, want worker-a", got)
+	}
+}
+
+func TestAPI_WebSocket_ThreadSend_DefaultModeDoesNotBroadcastToAgents(t *testing.T) {
+	h, ts := setupAPI(t)
+	threadPool := &stubThreadAgentRuntime{activeProfileIDs: []string{"worker-a", "worker-b"}}
+	h.threadPool = threadPool
+
+	resp, err := post(ts, "/threads", map[string]any{
+		"title": "ws-mention-only-thread",
+	})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	var thread core.Thread
+	if err := decodeJSON(resp, &thread); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	wsURL := "ws" + ts.URL[4:] + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "thread.send",
+		"data": map[string]any{
+			"request_id": "req-default",
+			"thread_id":  thread.ID,
+			"message":    "普通讨论消息",
+		},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var ack struct {
+		Type string `json:"type"`
+	} 
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if ack.Type != "thread.ack" {
+		t.Fatalf("ack type = %q, want thread.ack", ack.Type)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if len(threadPool.sendCalls) != 0 {
+		t.Fatalf("send calls = %d, want 0 when thread is in mention_only mode", len(threadPool.sendCalls))
+	}
+}
+
+func TestAPI_WebSocket_ThreadSend_BroadcastModeRoutesToAllActiveAgents(t *testing.T) {
+	h, ts := setupAPI(t)
+	threadPool := &stubThreadAgentRuntime{activeProfileIDs: []string{"worker-a", "worker-b"}}
+	h.threadPool = threadPool
+
+	resp, err := post(ts, "/threads", map[string]any{
+		"title": "ws-broadcast-thread",
+		"metadata": map[string]any{
+			"agent_routing_mode": "broadcast",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	var thread core.Thread
+	if err := decodeJSON(resp, &thread); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	wsURL := "ws" + ts.URL[4:] + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "thread.send",
+		"data": map[string]any{
+			"request_id": "req-broadcast",
+			"thread_id":  thread.ID,
+			"message":    "请大家同步一下",
+		},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var ack struct {
+		Type string `json:"type"`
+	}
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if ack.Type != "thread.ack" {
+		t.Fatalf("ack type = %q, want thread.ack", ack.Type)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if len(threadPool.sendCalls) != 2 {
+		t.Fatalf("send calls = %d, want 2 in broadcast mode", len(threadPool.sendCalls))
+	}
+}
+
+func TestAPI_WebSocket_ThreadSend_TargetAgentUnavailable(t *testing.T) {
+	h, ts := setupAPI(t)
+	h.threadPool = &stubThreadAgentRuntime{activeProfileIDs: []string{"worker-a"}}
+
+	resp, err := post(ts, "/threads", map[string]any{
+		"title": "ws-target-thread",
+	})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	var thread core.Thread
+	if err := decodeJSON(resp, &thread); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	wsURL := "ws" + ts.URL[4:] + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "thread.send",
+		"data": map[string]any{
+			"request_id":      "req-miss",
+			"thread_id":       thread.ID,
+			"message":         "@worker-z 处理一下",
+			"target_agent_id": "worker-z",
+		},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var errResp struct {
+		Type string `json:"type"`
+		Data struct {
+			Code      string `json:"code"`
+			RequestID string `json:"request_id"`
+			Error     string `json:"error"`
+		} `json:"data"`
+	}
+	if err := conn.ReadJSON(&errResp); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if errResp.Type != "thread.error" {
+		t.Fatalf("type = %q, want thread.error", errResp.Type)
+	}
+	if errResp.Data.Code != "TARGET_AGENT_UNAVAILABLE" {
+		t.Fatalf("code = %q, want TARGET_AGENT_UNAVAILABLE", errResp.Data.Code)
+	}
+
+	msgs, err := h.store.ListThreadMessages(context.Background(), thread.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("messages = %d, want 0", len(msgs))
 	}
 }
 

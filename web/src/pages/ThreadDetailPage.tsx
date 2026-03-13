@@ -32,6 +32,31 @@ function readSourceType(issue: Issue | undefined): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function readTargetAgentID(metadata: Record<string, unknown> | undefined): string | null {
+  const value = metadata?.target_agent_id;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function parseMentionTarget(message: string, activeAgentProfileIDs: string[]): { targetAgentID: string | null; error: string | null } {
+  const trimmed = message.trim();
+  const match = trimmed.match(/^@([A-Za-z0-9._:-]+)\s+(.+)$/s);
+  if (!match) {
+    return { targetAgentID: null, error: null };
+  }
+
+  const targetAgentID = match[1].trim();
+  if (!activeAgentProfileIDs.includes(targetAgentID)) {
+    return { targetAgentID: null, error: `未找到活跃 agent：${targetAgentID}` };
+  }
+
+  return { targetAgentID, error: null };
+}
+
+function readAgentRoutingMode(thread: Thread | null): "mention_only" | "broadcast" {
+  const value = thread?.metadata?.agent_routing_mode;
+  return value === "broadcast" ? "broadcast" : "mention_only";
+}
+
 export function ThreadDetailPage() {
   const { t } = useTranslation();
   const { threadId } = useParams<{ threadId: string }>();
@@ -59,12 +84,17 @@ export function ThreadDetailPage() {
   const [inviteProfileID, setInviteProfileID] = useState("");
   const [invitingAgent, setInvitingAgent] = useState(false);
   const [removingAgentID, setRemovingAgentID] = useState<number | null>(null);
+  const [savingRoutingMode, setSavingRoutingMode] = useState(false);
   const pendingThreadRequestIdRef = useRef<string | null>(null);
   const syntheticMessageIDRef = useRef(-1);
 
   const id = Number(threadId);
   const joinedAgentProfileIDs = new Set(agentSessions.map((session) => session.agent_profile_id));
   const inviteableProfiles = availableProfiles.filter((profile) => !joinedAgentProfileIDs.has(profile.id));
+  const activeAgentProfileIDs = agentSessions
+    .filter((session) => session.status === "active" || session.status === "booting")
+    .map((session) => session.agent_profile_id);
+  const agentRoutingMode = readAgentRoutingMode(thread);
   const orderedWorkItemLinks = [...workItemLinks].sort((a, b) => {
     if (a.is_primary === b.is_primary) {
       return a.id - b.id;
@@ -155,6 +185,9 @@ export function ThreadDetailPage() {
           sender_id: senderID,
           role,
           content,
+          metadata: payload.target_agent_id
+            ? { target_agent_id: payload.target_agent_id }
+            : undefined,
           created_at: new Date().toISOString(),
         },
       ]);
@@ -262,6 +295,11 @@ export function ThreadDetailPage() {
 
   const handleSend = async () => {
     if (!newMessage.trim() || !id) return;
+    const mention = parseMentionTarget(newMessage, activeAgentProfileIDs);
+    if (mention.error) {
+      setError(mention.error);
+      return;
+    }
     setSending(true);
     setError(null);
     try {
@@ -274,6 +312,7 @@ export function ThreadDetailPage() {
           thread_id: id,
           message: newMessage.trim(),
           sender_id: thread?.owner_id || "human",
+          target_agent_id: mention.targetAgentID ?? undefined,
         },
       });
     } catch (e) {
@@ -399,6 +438,27 @@ export function ThreadDetailPage() {
     }
   };
 
+  const handleSetRoutingMode = async (nextMode: "mention_only" | "broadcast") => {
+    if (!thread || !id || nextMode === agentRoutingMode) {
+      return;
+    }
+    setSavingRoutingMode(true);
+    setError(null);
+    try {
+      const updated = await apiClient.updateThread(id, {
+        metadata: {
+          ...(thread.metadata ?? {}),
+          agent_routing_mode: nextMode,
+        },
+      });
+      setThread(updated);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setSavingRoutingMode(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -475,6 +535,11 @@ export function ThreadDetailPage() {
                         {msg.role}
                       </Badge>
                       <span>{msg.sender_id || "anonymous"}</span>
+                      {readTargetAgentID(msg.metadata) ? (
+                        <Badge variant="secondary" className="text-[10px]">
+                          @{readTargetAgentID(msg.metadata)}
+                        </Badge>
+                      ) : null}
                       <span>{formatRelativeTime(msg.created_at)}</span>
                     </div>
                     <p className="whitespace-pre-wrap">{msg.content}</p>
@@ -500,6 +565,11 @@ export function ThreadDetailPage() {
                 <Send className="h-4 w-4" />
               </Button>
             </div>
+            <p className="pt-2 text-[11px] text-muted-foreground">
+              {agentRoutingMode === "broadcast"
+                ? t("threads.mentionHintBroadcast", "当前已开启广播模式：普通消息会发给全部 active agents；输入 @agent-id 仍可定向某个 agent。")
+                : t("threads.mentionHintMentionOnly", "当前为仅 @ 激活：只有输入 @agent-id 开头才会唤起对应 agent，普通消息不会打扰 agent。")}
+            </p>
           </CardContent>
         </Card>
 
@@ -544,8 +614,32 @@ export function ThreadDetailPage() {
             <CardContent className="space-y-3">
               <div className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-2">
                 <p className="text-[11px] text-muted-foreground">
-                  {t("threads.agentRuntimeHint", "Invite ACP agent profiles into this thread. New human messages will broadcast to all active agents.")}
+                  {t("threads.agentRuntimeHint", "Thread 默认采用“仅 @ 激活”模式，避免多人协作时 agent 被讨论噪音淹没。人数少时可切到广播模式。")}
                 </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant={agentRoutingMode === "mention_only" ? "default" : "outline"}
+                    onClick={() => void handleSetRoutingMode("mention_only")}
+                    disabled={savingRoutingMode}
+                  >
+                    {agentRoutingMode === "mention_only" && savingRoutingMode ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                    {t("threads.routingMentionOnly", "仅 @ 激活")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={agentRoutingMode === "broadcast" ? "default" : "outline"}
+                    onClick={() => void handleSetRoutingMode("broadcast")}
+                    disabled={savingRoutingMode}
+                  >
+                    {agentRoutingMode === "broadcast" && savingRoutingMode ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                    {t("threads.routingBroadcast", "广播模式")}
+                  </Button>
+                </div>
                 <div className="flex gap-2">
                   <Select
                     aria-label={t("threads.agentProfile", "Agent profile")}
