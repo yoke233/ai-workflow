@@ -4,13 +4,14 @@ import { useTranslation } from "react-i18next";
 import { ArrowLeft, Bot, Link2, Loader2, Plus, Save, Send, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { formatRelativeTime, getErrorMessage } from "@/lib/v2Workbench";
 import { Link } from "react-router-dom";
-import type { Thread, ThreadMessage, ThreadParticipant, ThreadWorkItemLink, ThreadAgentSession, Issue } from "@/types/apiV2";
+import type { AgentProfile, Thread, ThreadMessage, ThreadParticipant, ThreadWorkItemLink, ThreadAgentSession, Issue } from "@/types/apiV2";
 import type { ThreadAckPayload, ThreadEventPayload } from "@/types/ws";
 
 function hasSavedSummary(thread: Thread | null): boolean {
@@ -54,10 +55,16 @@ export function ThreadDetailPage() {
   const [showLinkWI, setShowLinkWI] = useState(false);
   const [linkWIId, setLinkWIId] = useState("");
   const [agentSessions, setAgentSessions] = useState<ThreadAgentSession[]>([]);
+  const [availableProfiles, setAvailableProfiles] = useState<AgentProfile[]>([]);
+  const [inviteProfileID, setInviteProfileID] = useState("");
+  const [invitingAgent, setInvitingAgent] = useState(false);
+  const [removingAgentID, setRemovingAgentID] = useState<number | null>(null);
   const pendingThreadRequestIdRef = useRef<string | null>(null);
   const syntheticMessageIDRef = useRef(-1);
 
   const id = Number(threadId);
+  const joinedAgentProfileIDs = new Set(agentSessions.map((session) => session.agent_profile_id));
+  const inviteableProfiles = availableProfiles.filter((profile) => !joinedAgentProfileIDs.has(profile.id));
   const orderedWorkItemLinks = [...workItemLinks].sort((a, b) => {
     if (a.is_primary === b.is_primary) {
       return a.id - b.id;
@@ -73,12 +80,13 @@ export function ThreadDetailPage() {
       setLoading(true);
       setError(null);
       try {
-        const [th, msgs, parts, links, agents] = await Promise.all([
+        const [th, msgs, parts, links, agents, profiles] = await Promise.all([
           apiClient.getThread(id),
           apiClient.listThreadMessages(id, { limit: 100 }),
           apiClient.listThreadParticipants(id),
           apiClient.listWorkItemsByThread(id),
           apiClient.listThreadAgents(id),
+          apiClient.listProfiles(),
         ]);
         if (!cancelled) {
           setThread(th);
@@ -87,6 +95,7 @@ export function ThreadDetailPage() {
           setParticipants(parts);
           setWorkItemLinks(links);
           setAgentSessions(agents);
+          setAvailableProfiles(profiles);
           // Fetch issue details for each link.
           const issueMap: Record<number, Issue> = {};
           const issueResults = await Promise.allSettled(
@@ -106,6 +115,13 @@ export function ThreadDetailPage() {
     void load();
     return () => { cancelled = true; };
   }, [apiClient, id]);
+
+  useEffect(() => {
+    if (inviteableProfiles.some((profile) => profile.id === inviteProfileID)) {
+      return;
+    }
+    setInviteProfileID(inviteableProfiles[0]?.id ?? "");
+  }, [inviteProfileID, inviteableProfiles]);
 
   useEffect(() => {
     if (!id || isNaN(id)) {
@@ -349,6 +365,40 @@ export function ThreadDetailPage() {
     }
   };
 
+  const handleInviteAgent = async () => {
+    if (!id || !inviteProfileID) {
+      return;
+    }
+    setInvitingAgent(true);
+    setError(null);
+    try {
+      await apiClient.inviteThreadAgent(id, { agent_profile_id: inviteProfileID });
+      const sessions = await apiClient.listThreadAgents(id);
+      setAgentSessions(sessions);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setInvitingAgent(false);
+    }
+  };
+
+  const handleRemoveAgent = async (agentSessionID: number) => {
+    if (!id) {
+      return;
+    }
+    setRemovingAgentID(agentSessionID);
+    setError(null);
+    try {
+      await apiClient.removeThreadAgent(id, agentSessionID);
+      const sessions = await apiClient.listThreadAgents(id);
+      setAgentSessions(sessions);
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setRemovingAgentID(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -491,7 +541,45 @@ export function ThreadDetailPage() {
                 {t("threads.agents", "Agents")} ({agentSessions.length})
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              <div className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-2">
+                <p className="text-[11px] text-muted-foreground">
+                  {t("threads.agentRuntimeHint", "Invite ACP agent profiles into this thread. New human messages will broadcast to all active agents.")}
+                </p>
+                <div className="flex gap-2">
+                  <Select
+                    aria-label={t("threads.agentProfile", "Agent profile")}
+                    value={inviteProfileID}
+                    onChange={(event) => setInviteProfileID(event.target.value)}
+                    disabled={invitingAgent || inviteableProfiles.length === 0}
+                  >
+                    {inviteableProfiles.length === 0 ? (
+                      <option value="">
+                        {t("threads.noInviteableAgents", "No available agent profiles")}
+                      </option>
+                    ) : (
+                      inviteableProfiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name ? `${profile.name} (${profile.id})` : profile.id}
+                        </option>
+                      ))
+                    )}
+                  </Select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleInviteAgent}
+                    disabled={invitingAgent || !inviteProfileID}
+                  >
+                    {invitingAgent ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Plus className="mr-1 h-3.5 w-3.5" />
+                    )}
+                    {t("threads.inviteAgent", "Invite")}
+                  </Button>
+                </div>
+              </div>
               {agentSessions.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
                   {t("threads.noAgents", "No agents joined")}
@@ -499,25 +587,43 @@ export function ThreadDetailPage() {
               ) : (
                 <div className="space-y-3">
                   {agentSessions.map((s) => (
-                    <div key={s.id} className="space-y-1">
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="truncate font-medium">{s.agent_profile_id}</span>
-                        <Badge
-                          variant={
-                            s.status === "active" ? "default" :
-                            s.status === "booting" ? "secondary" :
-                            s.status === "paused" ? "outline" : "destructive"
-                          }
-                          className="text-[10px]"
+                    <div key={s.id} className="space-y-1 rounded-md border border-border/60 p-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="truncate font-medium">{s.agent_profile_id}</span>
+                            <Badge
+                              variant={
+                                s.status === "active" ? "default" :
+                                s.status === "booting" ? "secondary" :
+                                s.status === "paused" ? "outline" : "destructive"
+                              }
+                              className="text-[10px]"
+                            >
+                              {s.status}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                            <span>{t("threads.turns", "Turns")}: {s.turn_count}</span>
+                            <span>
+                              {((s.total_input_tokens + s.total_output_tokens) / 1000).toFixed(1)}k {t("threads.tokens", "tokens")}
+                            </span>
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={() => void handleRemoveAgent(s.id)}
+                          disabled={removingAgentID === s.id}
+                          aria-label={t("threads.removeAgentAria", { defaultValue: "Remove {{agent}}", agent: s.agent_profile_id })}
                         >
-                          {s.status}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                        <span>{t("threads.turns", "Turns")}: {s.turn_count}</span>
-                        <span>
-                          {((s.total_input_tokens + s.total_output_tokens) / 1000).toFixed(1)}k {t("threads.tokens", "tokens")}
-                        </span>
+                          {removingAgentID === s.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            t("threads.removeAgent", "Remove")
+                          )}
+                        </Button>
                       </div>
                     </div>
                   ))}
