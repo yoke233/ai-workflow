@@ -27,6 +27,10 @@ type PrepareInput struct {
 	// For pooled sessions it should be stable (e.g. flow-<id>), while for one-off
 	// processes it can be unique (e.g. flow-<id>-exec-<id>).
 	Scope string
+
+	// ExtraSkills are dynamically injected skill names (e.g. "step-signal")
+	// that should be linked alongside Profile.Skills.
+	ExtraSkills []string
 }
 
 // NoopSandbox leaves launch config unchanged.

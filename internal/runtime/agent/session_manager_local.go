@@ -100,10 +100,11 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 		scope = fmt.Sprintf("issue-%d-exec-%d", in.IssueID, in.ExecID)
 	}
 	sandboxedLaunch, err := sb.Prepare(ctx, v2sandbox.PrepareInput{
-		Profile: in.Profile,
-		Driver:  in.Driver,
-		Launch:  in.Launch,
-		Scope:   scope,
+		Profile:     in.Profile,
+		Driver:      in.Driver,
+		Launch:      in.Launch,
+		Scope:       scope,
+		ExtraSkills: in.ExtraSkills,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("prepare sandbox: %w", err)

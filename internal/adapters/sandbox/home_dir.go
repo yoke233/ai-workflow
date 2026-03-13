@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 
 	v2skills "github.com/yoke233/ai-workflow/internal/skills"
@@ -101,9 +102,15 @@ func (s HomeDirSandbox) Prepare(_ context.Context, in PrepareInput) (acpclient.L
 		_ = linkPathIfMissing(filepath.Join(home, "CLAUDE.md"), filepath.Join(baseHome, "CLAUDE.md"), false)
 	}
 
-	// Install profile skills into the isolated home.
-	if len(in.Profile.Skills) > 0 {
-		if err := v2skills.EnsureSkillsLinked(skillsRoot, skillsDir, in.Profile.Skills); err != nil {
+	// Merge profile skills with extra (dynamic) skills.
+	allSkills := append([]string(nil), in.Profile.Skills...)
+	for _, s := range in.ExtraSkills {
+		if !slices.Contains(allSkills, s) {
+			allSkills = append(allSkills, s)
+		}
+	}
+	if len(allSkills) > 0 {
+		if err := v2skills.EnsureSkillsLinked(skillsRoot, skillsDir, allSkills); err != nil {
 			return launch, fmt.Errorf("ensure skills linked: %w", err)
 		}
 	}

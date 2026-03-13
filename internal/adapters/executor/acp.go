@@ -9,9 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"os"
-	"path/filepath"
-
 	acpproto "github.com/coder/acp-go-sdk"
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	eventbridge "github.com/yoke233/ai-workflow/internal/adapters/events/bridge"
@@ -65,9 +62,10 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 			Env:     cloneEnv(driver.Env),
 		}
 
-		// Generate scoped token and write step-signal skill into workspace.
+		// Generate scoped token and inject step-signal env vars for the agent process.
+		var hasSignalSkill bool
 		var scopedToken string
-		if cfg.TokenRegistry != nil && cfg.ServerAddr != "" && workDir != "" &&
+		if cfg.TokenRegistry != nil && cfg.ServerAddr != "" &&
 			(step.Type == core.StepExec || step.Type == core.StepGate) {
 			scope := fmt.Sprintf("step:%d", step.ID)
 			tok, err := cfg.TokenRegistry.GenerateScopedToken(
@@ -79,13 +77,22 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 				slog.Warn("step-signal: failed to generate token", "step_id", step.ID, "error", err)
 			} else {
 				scopedToken = tok
-				if err := writeStepSignalSkill(workDir, driver.ID, cfg.ServerAddr, tok, step, exec.ID); err != nil {
-					slog.Warn("step-signal: failed to write skill", "step_id", step.ID, "error", err)
-				} else {
-					slog.Info("step-signal: skill written to workspace",
-						"step_id", step.ID, "step_type", step.Type, "work_dir", workDir)
-				}
+				hasSignalSkill = true
+				// Inject env vars — agent reads $AI_WORKFLOW_* in SKILL.md
+				launchCfg.Env["AI_WORKFLOW_API_TOKEN"] = tok
+				launchCfg.Env["AI_WORKFLOW_SERVER_ADDR"] = cfg.ServerAddr
+				launchCfg.Env["AI_WORKFLOW_STEP_ID"] = fmt.Sprintf("%d", step.ID)
+				launchCfg.Env["AI_WORKFLOW_ISSUE_ID"] = fmt.Sprintf("%d", step.IssueID)
+				launchCfg.Env["AI_WORKFLOW_STEP_TYPE"] = string(step.Type)
+				launchCfg.Env["AI_WORKFLOW_EXEC_ID"] = fmt.Sprintf("%d", exec.ID)
+				slog.Info("step-signal: env vars injected",
+					"step_id", step.ID, "step_type", step.Type)
 			}
+		}
+
+		var extraSkills []string
+		if hasSignalSkill {
+			extraSkills = []string{"step-signal"}
 		}
 
 		bridge := eventbridge.New(cfg.Bus, core.EventExecAgentOutput, eventbridge.Scope{
@@ -105,18 +112,19 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 		mcpFactory := buildStepMCPFactory(step, profile.ID, exec.ID, cfg.MCPResolver)
 
 		handle, err := cfg.SessionManager.Acquire(ctx, runtimeapp.SessionAcquireInput{
-			Profile:    profile,
-			Driver:     driver,
-			Launch:     launchCfg,
-			Caps:       acpCaps,
-			WorkDir:    workDir,
-			MCPFactory: mcpFactory,
-			IssueID:    step.IssueID,
-			StepID:     step.ID,
-			ExecID:     exec.ID,
-			Reuse:      reuse,
-			IdleTTL:    profile.Session.IdleTTL,
-			MaxTurns:   profile.Session.MaxTurns,
+			Profile:     profile,
+			Driver:      driver,
+			Launch:      launchCfg,
+			Caps:        acpCaps,
+			WorkDir:     workDir,
+			MCPFactory:  mcpFactory,
+			IssueID:     step.IssueID,
+			StepID:      step.ID,
+			ExecID:      exec.ID,
+			Reuse:       reuse,
+			IdleTTL:     profile.Session.IdleTTL,
+			MaxTurns:    profile.Session.MaxTurns,
+			ExtraSkills: extraSkills,
 		})
 		if err != nil {
 			return fmt.Errorf("acquire session: %w", err)
@@ -138,7 +146,7 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 		executionInput := flowapp.BuildExecutionInputForStep(profile, exec.BriefingSnapshot, step, handle.HasPriorTurns, feedback, cfg.ReworkFollowupTemplate, cfg.ContinueFollowupTemplate)
 
 		// Persist the full execution input for auditability.
-		exec.Input = buildExecutionInputRecord(executionInput, profile, driver, workDir, scopedToken != "", step)
+		exec.Input = buildExecutionInputRecord(executionInput, profile, driver, workDir, hasSignalSkill, step)
 
 		invocationID, err := cfg.SessionManager.StartExecution(ctx, handle, executionInput)
 		if err != nil {
@@ -178,6 +186,13 @@ func NewACPStepExecutor(cfg ACPExecutorConfig) flowapp.StepExecutor {
 			return fmt.Errorf("store artifact: %w", err)
 		}
 		exec.ArtifactID = &artID
+
+		// Fallback: if agent couldn't curl (network-isolated sandbox),
+		// extract signal from output text and create StepSignal internally.
+		if hasSignalSkill {
+			tryFallbackSignal(ctx, cfg.Store, cfg.Bus, step, exec, replyText, profile.ID)
+		}
+
 		exec.Output = map[string]any{
 			"text":        replyText,
 			"stop_reason": result.StopReason,
@@ -291,6 +306,11 @@ func containsArg(args []string, target string) bool {
 
 var reGateJSONLine = regexp.MustCompile(`(?m)^AI_WORKFLOW_GATE_JSON:\s*(\{.*\})\s*$`)
 
+// reSignalLine matches the unified fallback signal line:
+//
+//	AI_WORKFLOW_SIGNAL: {"decision":"complete|need_help|approve|reject","reason":"..."}
+var reSignalLine = regexp.MustCompile(`(?m)^AI_WORKFLOW_SIGNAL:\s*(\{.*\})\s*$`)
+
 // extractGateMetadata parses a deterministic JSON line emitted by the reviewer agent.
 // Expected format (single line):
 //
@@ -328,93 +348,108 @@ func cloneEnv(in map[string]string) map[string]string {
 	return out
 }
 
-// writeStepSignalSkill writes the step-signal skill into the workspace so ACP agents auto-load it.
-// For codex-acp: .agents/skills/step-signal/SKILL.md
-// For claude-acp: .claude/skills/step-signal/SKILL.md
-func writeStepSignalSkill(workDir, driverID, serverAddr, token string, step *core.Step, execID int64) error {
-	driverLower := strings.ToLower(driverID)
-	var skillDir string
-	switch {
-	case strings.Contains(driverLower, "codex"):
-		skillDir = filepath.Join(workDir, ".agents", "skills", "step-signal")
-	case strings.Contains(driverLower, "claude"):
-		skillDir = filepath.Join(workDir, ".claude", "skills", "step-signal")
+// outputSignal is the parsed result of an AI_WORKFLOW_SIGNAL line from agent output.
+type outputSignal struct {
+	Decision string `json:"decision"`
+	Reason   string `json:"reason"`
+}
+
+// parseOutputSignal extracts a structured signal from agent output text.
+// Returns nil if no valid signal line is found.
+func parseOutputSignal(text string) *outputSignal {
+	matches := reSignalLine.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	// Use the last match (agent may have retried).
+	raw := strings.TrimSpace(matches[len(matches)-1][1])
+	if raw == "" {
+		return nil
+	}
+	var sig outputSignal
+	if err := json.Unmarshal([]byte(raw), &sig); err != nil {
+		return nil
+	}
+	sig.Decision = strings.ToLower(strings.TrimSpace(sig.Decision))
+	switch sig.Decision {
+	case "complete", "need_help", "approve", "reject":
+		return &sig
 	default:
-		skillDir = filepath.Join(workDir, ".agents", "skills", "step-signal")
+		return nil
 	}
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir skill dir: %w", err)
-	}
-
-	content := buildStepSignalSkillContent(serverAddr, token, step, execID)
-	return os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644)
 }
 
-func buildStepSignalSkillContent(serverAddr, token string, step *core.Step, execID int64) string {
-	var b strings.Builder
-	b.WriteString("---\n")
-	b.WriteString("name: step-signal\n")
-	b.WriteString("description: Signal task completion or gate decisions to the AI Workflow engine\n")
-	b.WriteString("---\n\n")
-	b.WriteString("# Step Signal\n\n")
-	b.WriteString("You are running inside an **ai-workflow** managed step. ")
-	b.WriteString("Use the HTTP API below to signal your result when you finish.\n\n")
-
-	b.WriteString("## Your Context\n\n")
-	b.WriteString(fmt.Sprintf("- **Server**: `%s`\n", serverAddr))
-	b.WriteString(fmt.Sprintf("- **Step ID**: `%d`\n", step.ID))
-	b.WriteString(fmt.Sprintf("- **Issue ID**: `%d`\n", step.IssueID))
-	b.WriteString(fmt.Sprintf("- **Step Type**: `%s`\n", step.Type))
-	b.WriteString(fmt.Sprintf("- **Execution ID**: `%d`\n\n", execID))
-
-	baseURL := fmt.Sprintf("%s/api/steps/%d/decision", serverAddr, step.ID)
-	authHeader := fmt.Sprintf(`-H "Authorization: Bearer %s"`, token)
-
-	switch step.Type {
-	case core.StepExec:
-		b.WriteString("## After Completing Your Task\n\n")
-		b.WriteString("**Signal completion** (do this BEFORE ending your response):\n\n")
-		b.WriteString("```bash\n")
-		b.WriteString(fmt.Sprintf("curl -s -X POST \"%s\" \\\n", baseURL))
-		b.WriteString(fmt.Sprintf("  %s \\\n", authHeader))
-		b.WriteString("  -H \"Content-Type: application/json\" \\\n")
-		b.WriteString("  -d '{\"decision\":\"complete\",\"reason\":\"<one sentence summary of what you did>\"}'\n")
-		b.WriteString("```\n\n")
-		b.WriteString("**If you are stuck and need human help:**\n\n")
-		b.WriteString("```bash\n")
-		b.WriteString(fmt.Sprintf("curl -s -X POST \"%s\" \\\n", baseURL))
-		b.WriteString(fmt.Sprintf("  %s \\\n", authHeader))
-		b.WriteString("  -H \"Content-Type: application/json\" \\\n")
-		b.WriteString("  -d '{\"decision\":\"need_help\",\"reason\":\"<why you are stuck>\"}'\n")
-		b.WriteString("```\n")
-
-	case core.StepGate:
-		b.WriteString("## After Reviewing the Code\n\n")
-		b.WriteString("**Approve** (review passes):\n\n")
-		b.WriteString("```bash\n")
-		b.WriteString(fmt.Sprintf("curl -s -X POST \"%s\" \\\n", baseURL))
-		b.WriteString(fmt.Sprintf("  %s \\\n", authHeader))
-		b.WriteString("  -H \"Content-Type: application/json\" \\\n")
-		b.WriteString("  -d '{\"decision\":\"approve\",\"reason\":\"<why it passes review>\"}'\n")
-		b.WriteString("```\n\n")
-		b.WriteString("**Reject** (needs fixes):\n\n")
-		b.WriteString("```bash\n")
-		b.WriteString(fmt.Sprintf("curl -s -X POST \"%s\" \\\n", baseURL))
-		b.WriteString(fmt.Sprintf("  %s \\\n", authHeader))
-		b.WriteString("  -H \"Content-Type: application/json\" \\\n")
-		b.WriteString("  -d '{\"decision\":\"reject\",\"reason\":\"<what needs fixing>\"}'\n")
-		b.WriteString("```\n")
+// decisionToSignalType maps a decision string to a core.SignalType.
+func decisionToSignalType(decision string) (core.SignalType, bool) {
+	switch decision {
+	case "complete":
+		return core.SignalComplete, true
+	case "need_help":
+		return core.SignalNeedHelp, true
+	case "approve":
+		return core.SignalApprove, true
+	case "reject":
+		return core.SignalReject, true
+	default:
+		return "", false
 	}
-
-	b.WriteString("\n## Rules\n\n")
-	b.WriteString("1. **Always signal before ending your response.** The engine needs your signal to proceed.\n")
-	b.WriteString("2. Only call the decision endpoint **once** per execution.\n")
-	if step.Type == core.StepGate {
-		b.WriteString("3. Also output `AI_WORKFLOW_GATE_JSON: {\"verdict\":\"pass|reject\",\"reason\":\"...\"}` as a fallback.\n")
-	}
-
-	return b.String()
 }
+
+// tryFallbackSignal checks whether a terminal signal was already received via HTTP.
+// If not, it parses the agent output for an AI_WORKFLOW_SIGNAL line and creates the
+// StepSignal internally. This covers network-isolated environments where the agent
+// cannot curl the decision endpoint.
+func tryFallbackSignal(ctx context.Context, store core.Store, bus core.EventBus, step *core.Step, exec *core.Execution, replyText, profileID string) {
+	// Check if a terminal signal was already received via HTTP curl.
+	existing, _ := store.GetLatestStepSignal(ctx, step.ID,
+		core.SignalComplete, core.SignalNeedHelp, core.SignalApprove, core.SignalReject)
+	if existing != nil {
+		return // signal already received via HTTP
+	}
+
+	parsed := parseOutputSignal(replyText)
+	if parsed == nil {
+		return // no fallback signal in output
+	}
+
+	sigType, ok := decisionToSignalType(parsed.Decision)
+	if !ok {
+		return
+	}
+
+	sig := &core.StepSignal{
+		StepID:  step.ID,
+		IssueID: step.IssueID,
+		ExecID:  exec.ID,
+		Type:    sigType,
+		Source:  core.SignalSourceAgent,
+		Summary: parsed.Reason,
+		Payload: map[string]any{"reason": parsed.Reason, "source": "output_fallback"},
+		Actor:   fmt.Sprintf("agent/%s", profileID),
+	}
+	sigID, err := store.CreateStepSignal(ctx, sig)
+	if err != nil {
+		slog.Warn("step-signal: failed to create fallback signal",
+			"step_id", step.ID, "decision", parsed.Decision, "error", err)
+		return
+	}
+
+	bus.Publish(ctx, core.Event{
+		Type:      core.EventStepSignal,
+		IssueID:   step.IssueID,
+		StepID:    step.ID,
+		Timestamp: time.Now().UTC(),
+		Data: map[string]any{
+			"signal_id": sigID,
+			"type":      string(sigType),
+			"source":    "agent",
+			"method":    "output_fallback",
+		},
+	})
+	slog.Info("step-signal: created from output fallback",
+		"step_id", step.ID, "decision", parsed.Decision, "signal_id", sigID)
+}
+
 
 // buildExecutionInputRecord captures the full context sent to the agent for auditability.
 func buildExecutionInputRecord(prompt string, profile *core.AgentProfile, driver *core.AgentDriver, workDir string, hasSignalSkill bool, step *core.Step) map[string]any {

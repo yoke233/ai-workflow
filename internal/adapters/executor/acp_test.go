@@ -299,3 +299,123 @@ func TestBuildStepMCPFactory(t *testing.T) {
 		t.Fatalf("resolver called %d times, want 2", resolverCalled)
 	}
 }
+
+func TestParseOutputSignal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		text     string
+		wantNil  bool
+		decision string
+		reason   string
+	}{
+		{
+			name:     "complete signal",
+			text:     "some output\nAI_WORKFLOW_SIGNAL: {\"decision\":\"complete\",\"reason\":\"done\"}",
+			decision: "complete",
+			reason:   "done",
+		},
+		{
+			name:     "reject signal",
+			text:     "review output\nAI_WORKFLOW_SIGNAL: {\"decision\":\"reject\",\"reason\":\"missing tests\"}",
+			decision: "reject",
+			reason:   "missing tests",
+		},
+		{
+			name:     "approve signal",
+			text:     "AI_WORKFLOW_SIGNAL: {\"decision\":\"approve\",\"reason\":\"looks good\"}",
+			decision: "approve",
+			reason:   "looks good",
+		},
+		{
+			name:     "need_help signal",
+			text:     "AI_WORKFLOW_SIGNAL: {\"decision\":\"need_help\",\"reason\":\"stuck on auth\"}",
+			decision: "need_help",
+			reason:   "stuck on auth",
+		},
+		{
+			name:    "no signal line",
+			text:    "just a normal response without any signal",
+			wantNil: true,
+		},
+		{
+			name:    "invalid decision",
+			text:    "AI_WORKFLOW_SIGNAL: {\"decision\":\"unknown\",\"reason\":\"wat\"}",
+			wantNil: true,
+		},
+		{
+			name:    "invalid json",
+			text:    "AI_WORKFLOW_SIGNAL: not-json",
+			wantNil: true,
+		},
+		{
+			name:    "empty text",
+			text:    "",
+			wantNil: true,
+		},
+		{
+			name:     "multiple signals uses last",
+			text:     "AI_WORKFLOW_SIGNAL: {\"decision\":\"need_help\",\"reason\":\"first\"}\nAI_WORKFLOW_SIGNAL: {\"decision\":\"complete\",\"reason\":\"second\"}",
+			decision: "complete",
+			reason:   "second",
+		},
+		{
+			name:     "signal with surrounding text",
+			text:     "I finished the task.\n\nAI_WORKFLOW_SIGNAL: {\"decision\":\"complete\",\"reason\":\"all done\"}\n\nThanks!",
+			decision: "complete",
+			reason:   "all done",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			sig := parseOutputSignal(tt.text)
+			if tt.wantNil {
+				if sig != nil {
+					t.Fatalf("expected nil, got %+v", sig)
+				}
+				return
+			}
+			if sig == nil {
+				t.Fatal("expected signal, got nil")
+			}
+			if sig.Decision != tt.decision {
+				t.Errorf("decision = %q, want %q", sig.Decision, tt.decision)
+			}
+			if sig.Reason != tt.reason {
+				t.Errorf("reason = %q, want %q", sig.Reason, tt.reason)
+			}
+		})
+	}
+}
+
+func TestDecisionToSignalType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		decision string
+		wantType core.SignalType
+		wantOK   bool
+	}{
+		{"complete", core.SignalComplete, true},
+		{"need_help", core.SignalNeedHelp, true},
+		{"approve", core.SignalApprove, true},
+		{"reject", core.SignalReject, true},
+		{"unknown", "", false},
+		{"", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.decision, func(t *testing.T) {
+			got, ok := decisionToSignalType(tt.decision)
+			if ok != tt.wantOK {
+				t.Errorf("ok = %v, want %v", ok, tt.wantOK)
+			}
+			if got != tt.wantType {
+				t.Errorf("type = %q, want %q", got, tt.wantType)
+			}
+		})
+	}
+}

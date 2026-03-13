@@ -77,6 +77,10 @@ type SessionAcquireInput struct {
 	Reuse    bool
 	IdleTTL  time.Duration
 	MaxTurns int
+
+	// ExtraSkills are dynamically injected skill names (e.g. "step-signal")
+	// that should be linked alongside Profile.Skills in the sandbox.
+	ExtraSkills []string
 }
 
 // SessionHandle is an opaque reference to an acquired session.

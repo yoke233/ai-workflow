@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/platform/appdata"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 	"github.com/yoke233/ai-workflow/internal/platform/configruntime"
+	"github.com/yoke233/ai-workflow/internal/skills"
 )
 
 type bootstrapBase struct {
@@ -47,6 +49,14 @@ func initBootstrapBase(storePath string, roleResolver *acpclient.RoleResolver, b
 	dataDir := ""
 	if dd, err := appdata.ResolveDataDir(); err == nil {
 		dataDir = dd
+	}
+
+	// Extract embedded builtin skills to <dataDir>/skills/ on startup.
+	if dataDir != "" {
+		skillsRoot := filepath.Join(dataDir, "skills")
+		if err := skills.EnsureBuiltinSkills(skillsRoot); err != nil {
+			slog.Warn("bootstrap: failed to extract builtin skills", "error", err)
+		}
 	}
 
 	return &bootstrapBase{
