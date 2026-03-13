@@ -53,7 +53,7 @@ func (h *Handler) ensureThreadParticipant(ctx context.Context, threadID int64, u
 
 	member := &core.ThreadMember{
 		ThreadID: threadID,
-		Kind:     "human",
+		Kind:     core.ThreadMemberKindHuman,
 		UserID:   userID,
 		Role:     strings.TrimSpace(role),
 	}
@@ -80,7 +80,7 @@ func (h *Handler) activeThreadAgentParticipantIDs(ctx context.Context, threadID 
 		if m == nil {
 			continue
 		}
-		if m.Kind == "agent" || strings.EqualFold(strings.TrimSpace(m.Role), "agent") {
+		if m.Kind == core.ThreadMemberKindAgent || strings.EqualFold(strings.TrimSpace(m.Role), core.ThreadMemberKindAgent) {
 			active[m.UserID] = true
 		}
 	}
@@ -354,7 +354,7 @@ func buildThreadParticipants(ownerID string, memberIDs []string) []*core.ThreadM
 	ownerID = strings.TrimSpace(ownerID)
 	if ownerID != "" {
 		participants = append(participants, &core.ThreadMember{
-			Kind:   "human",
+			Kind:   core.ThreadMemberKindHuman,
 			UserID: ownerID,
 			Role:   "owner",
 		})
@@ -367,7 +367,7 @@ func buildThreadParticipants(ownerID string, memberIDs []string) []*core.ThreadM
 			continue
 		}
 		participants = append(participants, &core.ThreadMember{
-			Kind:   "human",
+			Kind:   core.ThreadMemberKindHuman,
 			UserID: participantID,
 			Role:   "member",
 		})

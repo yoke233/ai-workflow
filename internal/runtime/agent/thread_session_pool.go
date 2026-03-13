@@ -157,10 +157,10 @@ func (p *ThreadSessionPool) InviteAgent(ctx context.Context, threadID int64, pro
 	// Create new DB record.
 	member := &core.ThreadMember{
 		ThreadID:       threadID,
-		Kind:           "agent",
+		Kind:           core.ThreadMemberKindAgent,
 		UserID:         profileID,
 		AgentProfileID: profileID,
-		Role:           "agent",
+		Role:           core.ThreadMemberKindAgent,
 		Status:         core.ThreadAgentBooting,
 	}
 	id, err := p.store.AddThreadMember(ctx, member)
@@ -551,7 +551,7 @@ func (p *ThreadSessionPool) persistTokenUsage(ctx context.Context, threadID int6
 		return
 	}
 	for _, m := range members {
-		if m.Kind == "agent" && m.AgentProfileID == profileID && (m.Status == core.ThreadAgentActive || m.Status == core.ThreadAgentBooting) {
+		if m.Kind == core.ThreadMemberKindAgent && m.AgentProfileID == profileID && (m.Status == core.ThreadAgentActive || m.Status == core.ThreadAgentBooting) {
 			memberSetAgentData(m, "turn_count", pooled.turns)
 			memberSetAgentData(m, "total_input_tokens", pooled.inputTokens)
 			memberSetAgentData(m, "total_output_tokens", pooled.outputTokens)

@@ -89,8 +89,8 @@ type ActionSignalStore interface {
 
 // ── Probe ↔ Signal conversion helpers ──
 
-// NewProbeRequestSignal converts a RunProbe into an ActionSignal with type=probe_request.
-func NewProbeRequestSignal(probe *RunProbe) *ActionSignal {
+// newProbeSignalPayload builds the shared payload map from a RunProbe.
+func newProbeSignalPayload(probe *RunProbe) map[string]any {
 	payload := map[string]any{
 		"trigger_source": string(probe.TriggerSource),
 		"question":       probe.Question,
@@ -106,12 +106,18 @@ func NewProbeRequestSignal(probe *RunProbe) *ActionSignal {
 	if probe.OwnerID != "" {
 		payload["owner_id"] = probe.OwnerID
 	}
-	if probe.SentAt != nil {
-		payload["sent_at"] = probe.SentAt.Format(time.RFC3339Nano)
-	}
 	if probe.Error != "" {
 		payload["error"] = probe.Error
 	}
+	if probe.SentAt != nil {
+		payload["sent_at"] = probe.SentAt.Format(time.RFC3339Nano)
+	}
+	return payload
+}
+
+// NewProbeRequestSignal converts a RunProbe into an ActionSignal with type=probe_request.
+func NewProbeRequestSignal(probe *RunProbe) *ActionSignal {
+	payload := newProbeSignalPayload(probe)
 	return &ActionSignal{
 		ActionID:   probe.ActionID,
 		WorkItemID: probe.WorkItemID,
@@ -126,29 +132,9 @@ func NewProbeRequestSignal(probe *RunProbe) *ActionSignal {
 
 // NewProbeResponseSignal converts a RunProbe into an ActionSignal with type=probe_response.
 func NewProbeResponseSignal(probe *RunProbe) *ActionSignal {
-	payload := map[string]any{
-		"trigger_source": string(probe.TriggerSource),
-		"question":       probe.Question,
-		"status":         string(probe.Status),
-		"verdict":        string(probe.Verdict),
-	}
-	if probe.AgentContextID != nil {
-		payload["agent_context_id"] = *probe.AgentContextID
-	}
-	if probe.SessionID != "" {
-		payload["session_id"] = probe.SessionID
-	}
-	if probe.OwnerID != "" {
-		payload["owner_id"] = probe.OwnerID
-	}
+	payload := newProbeSignalPayload(probe)
 	if probe.ReplyText != "" {
 		payload["reply_text"] = probe.ReplyText
-	}
-	if probe.Error != "" {
-		payload["error"] = probe.Error
-	}
-	if probe.SentAt != nil {
-		payload["sent_at"] = probe.SentAt.Format(time.RFC3339Nano)
 	}
 	if probe.AnsweredAt != nil {
 		payload["answered_at"] = probe.AnsweredAt.Format(time.RFC3339Nano)

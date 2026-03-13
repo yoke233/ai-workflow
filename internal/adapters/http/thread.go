@@ -372,7 +372,7 @@ func (h *Handler) addThreadParticipant(w http.ResponseWriter, r *http.Request) {
 
 	p := &core.ThreadMember{
 		ThreadID: threadID,
-		Kind:     "human",
+		Kind:     core.ThreadMemberKindHuman,
 		UserID:   strings.TrimSpace(req.UserID),
 		Role:     req.Role,
 	}
@@ -426,7 +426,7 @@ func (h *Handler) removeThreadParticipant(w http.ResponseWriter, r *http.Request
 		if m == nil || m.UserID != userID {
 			continue
 		}
-		if m.Kind == "agent" && threadAgentSessionIsActive(m.Status) {
+		if m.Kind == core.ThreadMemberKindAgent && threadAgentSessionIsActive(m.Status) {
 			writeError(w, http.StatusConflict, "remove agent session before removing participant", "AGENT_SESSION_ACTIVE")
 			return
 		}
@@ -652,10 +652,10 @@ func (h *Handler) inviteThreadAgent(w http.ResponseWriter, r *http.Request) {
 	// Fallback: pure DB CRUD (no ACP runtime).
 	member := &core.ThreadMember{
 		ThreadID:       threadID,
-		Kind:           "agent",
+		Kind:           core.ThreadMemberKindAgent,
 		UserID:         profileID,
 		AgentProfileID: profileID,
-		Role:           "agent",
+		Role:           core.ThreadMemberKindAgent,
 		Status:         core.ThreadAgentActive,
 	}
 	id, err := h.store.AddThreadMember(r.Context(), member)
@@ -681,7 +681,7 @@ func (h *Handler) listThreadAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	agents := make([]*core.ThreadMember, 0)
 	for _, m := range allMembers {
-		if m != nil && m.Kind == "agent" {
+		if m != nil && m.Kind == core.ThreadMemberKindAgent {
 			agents = append(agents, m)
 		}
 	}

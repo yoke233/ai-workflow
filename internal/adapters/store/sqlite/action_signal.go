@@ -134,13 +134,15 @@ func (s *Store) ListAllPendingHumanActions(ctx context.Context) ([]*core.Action,
 
 // ── Probe signal queries (merged from RunProbeStore) ──
 
+var probeSignalTypes = []string{
+	string(core.SignalProbeRequest),
+	string(core.SignalProbeResponse),
+}
+
 func (s *Store) ListProbeSignalsByRun(ctx context.Context, runID int64) ([]*core.ActionSignal, error) {
 	var models []ActionSignalModel
 	err := s.orm.WithContext(ctx).
-		Where("exec_id = ? AND type IN ?", runID, []string{
-			string(core.SignalProbeRequest),
-			string(core.SignalProbeResponse),
-		}).
+		Where("exec_id = ? AND type IN ?", runID, probeSignalTypes).
 		Order("id ASC").
 		Find(&models).Error
 	if err != nil {
@@ -156,10 +158,7 @@ func (s *Store) ListProbeSignalsByRun(ctx context.Context, runID int64) ([]*core
 func (s *Store) GetLatestProbeSignal(ctx context.Context, runID int64) (*core.ActionSignal, error) {
 	var model ActionSignalModel
 	err := s.orm.WithContext(ctx).
-		Where("exec_id = ? AND type IN ?", runID, []string{
-			string(core.SignalProbeRequest),
-			string(core.SignalProbeResponse),
-		}).
+		Where("exec_id = ? AND type IN ?", runID, probeSignalTypes).
 		Order("id DESC").
 		First(&model).Error
 	if err != nil {
@@ -174,14 +173,10 @@ func (s *Store) GetLatestProbeSignal(ctx context.Context, runID int64) (*core.Ac
 func (s *Store) GetActiveProbeSignal(ctx context.Context, runID int64) (*core.ActionSignal, error) {
 	var model ActionSignalModel
 	err := s.orm.WithContext(ctx).
-		Where("exec_id = ? AND type = ? AND payload LIKE ? AND payload NOT LIKE ? AND payload NOT LIKE ? AND payload NOT LIKE ? AND payload NOT LIKE ?",
+		Where("exec_id = ? AND type = ? AND json_extract(payload, '$.status') NOT IN (?, ?, ?, ?)",
 			runID,
 			string(core.SignalProbeRequest),
-			`%"status"%`,
-			`%"answered"%`,
-			`%"timeout"%`,
-			`%"unreachable"%`,
-			`%"failed"%`,
+			"answered", "timeout", "unreachable", "failed",
 		).
 		Order("id DESC").
 		First(&model).Error

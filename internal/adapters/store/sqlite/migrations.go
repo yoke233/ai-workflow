@@ -149,6 +149,7 @@ CREATE INDEX IF NOT EXISTS idx_steps_issue ON steps(issue_id);
 CREATE INDEX IF NOT EXISTS idx_executions_step ON executions(step_id);
 CREATE INDEX IF NOT EXISTS idx_event_log_issue ON event_log(issue_id);
 CREATE INDEX IF NOT EXISTS idx_event_log_category ON event_log(category);
+CREATE INDEX IF NOT EXISTS idx_event_log_exec_category ON event_log(exec_id, category);
 CREATE INDEX IF NOT EXISTS idx_agent_contexts_lookup ON agent_contexts(agent_id, issue_id);
 `
 
@@ -247,6 +248,7 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 		`ALTER TABLE events RENAME TO event_log`,
 		`ALTER TABLE event_log ADD COLUMN category TEXT NOT NULL DEFAULT 'domain'`,
 		`CREATE INDEX IF NOT EXISTS idx_event_log_category ON event_log(category)`,
+		`CREATE INDEX IF NOT EXISTS idx_event_log_exec_category ON event_log(exec_id, category)`,
 		// threads table (independent multi-participant discussion container).
 		`CREATE TABLE IF NOT EXISTS threads (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -786,78 +788,42 @@ func migrateToolCallAuditsToEventLog(ctx context.Context, db *sql.DB) {
 		return // table already gone
 	}
 
-	rows, err := db.QueryContext(ctx, `SELECT id, issue_id, step_id, execution_id, session_id, tool_call_id, tool_name, status, started_at, finished_at, duration_ms, exit_code, input_digest, output_digest, stdout_digest, stderr_digest, input_preview, output_preview, stdout_preview, stderr_preview, redaction_level, created_at FROM tool_call_audits`)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var (
-			id             int64
-			issueID        int64
-			stepID         int64
-			executionID    int64
-			sessionID      string
-			toolCallID     string
-			toolName       string
-			status         string
-			startedAt      *string
-			finishedAt     *string
-			durationMs     int64
-			exitCode       *int
-			inputDigest    string
-			outputDigest   string
-			stdoutDigest   string
-			stderrDigest   string
-			inputPreview   string
-			outputPreview  string
-			stdoutPreview  string
-			stderrPreview  string
-			redactionLevel string
-			createdAt      string
+	_, _ = db.ExecContext(ctx, `
+		INSERT INTO event_log (type, category, issue_id, step_id, exec_id, data, timestamp)
+		SELECT
+			'tool_call_audit',
+			'tool_audit',
+			issue_id,
+			step_id,
+			execution_id,
+			json_object(
+				'session_id', COALESCE(session_id, ''),
+				'tool_call_id', COALESCE(tool_call_id, ''),
+				'tool_name', COALESCE(tool_name, ''),
+				'status', COALESCE(status, ''),
+				'duration_ms', COALESCE(duration_ms, 0),
+				'input_digest', COALESCE(input_digest, ''),
+				'output_digest', COALESCE(output_digest, ''),
+				'stdout_digest', COALESCE(stdout_digest, ''),
+				'stderr_digest', COALESCE(stderr_digest, ''),
+				'input_preview', COALESCE(input_preview, ''),
+				'output_preview', COALESCE(output_preview, ''),
+				'stdout_preview', COALESCE(stdout_preview, ''),
+				'stderr_preview', COALESCE(stderr_preview, ''),
+				'redaction_level', COALESCE(redaction_level, ''),
+				'started_at', COALESCE(started_at, ''),
+				'finished_at', COALESCE(finished_at, ''),
+				'exit_code', exit_code
+			),
+			created_at
+		FROM tool_call_audits
+		WHERE NOT EXISTS (
+			SELECT 1 FROM event_log el
+			WHERE el.exec_id = tool_call_audits.execution_id
+			  AND el.category = 'tool_audit'
+			  AND el.timestamp = tool_call_audits.created_at
 		)
-		if err := rows.Scan(&id, &issueID, &stepID, &executionID, &sessionID, &toolCallID, &toolName, &status, &startedAt, &finishedAt, &durationMs, &exitCode, &inputDigest, &outputDigest, &stdoutDigest, &stderrDigest, &inputPreview, &outputPreview, &stdoutPreview, &stderrPreview, &redactionLevel, &createdAt); err != nil {
-			continue
-		}
-
-		// Build JSON data map.
-		dataMap := map[string]any{
-			"session_id":      sessionID,
-			"tool_call_id":    toolCallID,
-			"tool_name":       toolName,
-			"status":          status,
-			"duration_ms":     durationMs,
-			"input_digest":    inputDigest,
-			"output_digest":   outputDigest,
-			"stdout_digest":   stdoutDigest,
-			"stderr_digest":   stderrDigest,
-			"input_preview":   inputPreview,
-			"output_preview":  outputPreview,
-			"stdout_preview":  stdoutPreview,
-			"stderr_preview":  stderrPreview,
-			"redaction_level": redactionLevel,
-		}
-		if startedAt != nil {
-			dataMap["started_at"] = *startedAt
-		}
-		if finishedAt != nil {
-			dataMap["finished_at"] = *finishedAt
-		}
-		if exitCode != nil {
-			dataMap["exit_code"] = *exitCode
-		}
-
-		dataJSON, err := json.Marshal(dataMap)
-		if err != nil {
-			continue
-		}
-
-		_, _ = db.ExecContext(ctx,
-			`INSERT INTO event_log (type, category, issue_id, step_id, exec_id, data, timestamp) VALUES ('tool_call_audit', 'tool_audit', ?, ?, ?, ?, ?)`,
-			issueID, stepID, executionID, string(dataJSON), createdAt,
-		)
-	}
+	`)
 
 	_, _ = db.ExecContext(ctx, `DROP TABLE IF EXISTS tool_call_audits`)
 }

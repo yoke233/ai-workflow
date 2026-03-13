@@ -322,7 +322,7 @@ func (s *Store) AddThreadMember(ctx context.Context, m *core.ThreadMember) (int6
 
 	now := time.Now().UTC()
 	if m.Kind == "" {
-		m.Kind = "human"
+		m.Kind = core.ThreadMemberKindHuman
 	}
 	model := threadMemberModelFromCore(m)
 	if model.Role == "" {

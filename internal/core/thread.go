@@ -85,6 +85,12 @@ type ThreadMessage struct {
 	CreatedAt        time.Time      `json:"created_at"`
 }
 
+// ThreadMemberKind constants.
+const (
+	ThreadMemberKindHuman = "human"
+	ThreadMemberKindAgent = "agent"
+)
+
 // ThreadMember represents a unified member (human or agent) in a Thread.
 type ThreadMember struct {
 	ID             int64             `json:"id"`

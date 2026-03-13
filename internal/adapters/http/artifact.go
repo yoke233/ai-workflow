@@ -6,6 +6,19 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
+func runToDeliverableResponse(run *core.Run) map[string]any {
+	return map[string]any{
+		"id":              run.ID,
+		"run_id":          run.ID,
+		"action_id":       run.ActionID,
+		"work_item_id":    run.WorkItemID,
+		"result_markdown": run.ResultMarkdown,
+		"metadata":        run.ResultMetadata,
+		"assets":          run.ResultAssets,
+		"created_at":      run.CreatedAt,
+	}
+}
+
 func (h *Handler) getDeliverable(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlParamInt64(r, "artifactID")
 	if !ok {
@@ -23,16 +36,7 @@ func (h *Handler) getDeliverable(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":              run.ID,
-		"run_id":          run.ID,
-		"action_id":       run.ActionID,
-		"work_item_id":    run.WorkItemID,
-		"result_markdown": run.ResultMarkdown,
-		"metadata":        run.ResultMetadata,
-		"assets":          run.ResultAssets,
-		"created_at":      run.CreatedAt,
-	})
+	writeJSON(w, http.StatusOK, runToDeliverableResponse(run))
 }
 
 func (h *Handler) getLatestDeliverable(w http.ResponseWriter, r *http.Request) {
@@ -51,16 +55,7 @@ func (h *Handler) getLatestDeliverable(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":              run.ID,
-		"run_id":          run.ID,
-		"action_id":       run.ActionID,
-		"work_item_id":    run.WorkItemID,
-		"result_markdown": run.ResultMarkdown,
-		"metadata":        run.ResultMetadata,
-		"assets":          run.ResultAssets,
-		"created_at":      run.CreatedAt,
-	})
+	writeJSON(w, http.StatusOK, runToDeliverableResponse(run))
 }
 
 func (h *Handler) listDeliverablesByRun(w http.ResponseWriter, r *http.Request) {
@@ -85,14 +80,5 @@ func (h *Handler) listDeliverablesByRun(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusOK, []any{})
 		return
 	}
-	writeJSON(w, http.StatusOK, []map[string]any{{
-		"id":              run.ID,
-		"run_id":          run.ID,
-		"action_id":       run.ActionID,
-		"work_item_id":    run.WorkItemID,
-		"result_markdown": run.ResultMarkdown,
-		"metadata":        run.ResultMetadata,
-		"assets":          run.ResultAssets,
-		"created_at":      run.CreatedAt,
-	}})
+	writeJSON(w, http.StatusOK, []map[string]any{runToDeliverableResponse(run)})
 }

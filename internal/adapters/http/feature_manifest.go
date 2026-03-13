@@ -270,29 +270,5 @@ func (h *Handler) getManifestSnapshot(w http.ResponseWriter, r *http.Request) {
 
 // getManifest returns a computed manifest-like response from entries for backward compatibility.
 func (h *Handler) getManifest(w http.ResponseWriter, r *http.Request) {
-	projectID, ok := urlParamInt64(r, "projectID")
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid project_id", "bad_request")
-		return
-	}
-
-	counts, err := h.store.CountFeatureEntriesByStatus(r.Context(), projectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error(), "internal")
-		return
-	}
-
-	total := 0
-	for _, c := range counts {
-		total += c
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"project_id": projectID,
-		"pass":       counts[core.FeaturePass],
-		"fail":       counts[core.FeatureFail],
-		"pending":    counts[core.FeaturePending],
-		"skipped":    counts[core.FeatureSkipped],
-		"total":      total,
-	})
+	h.getManifestSummary(w, r)
 }
