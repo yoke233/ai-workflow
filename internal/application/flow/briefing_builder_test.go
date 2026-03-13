@@ -2,6 +2,8 @@ package flow
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -591,5 +593,173 @@ func TestInputBuilder_ProjectBriefBeforeWorkItemSummary(t *testing.T) {
 	}
 	if projIdx > wiIdx {
 		t.Errorf("expected project brief before work item summary")
+	}
+}
+
+// --- stubRegistry is a minimal AgentRegistry for skills injection tests ---
+
+type stubRegistry struct {
+	profiles []*core.AgentProfile
+}
+
+func (r *stubRegistry) GetDriver(_ context.Context, _ string) (*core.AgentDriver, error) {
+	return nil, core.ErrDriverNotFound
+}
+func (r *stubRegistry) ListDrivers(_ context.Context) ([]*core.AgentDriver, error) {
+	return nil, nil
+}
+func (r *stubRegistry) CreateDriver(_ context.Context, _ *core.AgentDriver) error {
+	return nil
+}
+func (r *stubRegistry) UpdateDriver(_ context.Context, _ *core.AgentDriver) error {
+	return nil
+}
+func (r *stubRegistry) DeleteDriver(_ context.Context, _ string) error { return nil }
+func (r *stubRegistry) GetProfile(_ context.Context, id string) (*core.AgentProfile, error) {
+	for _, p := range r.profiles {
+		if p.ID == id {
+			return p, nil
+		}
+	}
+	return nil, core.ErrProfileNotFound
+}
+func (r *stubRegistry) ListProfiles(_ context.Context) ([]*core.AgentProfile, error) {
+	return r.profiles, nil
+}
+func (r *stubRegistry) CreateProfile(_ context.Context, _ *core.AgentProfile) error { return nil }
+func (r *stubRegistry) UpdateProfile(_ context.Context, _ *core.AgentProfile) error { return nil }
+func (r *stubRegistry) DeleteProfile(_ context.Context, _ string) error              { return nil }
+func (r *stubRegistry) ResolveForAction(_ context.Context, action *core.Action) (*core.AgentProfile, *core.AgentDriver, error) {
+	role := strings.TrimSpace(action.AgentRole)
+	for _, p := range r.profiles {
+		if string(p.Role) == role && p.MatchesRequirements(action.RequiredCapabilities) {
+			return p, &core.AgentDriver{ID: p.DriverID}, nil
+		}
+	}
+	return nil, nil, core.ErrProfileNotFound
+}
+func (r *stubRegistry) ResolveByID(_ context.Context, id string) (*core.AgentProfile, *core.AgentDriver, error) {
+	for _, p := range r.profiles {
+		if p.ID == id {
+			return p, &core.AgentDriver{ID: p.DriverID}, nil
+		}
+	}
+	return nil, nil, core.ErrProfileNotFound
+}
+
+// createTestSkillDir creates a temp skill directory with a valid SKILL.md.
+func createTestSkillDir(t *testing.T, root, name, description string) {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: " + name + "\ndescription: " + description + "\n---\n\nSkill body."
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- Skills Injection tests ---
+
+func TestInputBuilder_InjectsSkillsSummary(t *testing.T) {
+	store := newStubInputStore()
+	store.workItems[1] = &core.WorkItem{ID: 1, Title: "Task"}
+	action := &core.Action{ID: 10, WorkItemID: 1, Name: "impl", Position: 0, AgentRole: "worker"}
+	store.actions[1] = []*core.Action{action}
+
+	root := t.TempDir()
+	createTestSkillDir(t, root, "code-review", "Reviews code for quality issues")
+	createTestSkillDir(t, root, "testing", "Writes and runs automated tests")
+
+	registry := &stubRegistry{
+		profiles: []*core.AgentProfile{
+			{ID: "worker-1", Role: core.RoleWorker, DriverID: "d1", Skills: []string{"code-review", "testing"}},
+		},
+	}
+
+	builder := NewInputBuilder(store, WithRegistry(registry), WithSkillsRoot(root))
+	input, err := builder.Build(context.Background(), action)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if !strings.Contains(input, "code-review") {
+		t.Errorf("expected skill name 'code-review' in input, got: %q", input)
+	}
+	if !strings.Contains(input, "Reviews code for quality issues") {
+		t.Errorf("expected skill description in input, got: %q", input)
+	}
+	if !strings.Contains(input, "testing") {
+		t.Errorf("expected skill name 'testing' in input, got: %q", input)
+	}
+}
+
+func TestInputBuilder_SkipsSkillsWhenNoRegistry(t *testing.T) {
+	store := newStubInputStore()
+	store.workItems[1] = &core.WorkItem{ID: 1, Title: "Task"}
+	action := &core.Action{ID: 10, WorkItemID: 1, Name: "impl", Position: 0, AgentRole: "worker"}
+	store.actions[1] = []*core.Action{action}
+
+	builder := NewInputBuilder(store) // no WithRegistry
+	input, err := builder.Build(context.Background(), action)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if strings.Contains(input, "available skills") {
+		t.Errorf("expected no skills section without registry, got: %q", input)
+	}
+}
+
+func TestInputBuilder_SkipsSkillsWhenNoRole(t *testing.T) {
+	store := newStubInputStore()
+	store.workItems[1] = &core.WorkItem{ID: 1, Title: "Task"}
+	action := &core.Action{ID: 10, WorkItemID: 1, Name: "impl", Position: 0, AgentRole: ""} // no role
+	store.actions[1] = []*core.Action{action}
+
+	root := t.TempDir()
+	createTestSkillDir(t, root, "code-review", "Reviews code")
+
+	registry := &stubRegistry{
+		profiles: []*core.AgentProfile{
+			{ID: "worker-1", Role: core.RoleWorker, DriverID: "d1", Skills: []string{"code-review"}},
+		},
+	}
+
+	builder := NewInputBuilder(store, WithRegistry(registry), WithSkillsRoot(root))
+	input, err := builder.Build(context.Background(), action)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if strings.Contains(input, "available skills") {
+		t.Errorf("expected no skills section without agent role, got: %q", input)
+	}
+}
+
+func TestInputBuilder_SkipsSkillsWithTODODescription(t *testing.T) {
+	store := newStubInputStore()
+	store.workItems[1] = &core.WorkItem{ID: 1, Title: "Task"}
+	action := &core.Action{ID: 10, WorkItemID: 1, Name: "impl", Position: 0, AgentRole: "worker"}
+	store.actions[1] = []*core.Action{action}
+
+	root := t.TempDir()
+	createTestSkillDir(t, root, "wip-skill", "TODO")
+
+	registry := &stubRegistry{
+		profiles: []*core.AgentProfile{
+			{ID: "worker-1", Role: core.RoleWorker, DriverID: "d1", Skills: []string{"wip-skill"}},
+		},
+	}
+
+	builder := NewInputBuilder(store, WithRegistry(registry), WithSkillsRoot(root))
+	input, err := builder.Build(context.Background(), action)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if strings.Contains(input, "available skills") {
+		t.Errorf("expected no skills section when all skills have TODO description, got: %q", input)
 	}
 }

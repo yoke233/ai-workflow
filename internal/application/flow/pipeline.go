@@ -249,65 +249,11 @@ func refBudget(ref ContextRef) int {
 	}
 }
 
+// renderInputSnapshot is a convenience wrapper around buildInputFromRefs
+// for callers that only have an objective + context refs (no action or constraints).
 func renderInputSnapshot(objective string, contextRefs []ContextRef) string {
-	objective = truncateText(strings.TrimSpace(objective), maxInputTotalChars)
-	var sb strings.Builder
-	sb.WriteString(objective)
-
-	if len(contextRefs) == 0 {
-		return strings.TrimSpace(sb.String())
-	}
-
-	remaining := maxInputTotalChars - len(objective)
-	if remaining <= 0 {
-		return strings.TrimSpace(sb.String())
-	}
-
-	const contextHeader = "\n\n# Context\n"
-	wroteContextHeader := false
-	for _, ref := range contextRefs {
-		content := strings.TrimSpace(ref.Inline)
-		if content == "" || remaining <= 0 {
-			continue
-		}
-		budget := refBudget(ref)
-		content = truncateText(content, budget)
-		if len(content) > remaining {
-			content = truncateText(content, remaining)
-		}
-		if strings.TrimSpace(content) == "" {
-			continue
-		}
-
-		label := strings.TrimSpace(ref.Label)
-		if label == "" {
-			label = fmt.Sprintf("%s:%d", ref.Type, ref.RefID)
-		}
-
-		sectionHeader := "\n\n## " + label + "\n\n"
-		available := remaining - len(sectionHeader)
-		if !wroteContextHeader {
-			available -= len(contextHeader)
-		}
-		if available <= 0 {
-			break
-		}
-		content = truncateText(content, minInt(budget, available))
-		if strings.TrimSpace(content) == "" {
-			continue
-		}
-
-		if !wroteContextHeader {
-			sb.WriteString(contextHeader)
-			remaining -= len(contextHeader)
-			wroteContextHeader = true
-		}
-		sb.WriteString(sectionHeader)
-		sb.WriteString(content)
-		remaining -= len(sectionHeader) + len(content)
-	}
-
-	return strings.TrimSpace(sb.String())
+	stub := &core.Action{Config: map[string]any{"objective": objective}}
+	return buildInputFromRefs(stub, contextRefs, nil)
 }
 
 func truncateText(text string, maxChars int) string {

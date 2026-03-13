@@ -201,7 +201,7 @@ Compact JSON 数组，每个元素：
 - 来源：Agent Profile 的 `Skills` 字段 + `skills.InspectSkill()` 读取 SKILL.md 元数据
 - 条件：InputBuilder 必须配置 `WithRegistry()` + `WithSkillsRoot()`
 - 跳过 description 为空或 "TODO" 的技能
-- 匹配逻辑：通过 Action 的 `AgentRole` + `RequiredCapabilities` 找到对应 Profile
+- 匹配逻辑：通过 `AgentRegistry.ResolveForAction()` 解析 Profile，与 Resolver 使用相同的匹配策略
 
 ## 6. 日志记录
 
@@ -212,7 +212,8 @@ level=INFO msg="briefing context assembled"
   action_id=101
   work_item_id=42
   ref_count=5
-  total_chars=3847
+  raw_chars=4847
+  final_chars=3847
   refs="project_brief(10):245, issue_summary(42):312, progress_summary(42):180, upstream_artifact(1):2100, skills_summary(0):210"
 ```
 
@@ -223,8 +224,9 @@ level=INFO msg="briefing context assembled"
 | `action_id` | 当前正在构建输入的 Action ID |
 | `work_item_id` | 所属 WorkItem ID |
 | `ref_count` | 注入的 ContextRef 数量 |
-| `total_chars` | 所有 ContextRef 的原始字符总数（截断前） |
-| `refs` | 格式 `{type}({refID}):{chars}`，按注入顺序排列 |
+| `raw_chars` | 所有 ContextRef 的原始字符总数（截断前） |
+| `final_chars` | 渲染后的最终输入字符数（截断后） |
+| `refs` | 格式 `{type}({refID}):{chars}`，每个 ref 的原始字符数，按注入顺序排列 |
 
 ## 7. 截断规则
 

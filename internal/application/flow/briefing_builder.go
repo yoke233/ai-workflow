@@ -73,6 +73,9 @@ func (b *DefaultInputBuilder) Build(ctx context.Context, action *core.Action) (s
 	// Fetch work item once — used by multiple injectors.
 	workItem, _ := b.store.GetWorkItem(ctx, action.WorkItemID)
 
+	// Fetch sibling actions once — used by progress + upstream injectors.
+	actions, _ := b.store.ListActionsByWorkItem(ctx, action.WorkItemID)
+
 	// 1. Project brief — project name, description, resource bindings.
 	refs = b.injectProjectBriefContext(ctx, workItem, refs)
 
@@ -80,10 +83,10 @@ func (b *DefaultInputBuilder) Build(ctx context.Context, action *core.Action) (s
 	refs = b.injectWorkItemContext(workItem, refs)
 
 	// 3. Progress summary — where the current work item execution stands.
-	refs = b.injectProgressContext(ctx, action, refs)
+	refs = b.injectProgressContext(action, actions, refs)
 
 	// 4. Upstream deliverables — tiered by distance (L2 immediate, L0 distant).
-	refs = b.injectUpstreamContext(ctx, action, refs)
+	refs = b.injectUpstreamContext(ctx, action, actions, refs)
 
 	// 5. Feature manifest snapshot.
 	refs = b.injectManifestContext(ctx, workItem, refs)
@@ -92,28 +95,31 @@ func (b *DefaultInputBuilder) Build(ctx context.Context, action *core.Action) (s
 	refs = b.injectSkillsContext(ctx, action, refs)
 
 	// Log the assembled context refs for observability.
-	logContextRefs(action, refs)
+	result := buildInputFromRefs(action, refs, constraints)
+	logContextRefs(action, refs, len(result))
 
-	return buildInputFromRefs(action, refs, constraints), nil
+	return result, nil
 }
 
 // logContextRefs emits a structured log entry summarizing the injected context refs.
-func logContextRefs(action *core.Action, refs []ContextRef) {
+// finalLen is the length of the fully rendered (post-truncation) input string.
+func logContextRefs(action *core.Action, refs []ContextRef, finalLen int) {
 	if len(refs) == 0 {
 		return
 	}
 	entries := make([]string, 0, len(refs))
-	totalChars := 0
+	rawChars := 0
 	for _, ref := range refs {
 		n := len(ref.Inline)
-		totalChars += n
+		rawChars += n
 		entries = append(entries, fmt.Sprintf("%s(%d):%d", ref.Type, ref.RefID, n))
 	}
 	slog.Info("briefing context assembled",
 		"action_id", action.ID,
 		"work_item_id", action.WorkItemID,
 		"ref_count", len(refs),
-		"total_chars", totalChars,
+		"raw_chars", rawChars,
+		"final_chars", finalLen,
 		"refs", strings.Join(entries, ", "),
 	)
 }
@@ -220,9 +226,8 @@ func (b *DefaultInputBuilder) injectWorkItemContext(workItem *core.WorkItem, ref
 // injectUpstreamContext adds upstream deliverables tiered by distance:
 //   - L2 (immediate predecessor): full ResultMarkdown
 //   - L0 (distant predecessors): Metadata["summary"] or first 300 chars fallback
-func (b *DefaultInputBuilder) injectUpstreamContext(ctx context.Context, action *core.Action, refs []ContextRef) []ContextRef {
-	actions, err := b.store.ListActionsByWorkItem(ctx, action.WorkItemID)
-	if err != nil {
+func (b *DefaultInputBuilder) injectUpstreamContext(ctx context.Context, action *core.Action, actions []*core.Action, refs []ContextRef) []ContextRef {
+	if len(actions) == 0 {
 		return refs
 	}
 
@@ -384,9 +389,8 @@ func (b *DefaultInputBuilder) injectProjectBriefContext(ctx context.Context, wor
 
 // injectProgressContext adds a compact progress summary of the work item's action pipeline
 // so the agent knows where execution currently stands.
-func (b *DefaultInputBuilder) injectProgressContext(ctx context.Context, action *core.Action, refs []ContextRef) []ContextRef {
-	actions, err := b.store.ListActionsByWorkItem(ctx, action.WorkItemID)
-	if err != nil || len(actions) <= 1 {
+func (b *DefaultInputBuilder) injectProgressContext(action *core.Action, actions []*core.Action, refs []ContextRef) []ContextRef {
+	if len(actions) <= 1 {
 		return refs
 	}
 
@@ -401,7 +405,7 @@ func (b *DefaultInputBuilder) injectProgressContext(ctx context.Context, action 
 	sb.WriteString(fmt.Sprintf("Progress: %d/%d actions completed\n", doneCount, total))
 
 	for _, a := range actions {
-		marker := " "
+		var marker string
 		switch a.Status {
 		case core.ActionDone:
 			marker = "done"
@@ -440,25 +444,10 @@ func (b *DefaultInputBuilder) injectSkillsContext(ctx context.Context, action *c
 		return refs
 	}
 
-	// Resolve profile from action's AgentRole.
-	role := strings.TrimSpace(action.AgentRole)
-	if role == "" {
-		return refs
-	}
-	profiles, err := b.registry.ListProfiles(ctx)
-	if err != nil || len(profiles) == 0 {
-		return refs
-	}
-
-	// Find a matching profile by role + required capabilities.
-	var profile *core.AgentProfile
-	for _, p := range profiles {
-		if string(p.Role) == role && p.MatchesRequirements(action.RequiredCapabilities) {
-			profile = p
-			break
-		}
-	}
-	if profile == nil || len(profile.Skills) == 0 {
+	// Resolve the same profile that the Resolver would pick for this action,
+	// ensuring the skills list matches the agent's actual identity.
+	profile, _, err := b.registry.ResolveForAction(ctx, action)
+	if err != nil || profile == nil || len(profile.Skills) == 0 {
 		return refs
 	}
 
