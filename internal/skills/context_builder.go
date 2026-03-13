@@ -303,8 +303,6 @@ func generateSkillMD(materials []ContextMaterial) string {
 	sb.WriteString(`---
 name: action-context
 description: Pre-loaded reference materials for the current action run
-assign_when: Automatically injected for exec and gate actions
-version: 1
 ---
 
 # Action Context

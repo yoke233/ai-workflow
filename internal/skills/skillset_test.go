@@ -16,8 +16,6 @@ func TestValidateSkillMD(t *testing.T) {
 	valid := `---
 name: demo-skill
 description: demo
-assign_when: for demos
-version: 1
 ---
 
 # Demo
@@ -26,7 +24,7 @@ version: 1
 	if len(errs) != 0 {
 		t.Fatalf("expected valid metadata, got errors: %v", errs)
 	}
-	if meta == nil || meta.Name != "demo-skill" || meta.Version != 1 {
+	if meta == nil || meta.Name != "demo-skill" || meta.Description != "demo" {
 		t.Fatalf("unexpected metadata: %+v", meta)
 	}
 
@@ -38,12 +36,10 @@ version: 1
 	_, errs = ValidateSkillMD("demo-skill", `---
 name: other
 description: demo
-assign_when: for demos
-version: 0
 ---
 `)
-	if len(errs) < 2 {
-		t.Fatalf("expected multiple validation errors, got %v", errs)
+	if len(errs) != 1 {
+		t.Fatalf("expected single name mismatch error, got %v", errs)
 	}
 }
 

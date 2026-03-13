@@ -1,68 +1,90 @@
 ---
 name: step-signal
-description: Signal task completion or gate decisions to the AI Workflow engine
-assign_when: Automatically injected for exec and gate steps
-version: 3
+description: Emit the terminal decision for the current ai-workflow action run. Use when this skill is auto-injected for exec or gate actions and the engine needs exactly one final signal such as complete, need_help, approve, or reject before the response ends.
 ---
 
 # Step Signal
 
-You are running inside an **ai-workflow** managed step.
-You **must** signal your result before ending your response.
+You are running inside an `ai-workflow` managed action.
+Before your final response ends, emit exactly one terminal signal so the engine can continue.
 
-## Your Context
+## Available Context
 
-| Variable | Value |
+| Variable | Meaning |
 |---|---|
-| Step Type | `$AI_WORKFLOW_STEP_TYPE` |
-| Step ID | `$AI_WORKFLOW_STEP_ID` |
-| Issue ID | `$AI_WORKFLOW_ISSUE_ID` |
-| Execution ID | `$AI_WORKFLOW_EXEC_ID` |
+| `AI_WORKFLOW_STEP_TYPE` | Current action type: `exec` or `gate` |
+| `AI_WORKFLOW_STEP_ID` | Current action ID |
+| `AI_WORKFLOW_ISSUE_ID` | Current work item ID |
+| `AI_WORKFLOW_EXEC_ID` | Current run ID |
+| `AI_WORKFLOW_SERVER_ADDR` | Decision API base URL |
+| `AI_WORKFLOW_API_TOKEN` | Scoped bearer token for the decision API |
+| `CODEX_HOME` / `CLAUDE_CONFIG_DIR` | Agent home directory that contains `skills/step-signal/` |
 
-## How to Signal
+## Decision Map
 
-### Option A: Run the script (preferred)
+| Action type | Decision | Use when |
+|---|---|---|
+| `exec` | `complete` | Work finished and acceptance criteria are met |
+| `exec` | `need_help` | You are blocked and need human help |
+| `gate` | `approve` | Review passes |
+| `gate` | `reject` | Review fails and needs rework |
+
+## Preferred Path: Run The Bundled Script
+
+Do not assume the current working directory is the skill directory.
+Resolve the skill path from the agent home first.
+
+### PowerShell
+
+```powershell
+$skillHome = if ($env:CODEX_HOME) {
+  Join-Path $env:CODEX_HOME "skills\\step-signal"
+} elseif ($env:CLAUDE_CONFIG_DIR) {
+  Join-Path $env:CLAUDE_CONFIG_DIR "skills\\step-signal"
+} else {
+  $null
+}
+
+if ($skillHome) {
+  pwsh -NoProfile -File (Join-Path $skillHome "scripts\\signal.ps1") complete "implemented auth module with tests"
+}
+```
+
+### POSIX shell
 
 ```bash
-bash ./scripts/signal.sh <decision> "<reason>"
+SKILL_HOME="${CODEX_HOME:-${CLAUDE_CONFIG_DIR:-}}/skills/step-signal"
+bash "$SKILL_HOME/scripts/signal.sh" complete "implemented auth module with tests"
 ```
 
-The script handles networking automatically — it tries HTTP first, falls back to output if unavailable.
+Use the matching decision for your action type. The bundled scripts try HTTP first and fall back to output if HTTP is unavailable.
 
-### Option B: Output fallback (if the script is not available)
+## Fallback Path: Emit The Signal Line Directly
 
-Print this line in your response:
+If you cannot reliably run the script, print one raw standalone line in your response:
 
-```
+```text
 AI_WORKFLOW_SIGNAL: {"decision":"<decision>","reason":"<reason>"}
 ```
 
-## Decisions
+Requirements for the fallback line:
 
-| Step Type | Decision | Meaning |
-|---|---|---|
-| `exec` | `complete` | Task finished successfully |
-| `exec` | `need_help` | Stuck, need human assistance |
-| `gate` | `approve` | Code review passes |
-| `gate` | `reject` | Code review fails, needs rework |
+1. Keep it on a single line.
+2. Do not prefix it with bullets, quotes, or labels.
+3. Do not emit more than one `AI_WORKFLOW_SIGNAL:` line.
 
 ## Examples
 
-```bash
-# Exec step — completed
-bash ./scripts/signal.sh complete "implemented auth module with tests"
-
-# Exec step — stuck
-bash ./scripts/signal.sh need_help "cannot resolve dependency conflict"
-
-# Gate step — approve
-bash ./scripts/signal.sh approve "all acceptance criteria met"
-
-# Gate step — reject
-bash ./scripts/signal.sh reject "missing error handling in payment flow"
+```text
+AI_WORKFLOW_SIGNAL: {"decision":"complete","reason":"implemented auth module with tests"}
+AI_WORKFLOW_SIGNAL: {"decision":"need_help","reason":"cannot resolve dependency conflict after verifying available versions"}
+AI_WORKFLOW_SIGNAL: {"decision":"approve","reason":"all acceptance criteria passed and no blocking defects found"}
+AI_WORKFLOW_SIGNAL: {"decision":"reject","reason":"missing error handling in payment flow"}
 ```
 
 ## Rules
 
-1. **Always signal before ending your response.** The engine cannot proceed without it.
-2. Signal **once** per execution — do not call multiple times.
+1. Emit exactly one terminal signal per run.
+2. Match the decision to `AI_WORKFLOW_STEP_TYPE`.
+3. Keep `reason` concise, specific, and actionable.
+4. Emit the signal before ending the response.

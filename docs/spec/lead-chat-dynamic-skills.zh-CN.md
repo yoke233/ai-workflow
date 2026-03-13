@@ -281,7 +281,7 @@ ACP Agent 读取 skills/ 目录中的 SKILL.md
 
 #### 方案 A: Profile 预装 + 按需激活（推荐，尚未落地）
 
-在 Lead Profile 中预配全部 sys-* skills，Agent 根据 SKILL.md 中的 `assign_when` 字段判断何时使用：
+在 Lead Profile 中预配全部 sys-* skills，Agent 根据 skill 名称与 `description` 判断何时使用：
 
 ```toml
 [[runtime.agents.profiles]]
@@ -311,15 +311,13 @@ skills = [
 ---
 name: sys-issue-manage
 description: "管理系统 Issues（工作单元）"
-assign_when: "用户需要创建、查看、更新或执行 Issue 时"
-version: 1
 category: system           # 新增：skill 分类
 load_mode: on_demand       # 新增：lazy | eager | on_demand
 ---
 ```
 
 - `eager`: Session 启动时立即加载（默认，向后兼容）
-- `on_demand`: 首次需要时加载，Agent 先看到 skill 索引（名称+描述+assign_when），需要时再读取完整 SKILL.md 和 scripts
+- `on_demand`: 首次需要时加载，Agent 先看到 skill 索引（名称+描述），需要时再读取完整 SKILL.md 和 scripts
 - `lazy`: 不出现在索引中，由系统/其他 skill 调用时才加载
 
 **实现要点**:
@@ -387,8 +385,6 @@ api_call() {
 ---
 name: sys-issue-manage
 description: "管理系统中的 Issues（创建/查看/更新/执行/归档工作单元）"
-assign_when: "用户需要创建、查看、搜索、更新、执行或归档 Issue 时"
-version: 1
 ---
 
 # Issue 管理
@@ -436,8 +432,6 @@ version: 1
 type Metadata struct {
     Name        string `json:"name" yaml:"name"`
     Description string `json:"description" yaml:"description"`
-    AssignWhen  string `json:"assign_when" yaml:"assign_when"`
-    Version     int    `json:"version" yaml:"version"`
     Category    string `json:"category,omitempty" yaml:"category,omitempty"`       // 新增
     LoadMode    string `json:"load_mode,omitempty" yaml:"load_mode,omitempty"`     // 新增
 }

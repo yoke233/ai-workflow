@@ -322,8 +322,6 @@ export interface SlashCommand {
 export interface SkillMetadata {
   name: string;
   description: string;
-  assign_when: string;
-  version: number;
 }
 
 export interface SkillInfo {

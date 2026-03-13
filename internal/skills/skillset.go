@@ -18,8 +18,6 @@ var skillNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 type Metadata struct {
 	Name        string `json:"name" yaml:"name"`
 	Description string `json:"description" yaml:"description"`
-	AssignWhen  string `json:"assign_when" yaml:"assign_when"`
-	Version     int    `json:"version" yaml:"version"`
 }
 
 type ParsedSkill struct {
@@ -64,8 +62,6 @@ func DefaultSkillMD(name string) string {
 ---
 name: ` + name + `
 description: TODO
-assign_when: TODO
-version: 1
 ---
 
 # ` + name + `
@@ -230,12 +226,6 @@ func parseSkillMD(dirName, content string) (*Metadata, []string) {
 
 	if strings.TrimSpace(meta.Description) == "" {
 		errorsList = append(errorsList, "frontmatter.description is required")
-	}
-	if strings.TrimSpace(meta.AssignWhen) == "" {
-		errorsList = append(errorsList, "frontmatter.assign_when is required")
-	}
-	if meta.Version < 1 {
-		errorsList = append(errorsList, "frontmatter.version must be >= 1")
 	}
 
 	return meta, errorsList

@@ -27,8 +27,6 @@ func TestEnsureBuiltinSkills_ExtractsStepSignal(t *testing.T) {
 		t.Fatalf("extracted SKILL.md validation errors: %v", errs)
 	} else if meta.Name != "step-signal" {
 		t.Fatalf("expected name=step-signal, got %q", meta.Name)
-	} else if meta.Version < 1 {
-		t.Fatalf("expected version >= 1, got %d", meta.Version)
 	}
 
 	// Check that key content is present.
@@ -44,7 +42,7 @@ func TestEnsureBuiltinSkills_ExtractsStepSignal(t *testing.T) {
 	}
 }
 
-func TestEnsureBuiltinSkills_SkipsWhenVersionMatch(t *testing.T) {
+func TestEnsureBuiltinSkills_SkipsWhenContentMatches(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -60,8 +58,7 @@ func TestEnsureBuiltinSkills_SkipsWhenVersionMatch(t *testing.T) {
 		t.Fatalf("stat after first extract: %v", err)
 	}
 
-	// Modify the file content slightly (but keep the same version).
-	// The function should skip because version matches.
+	// The function should skip because the on-disk content still matches.
 	// We'll verify by checking that the second call doesn't error.
 	if err := EnsureBuiltinSkills(root); err != nil {
 		t.Fatalf("second EnsureBuiltinSkills: %v", err)
@@ -77,22 +74,22 @@ func TestEnsureBuiltinSkills_SkipsWhenVersionMatch(t *testing.T) {
 	_ = info2
 }
 
-func TestEnsureBuiltinSkills_OverwritesOnVersionMismatch(t *testing.T) {
+func TestEnsureBuiltinSkills_OverwritesOnContentMismatch(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 
-	// Write a fake step-signal with version 0 (lower than embedded version 1).
+	// Write a fake step-signal so the embedded builtin should overwrite it.
 	skillDir := filepath.Join(root, "step-signal")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fakeContent := "---\nname: step-signal\ndescription: fake\nassign_when: test\nversion: 0\n---\n\n# Fake\n"
+	fakeContent := "---\nname: step-signal\ndescription: fake\n---\n\n# Fake\n"
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(fakeContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// EnsureBuiltinSkills should overwrite because version 0 != embedded version 1.
+	// EnsureBuiltinSkills should overwrite because the content differs.
 	if err := EnsureBuiltinSkills(root); err != nil {
 		t.Fatalf("EnsureBuiltinSkills: %v", err)
 	}
@@ -109,6 +106,32 @@ func TestEnsureBuiltinSkills_OverwritesOnVersionMismatch(t *testing.T) {
 	}
 	if !contains(content, "AI_WORKFLOW_SIGNAL") {
 		t.Fatal("expected real SKILL.md content after overwrite")
+	}
+}
+
+func TestEnsureBuiltinSkills_OverwritesWhenBundledScriptDiffers(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := EnsureBuiltinSkills(root); err != nil {
+		t.Fatalf("EnsureBuiltinSkills: %v", err)
+	}
+
+	scriptPath := filepath.Join(root, "step-signal", "scripts", "signal.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/usr/bin/env bash\necho fake\n"), 0o644); err != nil {
+		t.Fatalf("write fake script: %v", err)
+	}
+
+	if err := EnsureBuiltinSkills(root); err != nil {
+		t.Fatalf("EnsureBuiltinSkills second run: %v", err)
+	}
+
+	b, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatalf("read restored script: %v", err)
+	}
+	if contains(string(b), "echo fake") {
+		t.Fatal("expected bundled script to be restored after mismatch")
 	}
 }
 

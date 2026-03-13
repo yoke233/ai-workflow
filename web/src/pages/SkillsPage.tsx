@@ -239,9 +239,6 @@ export function SkillsPage() {
               {skill.metadata ? (
                 <>
                   <p className="line-clamp-2 text-sm text-muted-foreground">{skill.metadata.description}</p>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Badge variant="outline" className="text-xs">v{skill.metadata.version}</Badge>
-                  </div>
                 </>
               ) : (
                 <p className="text-sm italic text-muted-foreground">{t("skills.missingMeta")}</p>

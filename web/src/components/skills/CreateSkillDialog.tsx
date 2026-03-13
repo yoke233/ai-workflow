@@ -64,7 +64,7 @@ export function CreateSkillDialog({ open, onClose, onCreate }: Props) {
             <span className="font-normal text-muted-foreground">{t("skills.skillMdOptional")}</span>
           </label>
           <Textarea
-            placeholder={"---\nname: code-review\ndescription: Code review skill\nassign_when: When code review is needed\nversion: 1\n---\n\n# Skill Description\n\n..."}
+            placeholder={"---\nname: code-review\ndescription: Code review skill\n---\n\n# Skill Description\n\n..."}
             value={skillMd}
             onChange={(e) => setSkillMd(e.target.value)}
             className="min-h-[200px] font-mono text-xs"

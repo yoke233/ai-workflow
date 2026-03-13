@@ -34,7 +34,7 @@
 
 ### 已有 Skill 系统
 
-- **结构**：目录 + `SKILL.md`（YAML frontmatter: name/description/assign_when/version）
+- **结构**：目录 + `SKILL.md`（YAML frontmatter: name/description）
 - **安装**：符号链接到 Agent 的 skills 目录
 - **配置**：`AgentProfile.Skills = ["skill-name"]`
 - **特点**：静态的，人工编写，人工分配
@@ -138,8 +138,6 @@
 ---
 name: testing-discipline
 description: 确保所有代码修改都附带相应的单元测试
-assign_when: Agent 角色为 worker 且步骤涉及代码实现
-version: 1
 source: reflection  # 标记为自动生成
 generated_from:
   profile: worker-go
@@ -345,8 +343,6 @@ func (r *ReflectionDataAssembler) AssembleForProfile(
 ---
 name: testing-discipline
 description: ...
-assign_when: ...
-version: 3
 source: reflection           # 标记来源
 profile_origin: worker-go    # 哪个 Profile 生成的
 evidence_window: 2026-02-10/2026-03-12  # 分析的时间窗口

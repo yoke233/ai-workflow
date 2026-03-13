@@ -143,8 +143,6 @@
 ---
 name: step-context
 description: Pre-loaded reference materials for the current step execution
-assign_when: Automatically injected for exec and gate steps
-version: 1
 ---
 
 # Step Context
@@ -170,7 +168,7 @@ Reference materials for your current task are in this directory.
 4. If `gate-feedback.md` exists, read it first — it contains rework instructions
 ```
 
-**注意**：SKILL.md 的 `version` 字段固定为 1，因为这是临时文件，不参与 builtin skill 的版本管理。
+**注意**：step-context 是临时 skill，不需要额外的 frontmatter 字段；只保留 `name` 和 `description` 即可。
 
 ## 代码变更
 

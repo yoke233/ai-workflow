@@ -186,7 +186,7 @@ func TestCreateSkillDefaultStubIsValid(t *testing.T) {
 	requireStatus(t, resp, 200)
 	var detail getSkillResponse
 	decodeJSON(resp, &detail)
-	if !detail.Valid || detail.Metadata == nil || detail.Metadata.Version != 1 {
+	if !detail.Valid || detail.Metadata == nil || detail.Metadata.Name != "new-skill" {
 		t.Fatalf("expected valid default stub, got %+v", detail)
 	}
 }
@@ -200,8 +200,6 @@ func TestImportGitHubSkillSuccess(t *testing.T) {
 			Metadata: &skillset.Metadata{
 				Name:        "vercel-react-best-practices",
 				Description: "React best practices",
-				AssignWhen:  "use for React work",
-				Version:     1,
 			},
 		},
 	})

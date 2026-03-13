@@ -114,7 +114,7 @@ Issue: "Add OAuth login" (3/5 steps completed)
 
 #### 1.3 Skills 内容注入
 
-当前 Skills 的 SKILL.md 元数据已被解析但未注入。在 ExecutionInput 构建时，如果 Profile 配置了 Skills，将 Skill 的 description + assign_when 以简短说明形式追加到 prompt：
+当前 Skills 的 SKILL.md 元数据已被解析但未注入。在 ExecutionInput 构建时，如果 Profile 配置了 Skills，将 Skill 的 `description` 以简短说明形式追加到 prompt：
 
 ```go
 // execution_input.go — BuildExecutionInputFromBriefing 扩展

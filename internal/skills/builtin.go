@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -12,8 +13,7 @@ import (
 )
 
 // EnsureBuiltinSkills extracts embedded builtin skills to skillsRoot.
-// It overwrites on version mismatch (reads SKILL.md frontmatter version).
-// Skills whose on-disk version matches the embedded version are skipped.
+// It skips extraction only when the on-disk content already matches the embedded skill.
 func EnsureBuiltinSkills(skillsRoot string) error {
 	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
 		return fmt.Errorf("create skills root: %w", err)
@@ -47,28 +47,48 @@ func EnsureBuiltinSkills(skillsRoot string) error {
 	return nil
 }
 
-// shouldSkip returns true if the on-disk skill has the same version as the embedded one.
+// shouldSkip returns true if every embedded file for the skill matches the on-disk copy.
 func shouldSkip(embeddedFS fs.FS, skillsRoot, skillName string) bool {
-	diskPath := filepath.Join(skillsRoot, skillName, "SKILL.md")
-	diskContent, err := os.ReadFile(diskPath)
-	if err != nil {
-		return false // not present or unreadable → extract
-	}
-	diskMeta, diskErrs := parseSkillMD(skillName, string(diskContent))
-	if len(diskErrs) > 0 || diskMeta == nil {
-		return false // invalid → overwrite
-	}
+	matches := true
+	err := fs.WalkDir(embeddedFS, skillName, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			matches = false
+			return walkErr
+		}
+		if d.IsDir() {
+			if path == skillName {
+				return nil
+			}
+			diskDir := filepath.Join(skillsRoot, filepath.FromSlash(path))
+			fi, err := os.Stat(diskDir)
+			if err != nil || !fi.IsDir() {
+				matches = false
+				return fs.SkipAll
+			}
+			return nil
+		}
 
-	embeddedContent, err := fs.ReadFile(embeddedFS, skillName+"/SKILL.md")
-	if err != nil {
+		embeddedContent, err := fs.ReadFile(embeddedFS, path)
+		if err != nil {
+			matches = false
+			return err
+		}
+		diskPath := filepath.Join(skillsRoot, filepath.FromSlash(path))
+		diskContent, err := os.ReadFile(diskPath)
+		if err != nil {
+			matches = false
+			return fs.SkipAll
+		}
+		if !bytes.Equal(normalizeLineEndings(diskContent), normalizeLineEndings(embeddedContent)) {
+			matches = false
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if err != nil && err != fs.SkipAll {
 		return false
 	}
-	embeddedMeta, embeddedErrs := parseSkillMD(skillName, string(embeddedContent))
-	if len(embeddedErrs) > 0 || embeddedMeta == nil {
-		return false
-	}
-
-	return diskMeta.Version == embeddedMeta.Version
+	return matches
 }
 
 // extractSkillDir writes all files from embeddedFS/<skillName>/ into skillsRoot/<skillName>/.

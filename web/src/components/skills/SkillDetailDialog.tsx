@@ -78,19 +78,6 @@ export function SkillDetailDialog({ open, loading, skill, onClose, onSave, onDel
             ) : null}
           </DialogHeader>
           <DialogBody>
-            {skill.metadata ? (
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <span className="text-muted-foreground">{t("skills.triggerCondition")}</span>
-                  <span>{skill.metadata.assign_when}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">{t("skills.version")}</span>
-                  <span>v{skill.metadata.version}</span>
-                </div>
-              </div>
-            ) : null}
-
             {skill.validation_errors && skill.validation_errors.length > 0 ? (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
                 <p className="mb-1 text-sm font-medium text-amber-800">{t("skills.validationErrors")}</p>
