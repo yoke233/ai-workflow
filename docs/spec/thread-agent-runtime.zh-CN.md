@@ -5,6 +5,8 @@
 > 最后按代码核对：2026-03-13
 >
 > 对应实现：`internal/runtime/agent/thread_session_pool.go`、`internal/adapters/http/thread.go`、`internal/adapters/http/event.go`
+>
+> 补充边界说明：`thread.send` 当前仍是 best-effort routing，不是可靠 delivery；详见 `thread-message-delivery-deferred.zh-CN.md`
 
 ## 概述
 
@@ -97,6 +99,12 @@ joining → booting → active → paused → active (恢复)
 5. 如果某个 agent 转发失败，会额外发布 `thread.agent_failed` 事件
 
 未来如果要支持 `target_agent_id` / `@mention`，应在此基础上新增显式定向路由规则，而不是假定现状已支持。
+
+补充说明：
+
+- 当前“发送成功”只表示消息已写入 `thread_messages`
+- 当前没有消息级 delivery ledger，也没有自动重试语义
+- `thread.agent_failed` 是观测事件，不是可靠投递真相源
 
 ## ACP Session 生命周期
 

@@ -23,6 +23,7 @@ type Store interface {
 	core.AnalyticsStore
 	core.DAGTemplateStore
 	core.UsageStore
+	core.ToolCallAuditStore
 	core.FeatureManifestStore
 	core.ActionSignalStore
 	core.WorkItemAttachmentStore
@@ -68,5 +69,6 @@ type ThreadAgentRuntime interface {
 	InviteAgent(ctx context.Context, threadID int64, profileID string) (*core.ThreadAgentSession, error)
 	SendMessage(ctx context.Context, threadID int64, profileID string, message string) error
 	RemoveAgent(ctx context.Context, threadID int64, agentSessionID int64) error
+	CleanupThread(ctx context.Context, threadID int64) error
 	ActiveAgentProfileIDs(threadID int64) []string
 }

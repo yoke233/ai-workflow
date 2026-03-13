@@ -45,8 +45,35 @@ import { PermissionBar, type PermissionRequest } from "@/components/chat/Permiss
 import { ChatScrollTrack } from "@/components/chat/ChatScrollTrack";
 import { useChatFeed } from "@/components/chat/useChatFeed";
 import { Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogBody,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 const FEED_PAGE_SIZE = 100;
+const CRYSTALLIZE_SUMMARY_MESSAGE_LIMIT = 6;
+const CRYSTALLIZE_SUMMARY_MAX_CHARS = 220;
+
+function summarizeChatMessages(messages: ChatMessageView[]): string {
+  return messages
+    .filter((message) => message.content.trim().length > 0)
+    .slice(-CRYSTALLIZE_SUMMARY_MESSAGE_LIMIT)
+    .map((message) => {
+      const roleLabel = message.role === "user" ? "用户" : "助手";
+      const content = message.content.trim().replace(/\s+/g, " ");
+      const snippet = content.length > CRYSTALLIZE_SUMMARY_MAX_CHARS
+        ? `${content.slice(0, CRYSTALLIZE_SUMMARY_MAX_CHARS)}...`
+        : content;
+      return `${roleLabel}：${snippet}`;
+    })
+    .join("\n");
+}
 
 export function ChatPage() {
   const { t } = useTranslation();
@@ -88,6 +115,13 @@ export function ChatPage() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandFilter, setCommandFilter] = useState("");
   const [collapsedActivityGroups, setCollapsedActivityGroups] = useState<Record<string, boolean>>({});
+  const [crystallizeOpen, setCrystallizeOpen] = useState(false);
+  const [crystallizing, setCrystallizing] = useState(false);
+  const [threadTitleDraft, setThreadTitleDraft] = useState("");
+  const [threadSummaryDraft, setThreadSummaryDraft] = useState("");
+  const [workItemTitleDraft, setWorkItemTitleDraft] = useState("");
+  const [workItemBodyDraft, setWorkItemBodyDraft] = useState("");
+  const [createWorkItem, setCreateWorkItem] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const pendingChunkBuffersRef = useRef<Record<string, string>>({});
@@ -924,6 +958,63 @@ export function ChatPage() {
     [navigate, selectedProjectId],
   );
 
+  const openCrystallizeDialog = useCallback(() => {
+    if (!currentSession) {
+      return;
+    }
+    const nextThreadTitle = currentSession.title?.trim() || t("chat.crystallizeDefaultThreadTitle", {
+      defaultValue: "聊天结晶",
+    });
+    const nextThreadSummary = summarizeChatMessages(currentMessages);
+
+    setThreadTitleDraft(nextThreadTitle);
+    setThreadSummaryDraft(nextThreadSummary);
+    setWorkItemTitleDraft(nextThreadTitle);
+    setWorkItemBodyDraft("");
+    setCreateWorkItem(true);
+    setCrystallizeOpen(true);
+  }, [currentMessages, currentSession, t]);
+
+  const submitCrystallize = useCallback(async () => {
+    if (!currentSession) {
+      return;
+    }
+    const trimmedThreadTitle = threadTitleDraft.trim();
+    const trimmedThreadSummary = threadSummaryDraft.trim();
+    const trimmedWorkItemTitle = workItemTitleDraft.trim();
+    const trimmedWorkItemBody = workItemBodyDraft.trim();
+    const resolvedProjectId = currentSession.project_id ?? selectedProjectId ?? undefined;
+
+    setCrystallizing(true);
+    setError(null);
+    try {
+      const result = await apiClient.crystallizeChatSessionThread(currentSession.session_id, {
+        thread_title: trimmedThreadTitle || undefined,
+        thread_summary: trimmedThreadSummary || undefined,
+        work_item_title: createWorkItem ? (trimmedWorkItemTitle || trimmedThreadTitle || undefined) : undefined,
+        work_item_body: createWorkItem && trimmedWorkItemBody ? trimmedWorkItemBody : undefined,
+        project_id: resolvedProjectId,
+        create_work_item: createWorkItem,
+      });
+      setCrystallizeOpen(false);
+      navigate(`/threads/${result.thread.id}`);
+    } catch (submitError) {
+      setError(getErrorMessage(submitError));
+    } finally {
+      setCrystallizing(false);
+    }
+  }, [
+    apiClient,
+    createWorkItem,
+    currentSession,
+    navigate,
+    selectedProjectId,
+    threadSummaryDraft,
+    threadTitleDraft,
+    workItemBodyDraft,
+    workItemTitleDraft,
+  ]);
+
   const handleSetMode = useCallback(
     (modeId: string) => {
       if (!activeSession) return;
@@ -1025,10 +1116,13 @@ export function ChatPage() {
             driverLabel={currentDriverLabel}
             messageCount={currentMessages.length}
             submitting={submitting}
+            crystallizing={crystallizing}
             usage={currentUsage}
             usagePercent={currentUsagePercent}
             detailView={detailView}
             onDetailViewChange={setDetailView}
+            showCrystallize={Boolean(currentSession)}
+            onCrystallize={openCrystallizeDialog}
             onCloseSession={() => void closeSession()}
           />
         )}
@@ -1152,6 +1246,110 @@ export function ChatPage() {
           className="hidden"
           onChange={handleFileSelect}
         />
+
+        <Dialog open={crystallizeOpen} onClose={() => !crystallizing && setCrystallizeOpen(false)}>
+          <DialogHeader>
+            <DialogTitle>{t("chat.crystallizeDialogTitle", { defaultValue: "结晶为 Thread / Work Item" })}</DialogTitle>
+            <DialogDescription>
+              {t("chat.crystallizeDialogDesc", {
+                defaultValue: "把当前 chat session 固化为 thread，并按需同步创建 work item。",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <div className="space-y-2">
+              <label htmlFor="crystallize-thread-title" className="text-sm font-medium text-slate-900">
+                {t("chat.crystallizeThreadTitle", { defaultValue: "Thread 标题" })}
+              </label>
+              <Input
+                id="crystallize-thread-title"
+                value={threadTitleDraft}
+                onChange={(e) => setThreadTitleDraft(e.target.value)}
+                placeholder={t("chat.crystallizeThreadTitlePlaceholder", { defaultValue: "输入 thread 标题" })}
+                disabled={crystallizing}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="crystallize-thread-summary" className="text-sm font-medium text-slate-900">
+                {t("chat.crystallizeThreadSummary", { defaultValue: "Thread 摘要" })}
+              </label>
+              <Textarea
+                id="crystallize-thread-summary"
+                value={threadSummaryDraft}
+                onChange={(e) => setThreadSummaryDraft(e.target.value)}
+                placeholder={t("chat.crystallizeThreadSummaryPlaceholder", { defaultValue: "输入 thread 摘要" })}
+                disabled={crystallizing}
+                className="min-h-[140px]"
+              />
+            </div>
+            <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={createWorkItem}
+                onChange={(e) => setCreateWorkItem(e.target.checked)}
+                disabled={crystallizing}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              <span>{t("chat.crystallizeCreateWorkItem", { defaultValue: "同时创建 work item" })}</span>
+            </label>
+            {createWorkItem ? (
+              <>
+                <div className="space-y-2">
+                  <label htmlFor="crystallize-work-item-title" className="text-sm font-medium text-slate-900">
+                    {t("chat.crystallizeWorkItemTitle", { defaultValue: "Work item 标题" })}
+                  </label>
+                  <Input
+                    id="crystallize-work-item-title"
+                    value={workItemTitleDraft}
+                    onChange={(e) => setWorkItemTitleDraft(e.target.value)}
+                    placeholder={t("chat.crystallizeWorkItemTitlePlaceholder", { defaultValue: "输入 work item 标题" })}
+                    disabled={crystallizing}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="crystallize-work-item-body" className="text-sm font-medium text-slate-900">
+                    {t("chat.crystallizeWorkItemBody", { defaultValue: "Work item 内容" })}
+                  </label>
+                  <Textarea
+                    id="crystallize-work-item-body"
+                    value={workItemBodyDraft}
+                    onChange={(e) => setWorkItemBodyDraft(e.target.value)}
+                    placeholder={t("chat.crystallizeWorkItemBodyPlaceholder", {
+                      defaultValue: "可留空，后端会回退到 thread summary。",
+                    })}
+                    disabled={crystallizing}
+                    className="min-h-[120px]"
+                  />
+                </div>
+              </>
+            ) : null}
+          </DialogBody>
+          <DialogFooter>
+            <button
+              type="button"
+              className="h-10 rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => setCrystallizeOpen(false)}
+              disabled={crystallizing}
+            >
+              {t("common.cancel", { defaultValue: "取消" })}
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-10 items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => void submitCrystallize()}
+              disabled={crystallizing}
+            >
+              {crystallizing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t("chat.crystallizing", { defaultValue: "结晶中..." })}
+                </>
+              ) : (
+                t("chat.crystallizeConfirm", { defaultValue: "确认结晶" })
+              )}
+            </button>
+          </DialogFooter>
+        </Dialog>
       </div>
     </div>
   );

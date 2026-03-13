@@ -33,6 +33,9 @@ func (s *Store) ListEvents(ctx context.Context, filter core.EventFilter) ([]*cor
 	if filter.RunID != nil {
 		query = query.Where("exec_id = ?", *filter.RunID)
 	}
+	if filter.ThreadID != nil {
+		query = query.Where("json_extract(data, '$.thread_id') = ?", *filter.ThreadID)
+	}
 	if strings.TrimSpace(filter.SessionID) != "" {
 		query = query.Where("json_extract(data, '$.session_id') = ?", strings.TrimSpace(filter.SessionID))
 	}

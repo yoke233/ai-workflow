@@ -148,6 +148,32 @@ CREATE TABLE IF NOT EXISTS execution_probes (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS tool_call_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id INTEGER NOT NULL,
+    step_id INTEGER NOT NULL,
+    execution_id INTEGER NOT NULL REFERENCES executions(id),
+    session_id TEXT NOT NULL DEFAULT '',
+    tool_call_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT '',
+    started_at DATETIME,
+    finished_at DATETIME,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    exit_code INTEGER,
+    input_digest TEXT NOT NULL DEFAULT '',
+    output_digest TEXT NOT NULL DEFAULT '',
+    stdout_digest TEXT NOT NULL DEFAULT '',
+    stderr_digest TEXT NOT NULL DEFAULT '',
+    input_preview TEXT NOT NULL DEFAULT '',
+    output_preview TEXT NOT NULL DEFAULT '',
+    stdout_preview TEXT NOT NULL DEFAULT '',
+    stderr_preview TEXT NOT NULL DEFAULT '',
+    log_ref TEXT NOT NULL DEFAULT '',
+    redaction_level TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS agent_drivers (
     id TEXT PRIMARY KEY,
     launch_command TEXT NOT NULL,
@@ -189,6 +215,10 @@ CREATE INDEX IF NOT EXISTS idx_events_issue ON events(issue_id);
 CREATE INDEX IF NOT EXISTS idx_agent_contexts_lookup ON agent_contexts(agent_id, issue_id);
 CREATE INDEX IF NOT EXISTS idx_execution_probes_execution ON execution_probes(execution_id, id);
 CREATE INDEX IF NOT EXISTS idx_execution_probes_active ON execution_probes(execution_id, status, id);
+CREATE INDEX IF NOT EXISTS idx_tool_call_audits_execution ON tool_call_audits(execution_id, id);
+CREATE INDEX IF NOT EXISTS idx_tool_call_audits_tool_call ON tool_call_audits(tool_call_id);
+CREATE INDEX IF NOT EXISTS idx_tool_call_audits_step ON tool_call_audits(step_id, id);
+CREATE INDEX IF NOT EXISTS idx_tool_call_audits_issue ON tool_call_audits(issue_id, id);
 `
 
 func runMigrations(ctx context.Context, db *sql.DB) error {
@@ -302,6 +332,35 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
         )`,
 		`CREATE INDEX IF NOT EXISTS idx_execution_probes_execution ON execution_probes(execution_id, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_execution_probes_active ON execution_probes(execution_id, status, id)`,
+		`CREATE TABLE IF NOT EXISTS tool_call_audits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            issue_id INTEGER NOT NULL,
+            step_id INTEGER NOT NULL,
+            execution_id INTEGER NOT NULL REFERENCES executions(id),
+            session_id TEXT NOT NULL DEFAULT '',
+            tool_call_id TEXT NOT NULL,
+            tool_name TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT '',
+            started_at DATETIME,
+            finished_at DATETIME,
+            duration_ms INTEGER NOT NULL DEFAULT 0,
+            exit_code INTEGER,
+            input_digest TEXT NOT NULL DEFAULT '',
+            output_digest TEXT NOT NULL DEFAULT '',
+            stdout_digest TEXT NOT NULL DEFAULT '',
+            stderr_digest TEXT NOT NULL DEFAULT '',
+            input_preview TEXT NOT NULL DEFAULT '',
+            output_preview TEXT NOT NULL DEFAULT '',
+            stdout_preview TEXT NOT NULL DEFAULT '',
+            stderr_preview TEXT NOT NULL DEFAULT '',
+            log_ref TEXT NOT NULL DEFAULT '',
+            redaction_level TEXT NOT NULL DEFAULT '',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+		`CREATE INDEX IF NOT EXISTS idx_tool_call_audits_execution ON tool_call_audits(execution_id, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_tool_call_audits_tool_call ON tool_call_audits(tool_call_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_tool_call_audits_step ON tool_call_audits(step_id, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_tool_call_audits_issue ON tool_call_audits(issue_id, id)`,
 		// threads table (independent multi-participant discussion container).
 		`CREATE TABLE IF NOT EXISTS threads (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -321,10 +380,12 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
             sender_id TEXT NOT NULL DEFAULT '',
             role TEXT NOT NULL DEFAULT 'human',
             content TEXT NOT NULL DEFAULT '',
+            reply_to_msg_id INTEGER,
             metadata TEXT,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         )`,
 		`CREATE INDEX IF NOT EXISTS idx_thread_messages_thread ON thread_messages(thread_id, id)`,
+		`ALTER TABLE thread_messages ADD COLUMN reply_to_msg_id INTEGER`,
 		// thread_participants table.
 		`CREATE TABLE IF NOT EXISTS thread_participants (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

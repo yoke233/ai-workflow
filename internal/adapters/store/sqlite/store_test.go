@@ -116,7 +116,7 @@ func TestStepCRUD(t *testing.T) {
 	fID, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "f", Status: core.WorkItemOpen})
 
 	st := &core.Action{
-		WorkItemID:              fID,
+		WorkItemID:           fID,
 		Name:                 "implement",
 		Type:                 core.ActionExec,
 		Status:               core.ActionPending,
@@ -154,11 +154,11 @@ func TestStepCRUD(t *testing.T) {
 
 	// Second step with position
 	st2 := &core.Action{
-		WorkItemID:  fID,
-		Name:     "review",
-		Type:     core.ActionGate,
-		Status:   core.ActionPending,
-		Position: 1,
+		WorkItemID: fID,
+		Name:       "review",
+		Type:       core.ActionGate,
+		Status:     core.ActionPending,
+		Position:   1,
 	}
 	id2, _ := s.CreateAction(ctx, st2)
 	got2, _ := s.GetAction(ctx, id2)
@@ -255,6 +255,123 @@ func TestExecutionCRUD(t *testing.T) {
 	}
 }
 
+func TestToolCallAuditCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	workItemID, err := s.CreateWorkItem(ctx, &core.WorkItem{
+		Title:    "audit-work-item",
+		Status:   core.WorkItemOpen,
+		Priority: core.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	actionID, err := s.CreateAction(ctx, &core.Action{
+		WorkItemID: workItemID,
+		Name:       "audit-action",
+		Type:       core.ActionExec,
+		Status:     core.ActionPending,
+	})
+	if err != nil {
+		t.Fatalf("create action: %v", err)
+	}
+	runID, err := s.CreateRun(ctx, &core.Run{
+		ActionID:   actionID,
+		WorkItemID: workItemID,
+		Status:     core.RunCreated,
+		Attempt:    1,
+	})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	startedAt := time.Now().UTC().Add(-2 * time.Second)
+	createdAt := time.Now().UTC()
+	auditItem := &core.ToolCallAudit{
+		WorkItemID:     workItemID,
+		ActionID:       actionID,
+		RunID:          runID,
+		SessionID:      "session-1",
+		ToolCallID:     "call-1",
+		ToolName:       "functions.shell_command",
+		Status:         "started",
+		StartedAt:      &startedAt,
+		InputDigest:    "input-digest",
+		InputPreview:   "{\"token\":\"[REDACTED]\"}",
+		LogRef:         "2026/03/14/exec-1.jsonl",
+		RedactionLevel: "basic",
+		CreatedAt:      createdAt,
+	}
+	id, err := s.CreateToolCallAudit(ctx, auditItem)
+	if err != nil {
+		t.Fatalf("create tool call audit: %v", err)
+	}
+	if id == 0 {
+		t.Fatal("expected non-zero tool call audit id")
+	}
+
+	got, err := s.GetToolCallAudit(ctx, id)
+	if err != nil {
+		t.Fatalf("get tool call audit: %v", err)
+	}
+	if got.ToolCallID != "call-1" || got.Status != "started" {
+		t.Fatalf("unexpected audit item: %+v", got)
+	}
+
+	gotByToolCallID, err := s.GetToolCallAuditByToolCallID(ctx, runID, "call-1")
+	if err != nil {
+		t.Fatalf("get tool call audit by tool_call_id: %v", err)
+	}
+	if gotByToolCallID.ID != id {
+		t.Fatalf("unexpected audit id by tool_call_id: got %d want %d", gotByToolCallID.ID, id)
+	}
+
+	items, err := s.ListToolCallAuditsByRun(ctx, runID)
+	if err != nil {
+		t.Fatalf("list tool call audits by run: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != id {
+		t.Fatalf("unexpected audit list: %+v", items)
+	}
+
+	finishedAt := time.Now().UTC()
+	exitCode := 0
+	got.Status = "completed"
+	got.FinishedAt = &finishedAt
+	got.DurationMs = finishedAt.Sub(startedAt).Milliseconds()
+	got.ExitCode = &exitCode
+	got.OutputDigest = "output-digest"
+	got.StdoutDigest = "stdout-digest"
+	got.StderrDigest = "stderr-digest"
+	got.OutputPreview = "{\"stdout\":\"[REDACTED]\"}"
+	got.StdoutPreview = "[REDACTED]"
+	got.StderrPreview = "[REDACTED]"
+	if err := s.UpdateToolCallAudit(ctx, got); err != nil {
+		t.Fatalf("update tool call audit: %v", err)
+	}
+
+	updated, err := s.GetToolCallAudit(ctx, id)
+	if err != nil {
+		t.Fatalf("get updated tool call audit: %v", err)
+	}
+	if updated.Status != "completed" {
+		t.Fatalf("status = %q, want completed", updated.Status)
+	}
+	if updated.FinishedAt == nil {
+		t.Fatalf("expected finished_at to be set: %+v", updated)
+	}
+	if updated.ExitCode == nil || *updated.ExitCode != 0 {
+		t.Fatalf("exit_code = %v, want 0", updated.ExitCode)
+	}
+	if updated.OutputDigest != "output-digest" || updated.StdoutDigest != "stdout-digest" || updated.StderrDigest != "stderr-digest" {
+		t.Fatalf("unexpected digests after update: %+v", updated)
+	}
+	if updated.OutputPreview != "{\"stdout\":\"[REDACTED]\"}" || updated.StdoutPreview != "[REDACTED]" || updated.StderrPreview != "[REDACTED]" {
+		t.Fatalf("unexpected previews after update: %+v", updated)
+	}
+}
+
 func TestArtifactCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
@@ -331,7 +448,7 @@ func TestAgentContextCRUD(t *testing.T) {
 
 	ac := &core.AgentContext{
 		AgentID:      "claude-1",
-		WorkItemID:      fID,
+		WorkItemID:   fID,
 		SystemPrompt: "You are a developer",
 		TurnCount:    0,
 	}
@@ -407,7 +524,7 @@ func TestEventListFiltersBySessionID(t *testing.T) {
 	fID, _ := s.CreateWorkItem(ctx, &core.WorkItem{Title: "f", Status: core.WorkItemOpen})
 
 	if _, err := s.CreateEvent(ctx, &core.Event{
-		Type:    core.EventChatOutput,
+		Type:       core.EventChatOutput,
 		WorkItemID: fID,
 		Data: map[string]any{
 			"session_id": "session-a",
@@ -418,7 +535,7 @@ func TestEventListFiltersBySessionID(t *testing.T) {
 		t.Fatalf("create chat event a: %v", err)
 	}
 	if _, err := s.CreateEvent(ctx, &core.Event{
-		Type:    core.EventChatOutput,
+		Type:       core.EventChatOutput,
 		WorkItemID: fID,
 		Data: map[string]any{
 			"session_id": "session-b",
@@ -441,6 +558,47 @@ func TestEventListFiltersBySessionID(t *testing.T) {
 	}
 	if got, _ := events[0].Data["session_id"].(string); got != "session-a" {
 		t.Fatalf("expected session-a, got %q", got)
+	}
+}
+
+func TestEventListFiltersByThreadID(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	threadID := int64(101)
+	otherThreadID := int64(202)
+
+	if _, err := s.CreateEvent(ctx, &core.Event{
+		Type: core.EventThreadMessage,
+		Data: map[string]any{
+			"thread_id": threadID,
+			"message":   "hello",
+		},
+	}); err != nil {
+		t.Fatalf("create thread event a: %v", err)
+	}
+	if _, err := s.CreateEvent(ctx, &core.Event{
+		Type: core.EventThreadMessage,
+		Data: map[string]any{
+			"thread_id": otherThreadID,
+			"message":   "world",
+		},
+	}); err != nil {
+		t.Fatalf("create thread event b: %v", err)
+	}
+
+	events, err := s.ListEvents(ctx, core.EventFilter{
+		ThreadID: &threadID,
+		Types:    []core.EventType{core.EventThreadMessage},
+	})
+	if err != nil {
+		t.Fatalf("list events by thread: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if got, _ := events[0].Data["thread_id"].(float64); int64(got) != threadID {
+		t.Fatalf("expected thread_id=%d, got %#v", threadID, events[0].Data["thread_id"])
 	}
 }
 
@@ -633,10 +791,10 @@ func TestStepSignalCRUD(t *testing.T) {
 		ActionID:   stepID,
 		WorkItemID: issueID,
 		RunID:      100,
-		Type:    core.SignalComplete,
-		Source:  core.SignalSourceAgent,
-		Payload: map[string]any{"summary": "did stuff"},
-		Actor:   "agent",
+		Type:       core.SignalComplete,
+		Source:     core.SignalSourceAgent,
+		Payload:    map[string]any{"summary": "did stuff"},
+		Actor:      "agent",
 	}
 	id, err := s.CreateActionSignal(ctx, sig)
 	if err != nil {

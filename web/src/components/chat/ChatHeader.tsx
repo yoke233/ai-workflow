@@ -9,10 +9,13 @@ interface ChatHeaderProps {
   driverLabel: string;
   messageCount: number;
   submitting: boolean;
+  crystallizing?: boolean;
   usage: ChatActivityView | undefined;
   usagePercent: number | null;
   detailView: "chat" | "events";
   onDetailViewChange: (view: "chat" | "events") => void;
+  showCrystallize?: boolean;
+  onCrystallize?: () => void;
   onCloseSession: () => void;
 }
 
@@ -22,10 +25,13 @@ export function ChatHeader(props: ChatHeaderProps) {
     driverLabel,
     messageCount,
     submitting,
+    crystallizing = false,
     usage,
     usagePercent,
     detailView,
     onDetailViewChange,
+    showCrystallize = false,
+    onCrystallize,
     onCloseSession,
   } = props;
   const { t } = useTranslation();
@@ -107,6 +113,18 @@ export function ChatHeader(props: ChatHeaderProps) {
               {formatUsageValue(usage.usageUsed)} / {formatUsageValue(usage.usageSize)}
             </span>
           </div>
+        ) : null}
+        {showCrystallize ? (
+          <button
+            type="button"
+            className="h-8 rounded-md border px-3 text-[13px] font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={crystallizing}
+            onClick={onCrystallize}
+          >
+            {crystallizing
+              ? t("chat.crystallizing", { defaultValue: "结晶中..." })
+              : t("chat.crystallize", { defaultValue: "结晶" })}
+          </button>
         ) : null}
         <button
           type="button"

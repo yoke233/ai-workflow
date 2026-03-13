@@ -23,6 +23,8 @@ import type {
   ChatSessionDetail,
   ChatSessionSummary,
   ChatStatusResponse,
+  CrystallizeChatSessionThreadRequest,
+  CrystallizeChatSessionThreadResponse,
   CreateResourceBindingRequest,
   CreateProjectRequest,
   CreateWorkItemRequest,
@@ -213,6 +215,10 @@ export interface ApiClient {
   chat(body: ChatRequest): Promise<ChatResponse>;
   listChatSessions(): Promise<ChatSessionSummary[]>;
   getChatSession(sessionId: string): Promise<ChatSessionDetail>;
+  crystallizeChatSessionThread(
+    sessionId: string,
+    body: CrystallizeChatSessionThreadRequest,
+  ): Promise<CrystallizeChatSessionThreadResponse>;
   cancelChat(sessionId: string): Promise<{ session_id: string; status: string }>;
   closeChat(sessionId: string): Promise<{ session_id: string; status: string }>;
   getChatStatus(sessionId: string): Promise<ChatStatusResponse>;
@@ -803,6 +809,12 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     getChatSession: (sessionId) =>
       request<ChatSessionDetail>({
         path: `/chat/${encodeURIComponent(sessionId)}`,
+      }),
+    crystallizeChatSessionThread: (sessionId, body) =>
+      request<CrystallizeChatSessionThreadResponse, CrystallizeChatSessionThreadRequest>({
+        path: `/chat/sessions/${encodeURIComponent(sessionId)}/crystallize-thread`,
+        method: "POST",
+        body,
       }),
     cancelChat: (sessionId) =>
       request<{ session_id: string; status: string }>({

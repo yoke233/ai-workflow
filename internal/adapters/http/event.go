@@ -53,6 +53,27 @@ func (h *Handler) listWorkItemEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, events)
 }
 
+func (h *Handler) listThreadEvents(w http.ResponseWriter, r *http.Request) {
+	threadID, ok := urlParamInt64(r, "threadID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid thread ID", "BAD_ID")
+		return
+	}
+
+	filter := buildEventFilter(r)
+	filter.ThreadID = &threadID
+
+	events, err := h.store.ListEvents(r.Context(), filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+	if events == nil {
+		events = []*core.Event{}
+	}
+	writeJSON(w, http.StatusOK, events)
+}
+
 func buildEventFilter(r *http.Request) core.EventFilter {
 	filter := core.EventFilter{
 		Limit:  queryInt(r, "limit", 100),
@@ -67,6 +88,16 @@ func buildEventFilter(r *http.Request) core.EventFilter {
 	if s := r.URL.Query().Get("step_id"); s != "" {
 		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
 			filter.ActionID = &id
+		}
+	}
+	if s := r.URL.Query().Get("run_id"); s != "" {
+		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
+			filter.RunID = &id
+		}
+	}
+	if s := r.URL.Query().Get("thread_id"); s != "" {
+		if id, err := strconv.ParseInt(s, 10, 64); err == nil {
+			filter.ThreadID = &id
 		}
 	}
 	if s := r.URL.Query().Get("types"); s != "" {
@@ -573,11 +604,12 @@ type wsErrorPayload struct {
 // ---------------------------------------------------------------------------
 
 type wsThreadSendRequest struct {
-	RequestID     string `json:"request_id,omitempty"`
-	ThreadID      int64  `json:"thread_id"`
-	Message       string `json:"message"`
-	SenderID      string `json:"sender_id,omitempty"`
-	TargetAgentID string `json:"target_agent_id,omitempty"`
+	RequestID        string `json:"request_id,omitempty"`
+	ThreadID         int64  `json:"thread_id"`
+	Message          string `json:"message"`
+	SenderID         string `json:"sender_id,omitempty"`
+	TargetAgentID    string `json:"target_agent_id,omitempty"`
+	ReplyToMessageID *int64 `json:"reply_to_msg_id,omitempty"`
 }
 
 type wsThreadAckPayload struct {
@@ -636,100 +668,40 @@ func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error)
 		return
 	}
 
-	// Validate thread exists.
-	thread, err := h.store.GetThread(context.Background(), req.ThreadID)
-	if err != nil {
-		if err == core.ErrNotFound {
-			_ = writeJSON(wsOutboundMessage{
-				Type: "thread.error",
-				Data: wsErrorPayload{
-					Code:      "THREAD_NOT_FOUND",
-					RequestID: reqID,
-					Error:     "thread not found",
-				},
-			})
-			return
-		}
-		_ = writeJSON(wsOutboundMessage{
-			Type: "thread.error",
-			Data: wsErrorPayload{
-				Code:      "THREAD_SEND_FAILED",
-				RequestID: reqID,
-				Error:     err.Error(),
-			},
-		})
-		return
-	}
-
-	var targetProfileIDs []string
-	if targetAgentID != "" {
-		if h.threadPool == nil {
-			_ = writeJSON(wsOutboundMessage{
-				Type: "thread.error",
-				Data: wsErrorPayload{
-					Code:      "TARGET_AGENT_UNAVAILABLE",
-					RequestID: reqID,
-					Error:     "thread agent runtime is not configured",
-				},
-			})
-			return
-		}
-		activeProfileIDs := h.threadPool.ActiveAgentProfileIDs(req.ThreadID)
-		for _, profileID := range activeProfileIDs {
-			if profileID == targetAgentID {
-				targetProfileIDs = []string{targetAgentID}
-				break
-			}
-		}
-		if len(targetProfileIDs) == 0 {
-			_ = writeJSON(wsOutboundMessage{
-				Type: "thread.error",
-				Data: wsErrorPayload{
-					Code:      "TARGET_AGENT_UNAVAILABLE",
-					RequestID: reqID,
-					Error:     "target agent is not active in this thread",
-				},
-			})
-			return
-		}
-	}
-
-	// Save human message to store.
-	humanMsg := &core.ThreadMessage{
-		ThreadID: req.ThreadID,
-		SenderID: strings.TrimSpace(req.SenderID),
-		Role:     "human",
-		Content:  req.Message,
-	}
-	if targetAgentID != "" {
-		humanMsg.Metadata = map[string]any{
-			"target_agent_id": targetAgentID,
-		}
-	}
-	if _, err := h.store.CreateThreadMessage(context.Background(), humanMsg); err != nil {
-		_ = writeJSON(wsOutboundMessage{
-			Type: "thread.error",
-			Data: wsErrorPayload{
-				Code:      "THREAD_SEND_FAILED",
-				RequestID: reqID,
-				Error:     err.Error(),
-			},
-		})
-		return
-	}
-
-	// Publish thread message event for real-time broadcast.
-	h.bus.Publish(context.Background(), core.Event{
-		Type: core.EventThreadMessage,
-		Data: map[string]any{
-			"thread_id":       req.ThreadID,
-			"message":         req.Message,
-			"sender_id":       strings.TrimSpace(req.SenderID),
-			"role":            "human",
-			"target_agent_id": targetAgentID,
-		},
-		Timestamp: time.Now().UTC(),
+	_, _, err := h.createThreadMessageAndRoute(context.Background(), threadMessageInput{
+		ThreadID:         req.ThreadID,
+		SenderID:         req.SenderID,
+		Role:             "human",
+		Content:          req.Message,
+		ReplyToMessageID: req.ReplyToMessageID,
+		TargetAgentID:    targetAgentID,
 	})
+	if err != nil {
+		if apiErr, ok := err.(*threadMessageAPIError); ok {
+			statusCode := apiErr.Code
+			if statusCode == "" {
+				statusCode = "THREAD_SEND_FAILED"
+			}
+			_ = writeJSON(wsOutboundMessage{
+				Type: "thread.error",
+				Data: wsErrorPayload{
+					Code:      statusCode,
+					RequestID: reqID,
+					Error:     apiErr.Message,
+				},
+			})
+			return
+		}
+		_ = writeJSON(wsOutboundMessage{
+			Type: "thread.error",
+			Data: wsErrorPayload{
+				Code:      "THREAD_SEND_FAILED",
+				RequestID: reqID,
+				Error:     err.Error(),
+			},
+		})
+		return
+	}
 
 	_ = writeJSON(wsOutboundMessage{
 		Type: "thread.ack",
@@ -739,31 +711,6 @@ func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error)
 			Status:    "accepted",
 		},
 	})
-
-	// Route message to agents only when explicitly mentioned, or when thread
-	// routing mode is switched to broadcast for small-group collaboration.
-	if h.threadPool != nil {
-		profileIDs := targetProfileIDs
-		if len(profileIDs) == 0 && readThreadAgentRoutingMode(thread) == "broadcast" {
-			profileIDs = h.threadPool.ActiveAgentProfileIDs(req.ThreadID)
-		}
-		for _, pid := range profileIDs {
-			go func(profileID string) {
-				routedMessage := stripLeadingThreadMention(req.Message, profileID, targetAgentID)
-				if err := h.threadPool.SendMessage(context.Background(), req.ThreadID, profileID, routedMessage); err != nil {
-					h.bus.Publish(context.Background(), core.Event{
-						Type: core.EventThreadAgentFailed,
-						Data: map[string]any{
-							"thread_id":  req.ThreadID,
-							"profile_id": profileID,
-							"error":      err.Error(),
-						},
-						Timestamp: time.Now().UTC(),
-					})
-				}
-			}(pid)
-		}
-	}
 }
 
 func stripLeadingThreadMention(message string, profileID string, targetAgentID string) string {
@@ -772,7 +719,7 @@ func stripLeadingThreadMention(message string, profileID string, targetAgentID s
 		return message
 	}
 
-	prefix := "@"+targetAgentID
+	prefix := "@" + targetAgentID
 	if !strings.HasPrefix(trimmed, prefix) {
 		return message
 	}
@@ -801,6 +748,27 @@ func (h *Handler) handleWSSubscribeThread(msg wsMessage, writeJSON func(v any) e
 		return
 	}
 
+	if _, err := h.store.GetThread(context.Background(), req.ThreadID); err != nil {
+		if err == core.ErrNotFound {
+			_ = writeJSON(wsOutboundMessage{
+				Type: "thread.error",
+				Data: wsErrorPayload{
+					Code:  "THREAD_NOT_FOUND",
+					Error: "thread not found",
+				},
+			})
+			return
+		}
+		_ = writeJSON(wsOutboundMessage{
+			Type: "thread.error",
+			Data: wsErrorPayload{
+				Code:  "STORE_ERROR",
+				Error: err.Error(),
+			},
+		})
+		return
+	}
+
 	state.subscribeThread(req.ThreadID)
 
 	_ = writeJSON(wsOutboundMessage{
@@ -824,6 +792,27 @@ func (h *Handler) handleWSUnsubscribeThread(msg wsMessage, writeJSON func(v any)
 			Data: wsErrorPayload{
 				Code:  "BAD_REQUEST",
 				Error: "thread_id is required",
+			},
+		})
+		return
+	}
+
+	if _, err := h.store.GetThread(context.Background(), req.ThreadID); err != nil {
+		if err == core.ErrNotFound {
+			_ = writeJSON(wsOutboundMessage{
+				Type: "thread.error",
+				Data: wsErrorPayload{
+					Code:  "THREAD_NOT_FOUND",
+					Error: "thread not found",
+				},
+			})
+			return
+		}
+		_ = writeJSON(wsOutboundMessage{
+			Type: "thread.error",
+			Data: wsErrorPayload{
+				Code:  "STORE_ERROR",
+				Error: err.Error(),
 			},
 		})
 		return

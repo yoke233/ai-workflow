@@ -407,6 +407,23 @@ export interface ChatSessionDetail extends ChatSessionSummary {
   modes?: SessionModeState;
 }
 
+export interface CrystallizeChatSessionThreadRequest {
+  thread_title?: string;
+  thread_summary?: string;
+  work_item_title?: string;
+  work_item_body?: string;
+  project_id?: number;
+  participant_user_ids?: string[];
+  create_work_item?: boolean;
+  owner_id?: string;
+}
+
+export interface CrystallizeChatSessionThreadResponse {
+  thread: Thread;
+  work_item?: WorkItem;
+  participants: ThreadParticipant[];
+}
+
 export interface ChatStatusResponse {
   session_id: string;
   status: "not_found" | "alive" | "running" | string;
@@ -737,6 +754,7 @@ export interface Thread {
 export interface CreateThreadRequest {
   title: string;
   owner_id?: string;
+  summary?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -754,6 +772,7 @@ export interface ThreadMessage {
   sender_id: string;
   role: string;
   content: string;
+  reply_to_msg_id?: number;
   metadata?: Record<string, unknown>;
   created_at: string;
 }
@@ -762,6 +781,8 @@ export interface CreateThreadMessageRequest {
   sender_id?: string;
   role?: string;
   content: string;
+  reply_to_msg_id?: number;
+  target_agent_id?: string;
   metadata?: Record<string, unknown>;
 }
 

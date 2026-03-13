@@ -116,6 +116,49 @@ func TestThreadTitleRequired(t *testing.T) {
 	}
 }
 
+func TestThreadRejectsInvalidStatus(t *testing.T) {
+	s := newTestStore(t)
+
+	_, err := s.CreateThread(context.Background(), &core.Thread{
+		Title:  "invalid-thread",
+		Status: core.ThreadStatus("broken"),
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid thread status")
+	}
+}
+
+func TestCreateThreadWithParticipants(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	thread := &core.Thread{
+		Title:   "tx-thread",
+		Status:  core.ThreadActive,
+		OwnerID: "owner-1",
+	}
+	participants := []*core.ThreadParticipant{
+		{UserID: "owner-1", Role: "owner"},
+		{UserID: "member-1", Role: "member"},
+		{UserID: "member-1", Role: "member"},
+	}
+
+	if err := s.CreateThreadWithParticipants(ctx, thread, participants); err != nil {
+		t.Fatalf("create thread with participants: %v", err)
+	}
+	if thread.ID <= 0 {
+		t.Fatal("expected persisted thread id")
+	}
+
+	listed, err := s.ListThreadParticipants(ctx, thread.ID)
+	if err != nil {
+		t.Fatalf("list participants: %v", err)
+	}
+	if len(listed) != 2 {
+		t.Fatalf("expected 2 unique participants, got %d", len(listed))
+	}
+}
+
 func TestThreadMessageCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
@@ -362,7 +405,7 @@ func TestThreadAgentSessionCRUD(t *testing.T) {
 		ThreadID:       threadID,
 		AgentProfileID: "worker-claude",
 		ACPSessionID:   "acp-sess-001",
-		Status:         "active",
+		Status:         core.ThreadAgentActive,
 	}
 	sessID, err := s.CreateThreadAgentSession(ctx, sess)
 	if err != nil {
@@ -377,7 +420,7 @@ func TestThreadAgentSessionCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get session: %v", err)
 	}
-	if got.AgentProfileID != "worker-claude" || got.Status != "active" {
+	if got.AgentProfileID != "worker-claude" || got.Status != core.ThreadAgentActive {
 		t.Fatalf("unexpected session: %+v", got)
 	}
 
@@ -391,12 +434,12 @@ func TestThreadAgentSessionCRUD(t *testing.T) {
 	}
 
 	// Update status.
-	got.Status = "left"
+	got.Status = core.ThreadAgentLeft
 	if err := s.UpdateThreadAgentSession(ctx, got); err != nil {
 		t.Fatalf("update session: %v", err)
 	}
 	got2, _ := s.GetThreadAgentSession(ctx, sessID)
-	if got2.Status != "left" {
+	if got2.Status != core.ThreadAgentLeft {
 		t.Fatalf("expected status 'left', got %q", got2.Status)
 	}
 
@@ -410,11 +453,66 @@ func TestThreadAgentSessionCRUD(t *testing.T) {
 	}
 
 	// Duplicate profile per thread should fail.
-	s1 := &core.ThreadAgentSession{ThreadID: threadID, AgentProfileID: "dup-prof", Status: "active"}
+	s1 := &core.ThreadAgentSession{ThreadID: threadID, AgentProfileID: "dup-prof", Status: core.ThreadAgentActive}
 	s.CreateThreadAgentSession(ctx, s1)
-	s2 := &core.ThreadAgentSession{ThreadID: threadID, AgentProfileID: "dup-prof", Status: "active"}
+	s2 := &core.ThreadAgentSession{ThreadID: threadID, AgentProfileID: "dup-prof", Status: core.ThreadAgentActive}
 	if _, err := s.CreateThreadAgentSession(ctx, s2); err == nil {
 		t.Fatal("expected error for duplicate profile per thread")
+	}
+}
+
+func TestThreadAgentSessionRejectsInvalidStatus(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	threadID, err := s.CreateThread(ctx, &core.Thread{Title: "agent-invalid-status"})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+
+	_, err = s.CreateThreadAgentSession(ctx, &core.ThreadAgentSession{
+		ThreadID:       threadID,
+		AgentProfileID: "worker-bad",
+		Status:         core.ThreadAgentStatus("broken"),
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid thread agent status")
+	}
+}
+
+func TestCreateThreadAgentSessionWithParticipant(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	threadID, err := s.CreateThread(ctx, &core.Thread{Title: "agent-tx"})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+
+	sess := &core.ThreadAgentSession{
+		ThreadID:       threadID,
+		AgentProfileID: "worker-1",
+		Status:         core.ThreadAgentActive,
+	}
+	participant := &core.ThreadParticipant{
+		ThreadID: threadID,
+		UserID:   "worker-1",
+		Role:     "agent",
+	}
+
+	if err := s.CreateThreadAgentSessionWithParticipant(ctx, sess, participant); err != nil {
+		t.Fatalf("create thread agent session with participant: %v", err)
+	}
+	if sess.ID <= 0 {
+		t.Fatal("expected persisted session id")
+	}
+
+	participants, err := s.ListThreadParticipants(ctx, threadID)
+	if err != nil {
+		t.Fatalf("list participants: %v", err)
+	}
+	if len(participants) != 1 || participants[0].UserID != "worker-1" {
+		t.Fatalf("unexpected participants: %+v", participants)
 	}
 }
 

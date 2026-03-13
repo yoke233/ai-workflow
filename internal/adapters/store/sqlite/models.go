@@ -179,7 +179,6 @@ type DeliverableModel struct {
 
 func (DeliverableModel) TableName() string { return "artifacts" }
 
-
 type AgentContextModel struct {
 	ID               int64      `gorm:"column:id;primaryKey;autoIncrement"`
 	AgentID          string     `gorm:"column:agent_id;not null"`
@@ -244,35 +243,35 @@ type AgentDriverModel struct {
 func (AgentDriverModel) TableName() string { return "agent_drivers" }
 
 type AgentProfileModel struct {
-	ID               string                   `gorm:"column:id;primaryKey"`
-	Name             string                   `gorm:"column:name;not null"`
-	DriverID         string                   `gorm:"column:driver_id;not null"`
-	Role             string                   `gorm:"column:role;not null"`
-	Capabilities     JSONField[[]string]      `gorm:"column:capabilities;type:text"`
+	ID               string                        `gorm:"column:id;primaryKey"`
+	Name             string                        `gorm:"column:name;not null"`
+	DriverID         string                        `gorm:"column:driver_id;not null"`
+	Role             string                        `gorm:"column:role;not null"`
+	Capabilities     JSONField[[]string]           `gorm:"column:capabilities;type:text"`
 	ActionsAllowed   JSONField[[]core.AgentAction] `gorm:"column:actions_allowed;type:text"`
-	PromptTemplate   string                   `gorm:"column:prompt_template;not null"`
-	Skills           JSONField[[]string]      `gorm:"column:skills;type:text"`
-	SessionReuse     bool                     `gorm:"column:session_reuse;not null"`
-	SessionMaxTurns  int                      `gorm:"column:session_max_turns;not null"`
-	SessionIdleTTLMs int64                    `gorm:"column:session_idle_ttl_ms;not null"`
-	MCPEnabled       bool                     `gorm:"column:mcp_enabled;not null"`
-	MCPTools         JSONField[[]string]      `gorm:"column:mcp_tools;type:text"`
-	CreatedAt        time.Time                `gorm:"column:created_at"`
-	UpdatedAt        time.Time                `gorm:"column:updated_at"`
+	PromptTemplate   string                        `gorm:"column:prompt_template;not null"`
+	Skills           JSONField[[]string]           `gorm:"column:skills;type:text"`
+	SessionReuse     bool                          `gorm:"column:session_reuse;not null"`
+	SessionMaxTurns  int                           `gorm:"column:session_max_turns;not null"`
+	SessionIdleTTLMs int64                         `gorm:"column:session_idle_ttl_ms;not null"`
+	MCPEnabled       bool                          `gorm:"column:mcp_enabled;not null"`
+	MCPTools         JSONField[[]string]           `gorm:"column:mcp_tools;type:text"`
+	CreatedAt        time.Time                     `gorm:"column:created_at"`
+	UpdatedAt        time.Time                     `gorm:"column:updated_at"`
 }
 
 func (AgentProfileModel) TableName() string { return "agent_profiles" }
 
 type DAGTemplateModel struct {
-	ID          int64                             `gorm:"column:id;primaryKey;autoIncrement"`
-	Name        string                            `gorm:"column:name;not null"`
-	Description string                            `gorm:"column:description;not null"`
-	ProjectID   *int64                            `gorm:"column:project_id"`
-	Tags        JSONField[[]string]               `gorm:"column:tags;type:text"`
-	Metadata    JSONField[map[string]string]      `gorm:"column:metadata;type:text"`
+	ID          int64                               `gorm:"column:id;primaryKey;autoIncrement"`
+	Name        string                              `gorm:"column:name;not null"`
+	Description string                              `gorm:"column:description;not null"`
+	ProjectID   *int64                              `gorm:"column:project_id"`
+	Tags        JSONField[[]string]                 `gorm:"column:tags;type:text"`
+	Metadata    JSONField[map[string]string]        `gorm:"column:metadata;type:text"`
 	Steps       JSONField[[]core.DAGTemplateAction] `gorm:"column:steps;type:text"`
-	CreatedAt   time.Time                         `gorm:"column:created_at"`
-	UpdatedAt   time.Time                         `gorm:"column:updated_at"`
+	CreatedAt   time.Time                           `gorm:"column:created_at"`
+	UpdatedAt   time.Time                           `gorm:"column:updated_at"`
 }
 
 func (DAGTemplateModel) TableName() string { return "dag_templates" }
@@ -297,6 +296,34 @@ type UsageRecordModel struct {
 }
 
 func (UsageRecordModel) TableName() string { return "usage_records" }
+
+type ToolCallAuditModel struct {
+	ID             int64      `gorm:"column:id;primaryKey;autoIncrement"`
+	IssueID        int64      `gorm:"column:issue_id;not null"`
+	StepID         int64      `gorm:"column:step_id;not null"`
+	ExecutionID    int64      `gorm:"column:execution_id;not null"`
+	SessionID      string     `gorm:"column:session_id;not null"`
+	ToolCallID     string     `gorm:"column:tool_call_id;not null"`
+	ToolName       string     `gorm:"column:tool_name;not null"`
+	Status         string     `gorm:"column:status;not null"`
+	StartedAt      *time.Time `gorm:"column:started_at"`
+	FinishedAt     *time.Time `gorm:"column:finished_at"`
+	DurationMs     int64      `gorm:"column:duration_ms;not null"`
+	ExitCode       *int       `gorm:"column:exit_code"`
+	InputDigest    string     `gorm:"column:input_digest;not null"`
+	OutputDigest   string     `gorm:"column:output_digest;not null"`
+	StdoutDigest   string     `gorm:"column:stdout_digest;not null"`
+	StderrDigest   string     `gorm:"column:stderr_digest;not null"`
+	InputPreview   string     `gorm:"column:input_preview;not null"`
+	OutputPreview  string     `gorm:"column:output_preview;not null"`
+	StdoutPreview  string     `gorm:"column:stdout_preview;not null"`
+	StderrPreview  string     `gorm:"column:stderr_preview;not null"`
+	LogRef         string     `gorm:"column:log_ref;not null"`
+	RedactionLevel string     `gorm:"column:redaction_level;not null"`
+	CreatedAt      time.Time  `gorm:"column:created_at"`
+}
+
+func (ToolCallAuditModel) TableName() string { return "tool_call_audits" }
 
 // ── Thread ──
 
@@ -346,13 +373,14 @@ func (m *ThreadModel) toCore() *core.Thread {
 }
 
 type ThreadMessageModel struct {
-	ID        int64                     `gorm:"column:id;primaryKey;autoIncrement"`
-	ThreadID  int64                     `gorm:"column:thread_id;not null"`
-	SenderID  string                    `gorm:"column:sender_id;not null"`
-	Role      string                    `gorm:"column:role;not null"`
-	Content   string                    `gorm:"column:content;not null"`
-	Metadata  JSONField[map[string]any] `gorm:"column:metadata;type:text"`
-	CreatedAt time.Time                 `gorm:"column:created_at"`
+	ID               int64                     `gorm:"column:id;primaryKey;autoIncrement"`
+	ThreadID         int64                     `gorm:"column:thread_id;not null"`
+	SenderID         string                    `gorm:"column:sender_id;not null"`
+	Role             string                    `gorm:"column:role;not null"`
+	Content          string                    `gorm:"column:content;not null"`
+	ReplyToMessageID *int64                    `gorm:"column:reply_to_msg_id"`
+	Metadata         JSONField[map[string]any] `gorm:"column:metadata;type:text"`
+	CreatedAt        time.Time                 `gorm:"column:created_at"`
 }
 
 func (ThreadMessageModel) TableName() string { return "thread_messages" }
@@ -362,13 +390,14 @@ func (m *ThreadMessageModel) toCore() *core.ThreadMessage {
 		return nil
 	}
 	return &core.ThreadMessage{
-		ID:        m.ID,
-		ThreadID:  m.ThreadID,
-		SenderID:  m.SenderID,
-		Role:      m.Role,
-		Content:   m.Content,
-		Metadata:  m.Metadata.Data,
-		CreatedAt: m.CreatedAt,
+		ID:               m.ID,
+		ThreadID:         m.ThreadID,
+		SenderID:         m.SenderID,
+		Role:             m.Role,
+		Content:          m.Content,
+		ReplyToMessageID: m.ReplyToMessageID,
+		Metadata:         m.Metadata.Data,
+		CreatedAt:        m.CreatedAt,
 	}
 }
 
@@ -448,7 +477,7 @@ func (m *ThreadAgentSessionModel) toCore() *core.ThreadAgentSession {
 		ThreadID:          m.ThreadID,
 		AgentProfileID:    m.AgentProfileID,
 		ACPSessionID:      m.ACPSessionID,
-		Status:            m.Status,
+		Status:            core.ThreadAgentStatus(m.Status),
 		TurnCount:         m.TurnCount,
 		TotalInputTokens:  m.TotalInputTokens,
 		TotalOutputTokens: m.TotalOutputTokens,
@@ -853,7 +882,6 @@ func (m *DeliverableModel) toCore() *core.Deliverable {
 	}
 }
 
-
 func agentContextModelFromCore(ac *core.AgentContext) *AgentContextModel {
 	if ac == nil {
 		return nil
@@ -1141,5 +1169,67 @@ func (m *UsageRecordModel) toCore() *core.UsageRecord {
 		TotalTokens:      m.TotalTokens,
 		DurationMs:       m.DurationMs,
 		CreatedAt:        m.CreatedAt,
+	}
+}
+
+func toolCallAuditModelFromCore(a *core.ToolCallAudit) *ToolCallAuditModel {
+	if a == nil {
+		return nil
+	}
+	return &ToolCallAuditModel{
+		ID:             a.ID,
+		IssueID:        a.WorkItemID,
+		StepID:         a.ActionID,
+		ExecutionID:    a.RunID,
+		SessionID:      a.SessionID,
+		ToolCallID:     a.ToolCallID,
+		ToolName:       a.ToolName,
+		Status:         a.Status,
+		StartedAt:      a.StartedAt,
+		FinishedAt:     a.FinishedAt,
+		DurationMs:     a.DurationMs,
+		ExitCode:       a.ExitCode,
+		InputDigest:    a.InputDigest,
+		OutputDigest:   a.OutputDigest,
+		StdoutDigest:   a.StdoutDigest,
+		StderrDigest:   a.StderrDigest,
+		InputPreview:   a.InputPreview,
+		OutputPreview:  a.OutputPreview,
+		StdoutPreview:  a.StdoutPreview,
+		StderrPreview:  a.StderrPreview,
+		LogRef:         a.LogRef,
+		RedactionLevel: a.RedactionLevel,
+		CreatedAt:      a.CreatedAt,
+	}
+}
+
+func (m *ToolCallAuditModel) toCore() *core.ToolCallAudit {
+	if m == nil {
+		return nil
+	}
+	return &core.ToolCallAudit{
+		ID:             m.ID,
+		WorkItemID:     m.IssueID,
+		ActionID:       m.StepID,
+		RunID:          m.ExecutionID,
+		SessionID:      m.SessionID,
+		ToolCallID:     m.ToolCallID,
+		ToolName:       m.ToolName,
+		Status:         m.Status,
+		StartedAt:      m.StartedAt,
+		FinishedAt:     m.FinishedAt,
+		DurationMs:     m.DurationMs,
+		ExitCode:       m.ExitCode,
+		InputDigest:    m.InputDigest,
+		OutputDigest:   m.OutputDigest,
+		StdoutDigest:   m.StdoutDigest,
+		StderrDigest:   m.StderrDigest,
+		InputPreview:   m.InputPreview,
+		OutputPreview:  m.OutputPreview,
+		StdoutPreview:  m.StdoutPreview,
+		StderrPreview:  m.StderrPreview,
+		LogRef:         m.LogRef,
+		RedactionLevel: m.RedactionLevel,
+		CreatedAt:      m.CreatedAt,
 	}
 }

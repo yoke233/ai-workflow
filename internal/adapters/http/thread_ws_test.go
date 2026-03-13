@@ -15,6 +15,8 @@ type stubThreadAgentRuntime struct {
 	activeProfileIDs []string
 	sendCalls        []stubThreadSendCall
 	sendErr          error
+	cleanupCalls     []int64
+	cleanupErr       error
 }
 
 type stubThreadSendCall struct {
@@ -40,6 +42,14 @@ func (s *stubThreadAgentRuntime) SendMessage(_ context.Context, threadID int64, 
 }
 
 func (s *stubThreadAgentRuntime) RemoveAgent(context.Context, int64, int64) error {
+	return nil
+}
+
+func (s *stubThreadAgentRuntime) CleanupThread(_ context.Context, threadID int64) error {
+	if s.cleanupErr != nil {
+		return s.cleanupErr
+	}
+	s.cleanupCalls = append(s.cleanupCalls, threadID)
 	return nil
 }
 
@@ -235,7 +245,7 @@ func TestAPI_WebSocket_ThreadSend_DefaultModeDoesNotBroadcastToAgents(t *testing
 	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var ack struct {
 		Type string `json:"type"`
-	} 
+	}
 	if err := conn.ReadJSON(&ack); err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -591,9 +601,9 @@ func TestAPI_WebSocket_UnsubscribeThread(t *testing.T) {
 
 	// Publish a non-thread event to confirm connection is still alive.
 	h.bus.Publish(context.Background(), core.Event{
-		Type:      core.EventWorkItemStarted,
+		Type:       core.EventWorkItemStarted,
 		WorkItemID: 42,
-		Timestamp: time.Now().UTC(),
+		Timestamp:  time.Now().UTC(),
 	})
 
 	// Should receive the issue event but NOT the thread event.

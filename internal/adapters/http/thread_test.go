@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
@@ -34,6 +37,18 @@ func TestThreadCRUD(t *testing.T) {
 	}
 	if thread.OwnerID != "user-1" {
 		t.Fatalf("expected owner_id 'user-1', got %q", thread.OwnerID)
+	}
+
+	resp, err = get(ts, fmt.Sprintf("/threads/%d/participants", thread.ID))
+	if err != nil {
+		t.Fatalf("get participants: %v", err)
+	}
+	var participants []core.ThreadParticipant
+	if err := decodeJSON(resp, &participants); err != nil {
+		t.Fatalf("decode participants: %v", err)
+	}
+	if len(participants) != 1 || participants[0].UserID != "user-1" || participants[0].Role != "owner" {
+		t.Fatalf("unexpected owner participants: %+v", participants)
 	}
 
 	// Get thread
@@ -125,6 +140,88 @@ func TestThreadGetNotFound(t *testing.T) {
 	}
 }
 
+func TestThreadListRejectsInvalidStatusFilter(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, _ := get(ts, "/threads?status=broken")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestThreadUpdateRejectsInvalidStatus(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "state-check"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	resp, _ = put(ts, fmt.Sprintf("/threads/%d", thread.ID), map[string]any{
+		"status": "broken",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestThreadUpdateRejectsInvalidStatusTransition(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "archived-thread"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	resp, _ = put(ts, fmt.Sprintf("/threads/%d", thread.ID), map[string]any{"status": "archived"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 archiving thread, got %d", resp.StatusCode)
+	}
+
+	resp, _ = put(ts, fmt.Sprintf("/threads/%d", thread.ID), map[string]any{"status": "active"})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409 for archived -> active, got %d", resp.StatusCode)
+	}
+}
+
+func TestThreadDeleteCleansUpRuntime(t *testing.T) {
+	h, ts := setupAPI(t)
+	threadPool := &stubThreadAgentRuntime{}
+	h.threadPool = threadPool
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "cleanup-thread"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+fmt.Sprintf("/threads/%d", thread.ID), nil)
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if len(threadPool.cleanupCalls) != 1 || threadPool.cleanupCalls[0] != thread.ID {
+		t.Fatalf("unexpected cleanup calls: %+v", threadPool.cleanupCalls)
+	}
+}
+
+func TestThreadDeleteStopsWhenRuntimeCleanupFails(t *testing.T) {
+	h, ts := setupAPI(t)
+	threadPool := &stubThreadAgentRuntime{cleanupErr: fmt.Errorf("cleanup failed")}
+	h.threadPool = threadPool
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "cleanup-thread"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+fmt.Sprintf("/threads/%d", thread.ID), nil)
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", resp.StatusCode)
+	}
+
+	resp, _ = get(ts, fmt.Sprintf("/threads/%d", thread.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected thread to remain after cleanup failure, got %d", resp.StatusCode)
+	}
+}
+
 func TestThreadMessageCRUD(t *testing.T) {
 	_, ts := setupAPI(t)
 
@@ -169,6 +266,80 @@ func TestThreadMessageCRUD(t *testing.T) {
 	resp, _ = post(ts, "/threads/9999/messages", map[string]any{"content": "x"})
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestThreadMessageReplyTo(t *testing.T) {
+	h, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "reply-thread"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	root := &core.ThreadMessage{
+		ThreadID: thread.ID,
+		SenderID: "user-1",
+		Role:     "human",
+		Content:  "root",
+	}
+	rootID, err := h.store.CreateThreadMessage(context.Background(), root)
+	if err != nil {
+		t.Fatalf("seed root message: %v", err)
+	}
+	root.ID = rootID
+
+	resp, err = post(ts, fmt.Sprintf("/threads/%d/messages", thread.ID), map[string]any{
+		"sender_id":       "user-2",
+		"content":         "reply",
+		"reply_to_msg_id": root.ID,
+	})
+	if err != nil {
+		t.Fatalf("create reply: %v", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var reply core.ThreadMessage
+	if err := decodeJSON(resp, &reply); err != nil {
+		t.Fatalf("decode reply: %v", err)
+	}
+	if reply.ReplyToMessageID == nil || *reply.ReplyToMessageID != root.ID {
+		t.Fatalf("unexpected reply_to_msg_id: %+v", reply.ReplyToMessageID)
+	}
+}
+
+func TestThreadMessageReplyToRejectsCrossThread(t *testing.T) {
+	h, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "thread-a"})
+	var threadA core.Thread
+	decodeJSON(resp, &threadA)
+	resp, _ = post(ts, "/threads", map[string]any{"title": "thread-b"})
+	var threadB core.Thread
+	decodeJSON(resp, &threadB)
+
+	foreign := &core.ThreadMessage{
+		ThreadID: threadB.ID,
+		SenderID: "user-1",
+		Role:     "human",
+		Content:  "foreign",
+	}
+	foreignID, err := h.store.CreateThreadMessage(context.Background(), foreign)
+	if err != nil {
+		t.Fatalf("seed foreign message: %v", err)
+	}
+
+	resp, err = post(ts, fmt.Sprintf("/threads/%d/messages", threadA.ID), map[string]any{
+		"sender_id":       "user-2",
+		"content":         "reply",
+		"reply_to_msg_id": foreignID,
+	})
+	if err != nil {
+		t.Fatalf("create reply: %v", err)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
 	}
 }
 
@@ -346,6 +517,13 @@ func TestThreadAgentSessionCRUD(t *testing.T) {
 		t.Fatalf("unexpected session: %+v", sess)
 	}
 
+	resp, _ = get(ts, fmt.Sprintf("/threads/%d/participants", thread.ID))
+	var participants []core.ThreadParticipant
+	decodeJSON(resp, &participants)
+	if len(participants) != 1 || participants[0].UserID != "worker-claude" || participants[0].Role != "agent" {
+		t.Fatalf("unexpected agent participants: %+v", participants)
+	}
+
 	// List agents.
 	resp, _ = get(ts, fmt.Sprintf("/threads/%d/agents", thread.ID))
 	if resp.StatusCode != http.StatusOK {
@@ -370,6 +548,33 @@ func TestThreadAgentSessionCRUD(t *testing.T) {
 	decodeJSON(resp, &sessions)
 	if len(sessions) != 0 {
 		t.Fatalf("expected 0 sessions after remove, got %d", len(sessions))
+	}
+
+	resp, _ = get(ts, fmt.Sprintf("/threads/%d/participants", thread.ID))
+	decodeJSON(resp, &participants)
+	if len(participants) != 1 {
+		t.Fatalf("expected agent participant snapshot to remain, got %d", len(participants))
+	}
+}
+
+func TestThreadParticipantRemoveRejectsActiveAgentSession(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "agent-thread"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	resp, _ = post(ts, fmt.Sprintf("/threads/%d/agents", thread.ID), map[string]any{
+		"agent_profile_id": "worker-claude",
+	})
+	var sess core.ThreadAgentSession
+	decodeJSON(resp, &sess)
+
+	req, _ := http.NewRequest(http.MethodDelete,
+		ts.URL+fmt.Sprintf("/threads/%d/participants/worker-claude", thread.ID), nil)
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", resp.StatusCode)
 	}
 }
 
@@ -546,5 +751,57 @@ func TestThreadAndWorkItemRoutesIndependent(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("/threads expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestThreadMessageHTTPBroadcastsToWebSocketSubscribers(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "http-broadcast-thread"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	wsURL := "ws" + ts.URL[4:] + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	time.Sleep(50 * time.Millisecond)
+	if err := conn.WriteJSON(map[string]any{
+		"type": "subscribe_thread",
+		"data": map[string]any{"thread_id": thread.ID},
+	}); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var subAck map[string]any
+	if err := conn.ReadJSON(&subAck); err != nil {
+		t.Fatalf("read subscribe ack: %v", err)
+	}
+
+	resp, err = post(ts, fmt.Sprintf("/threads/%d/messages", thread.ID), map[string]any{
+		"sender_id": "user-1",
+		"content":   "hello via http",
+	})
+	if err != nil {
+		t.Fatalf("http create message: %v", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var ev core.Event
+	if err := conn.ReadJSON(&ev); err != nil {
+		t.Fatalf("read event: %v", err)
+	}
+	if ev.Type != core.EventThreadMessage {
+		t.Fatalf("event type = %q, want %q", ev.Type, core.EventThreadMessage)
+	}
+	if ev.Data["message"] != "hello via http" {
+		t.Fatalf("unexpected event payload: %+v", ev.Data)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	gormsqlite "github.com/glebarez/sqlite"
+	"github.com/yoke233/ai-workflow/internal/core"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -74,6 +75,27 @@ func startupDBError(path string, op string, err error) error {
 		return fmt.Errorf("%s; database may be locked by another ai-flow process, stop old processes and remove %s-shm/%s-wal if needed", msg, path, path)
 	}
 	return fmt.Errorf("%s", msg)
+}
+
+func (s *Store) cloneWithORM(orm *gorm.DB) *Store {
+	if s == nil {
+		return nil
+	}
+	return &Store{
+		db:  s.db,
+		orm: orm,
+	}
+}
+
+// InTx runs fn inside a single database transaction using a cloned store
+// bound to the transaction-scoped gorm handle.
+func (s *Store) InTx(ctx context.Context, fn func(store core.Store) error) error {
+	if s == nil || s.orm == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+	return s.orm.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(s.cloneWithORM(tx))
+	})
 }
 
 // Close closes the underlying database connection.

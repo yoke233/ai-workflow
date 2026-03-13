@@ -231,7 +231,7 @@ func (h *Handler) Register(r chi.Router) {
 	registerNotificationRoutes(r, h)
 
 	// Chat (lead agent)
-	registerChatRoutes(r, h.lead)
+	registerChatRoutes(r, h)
 
 	// Admin controls
 	r.Group(func(r chi.Router) {

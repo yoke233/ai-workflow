@@ -102,6 +102,7 @@ type Store interface {
 	AnalyticsStore
 	DAGTemplateStore
 	UsageStore
+	ToolCallAuditStore
 	FeatureManifestStore
 	ActionSignalStore
 	WorkItemAttachmentStore
@@ -109,11 +110,18 @@ type Store interface {
 	Close() error
 }
 
+// TransactionalStore allows callers to execute a multi-store workflow in a
+// single transaction when the backing implementation supports it.
+type TransactionalStore interface {
+	InTx(ctx context.Context, fn func(store Store) error) error
+}
+
 // EventFilter constrains Event queries.
 type EventFilter struct {
 	WorkItemID *int64
 	ActionID   *int64
 	RunID      *int64
+	ThreadID   *int64
 	SessionID  string
 	Types      []EventType
 	Limit      int

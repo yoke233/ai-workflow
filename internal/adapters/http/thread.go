@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -12,6 +14,7 @@ import (
 type createThreadRequest struct {
 	Title    string         `json:"title"`
 	OwnerID  string         `json:"owner_id,omitempty"`
+	Summary  string         `json:"summary,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
@@ -24,10 +27,12 @@ type updateThreadRequest struct {
 }
 
 type createThreadMessageRequest struct {
-	SenderID string         `json:"sender_id"`
-	Role     string         `json:"role,omitempty"`
-	Content  string         `json:"content"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	SenderID         string         `json:"sender_id"`
+	Role             string         `json:"role,omitempty"`
+	Content          string         `json:"content"`
+	ReplyToMessageID *int64         `json:"reply_to_msg_id,omitempty"`
+	TargetAgentID    string         `json:"target_agent_id,omitempty"`
+	Metadata         map[string]any `json:"metadata,omitempty"`
 }
 
 type addThreadParticipantRequest struct {
@@ -37,6 +42,17 @@ type addThreadParticipantRequest struct {
 
 type inviteThreadAgentRequest struct {
 	AgentProfileID string `json:"agent_profile_id"`
+}
+
+type threadAggregateStore interface {
+	CreateThreadWithParticipants(ctx context.Context, thread *core.Thread, participants []*core.ThreadParticipant) error
+	CreateThreadAgentSessionWithParticipant(ctx context.Context, sess *core.ThreadAgentSession, participant *core.ThreadParticipant) error
+}
+
+type createWorkItemFromThreadRequest struct {
+	Title     string `json:"title"`
+	Body      string `json:"body,omitempty"`
+	ProjectID *int64 `json:"project_id,omitempty"`
 }
 
 type createThreadWorkItemLinkRequest struct {
@@ -55,6 +71,7 @@ func registerThreadRoutes(r chi.Router, h *Handler) {
 
 	r.Post("/threads/{threadID}/messages", h.createThreadMessage)
 	r.Get("/threads/{threadID}/messages", h.listThreadMessages)
+	r.Get("/threads/{threadID}/events", h.listThreadEvents)
 
 	r.Post("/threads/{threadID}/participants", h.addThreadParticipant)
 	r.Get("/threads/{threadID}/participants", h.listThreadParticipants)
@@ -89,15 +106,34 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 		Title:    title,
 		Status:   core.ThreadActive,
 		OwnerID:  strings.TrimSpace(req.OwnerID),
+		Summary:  strings.TrimSpace(req.Summary),
 		Metadata: req.Metadata,
 	}
 
-	id, err := h.store.CreateThread(r.Context(), thread)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_THREAD_FAILED")
-		return
+	if txStore, ok := h.store.(threadAggregateStore); ok {
+		participants := buildThreadParticipants(thread.OwnerID, nil)
+		if err := txStore.CreateThreadWithParticipants(r.Context(), thread, participants); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_THREAD_FAILED")
+			return
+		}
+	} else {
+		id, err := h.store.CreateThread(r.Context(), thread)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_THREAD_FAILED")
+			return
+		}
+		thread.ID = id
+
+		if _, err := h.ensureThreadParticipant(r.Context(), thread.ID, thread.OwnerID, "owner"); err != nil {
+			if rollbackErr := h.store.DeleteThread(r.Context(), thread.ID); rollbackErr != nil {
+				writeError(w, http.StatusInternalServerError, err.Error()+"; rollback failed: "+rollbackErr.Error(), "CREATE_THREAD_FAILED")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_THREAD_FAILED")
+			return
+		}
 	}
-	thread.ID = id
+
 	writeJSON(w, http.StatusCreated, thread)
 }
 
@@ -107,7 +143,11 @@ func (h *Handler) listThreads(w http.ResponseWriter, r *http.Request) {
 		Offset: queryInt(r, "offset", 0),
 	}
 	if s := r.URL.Query().Get("status"); s != "" {
-		st := core.ThreadStatus(s)
+		st, err := core.ParseThreadStatus(s)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error(), "INVALID_THREAD_STATUS")
+			return
+		}
 		filter.Status = &st
 	}
 
@@ -168,7 +208,21 @@ func (h *Handler) updateThread(w http.ResponseWriter, r *http.Request) {
 		thread.Title = strings.TrimSpace(*req.Title)
 	}
 	if req.Status != nil {
-		thread.Status = core.ThreadStatus(strings.TrimSpace(*req.Status))
+		nextStatus, err := core.ParseThreadStatus(*req.Status)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error(), "INVALID_THREAD_STATUS")
+			return
+		}
+		if !core.CanTransitionThreadStatus(thread.Status, nextStatus) {
+			writeError(
+				w,
+				http.StatusConflict,
+				fmt.Sprintf("invalid thread status transition %q -> %q", thread.Status, nextStatus),
+				"INVALID_THREAD_STATUS_TRANSITION",
+			)
+			return
+		}
+		thread.Status = nextStatus
 	}
 	if req.OwnerID != nil {
 		thread.OwnerID = strings.TrimSpace(*req.OwnerID)
@@ -194,6 +248,22 @@ func (h *Handler) deleteThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := h.store.GetThread(r.Context(), threadID); err != nil {
+		if err == core.ErrNotFound {
+			writeError(w, http.StatusNotFound, "thread not found", "THREAD_NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+
+	if h.threadPool != nil {
+		if err := h.threadPool.CleanupThread(r.Context(), threadID); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "CLEANUP_THREAD_FAILED")
+			return
+		}
+	}
+
 	if err := h.store.DeleteThread(r.Context(), threadID); err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "thread not found", "THREAD_NOT_FOUND")
@@ -216,40 +286,36 @@ func (h *Handler) createThreadMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify thread exists.
-	if _, err := h.store.GetThread(r.Context(), threadID); err != nil {
-		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "thread not found", "THREAD_NOT_FOUND")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
-		return
-	}
-
 	var req createThreadMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
 	}
-	if strings.TrimSpace(req.Content) == "" {
-		writeError(w, http.StatusBadRequest, "content is required", "MISSING_CONTENT")
-		return
-	}
 
-	msg := &core.ThreadMessage{
-		ThreadID: threadID,
-		SenderID: strings.TrimSpace(req.SenderID),
-		Role:     req.Role,
-		Content:  req.Content,
-		Metadata: req.Metadata,
-	}
-
-	id, err := h.store.CreateThreadMessage(r.Context(), msg)
+	_, msg, err := h.createThreadMessageAndRoute(r.Context(), threadMessageInput{
+		ThreadID:         threadID,
+		SenderID:         req.SenderID,
+		Role:             req.Role,
+		Content:          req.Content,
+		ReplyToMessageID: req.ReplyToMessageID,
+		Metadata:         req.Metadata,
+		TargetAgentID:    req.TargetAgentID,
+	})
 	if err != nil {
+		if apiErr, ok := err.(*threadMessageAPIError); ok {
+			status := http.StatusBadRequest
+			switch apiErr.Code {
+			case "THREAD_NOT_FOUND":
+				status = http.StatusNotFound
+			case "TARGET_AGENT_UNAVAILABLE":
+				status = http.StatusConflict
+			}
+			writeError(w, status, apiErr.Message, apiErr.Code)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_MESSAGE_FAILED")
 		return
 	}
-	msg.ID = id
 	writeJSON(w, http.StatusCreated, msg)
 }
 
@@ -349,6 +415,21 @@ func (h *Handler) removeThreadParticipant(w http.ResponseWriter, r *http.Request
 	if userID == "" {
 		writeError(w, http.StatusBadRequest, "user_id is required", "MISSING_USER_ID")
 		return
+	}
+
+	sessions, err := h.store.ListThreadAgentSessions(r.Context(), threadID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+	for _, sess := range sessions {
+		if sess == nil || sess.AgentProfileID != userID {
+			continue
+		}
+		if threadAgentSessionIsActive(sess.Status) {
+			writeError(w, http.StatusConflict, "remove agent session before removing participant", "AGENT_SESSION_ACTIVE")
+			return
+		}
 	}
 
 	if err := h.store.RemoveThreadParticipant(r.Context(), threadID, userID); err != nil {
@@ -503,70 +584,22 @@ func (h *Handler) createWorkItemFromThread(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var req struct {
-		Title     string `json:"title"`
-		Body      string `json:"body,omitempty"`
-		ProjectID *int64 `json:"project_id,omitempty"`
-	}
+	var req createWorkItemFromThreadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
 	}
-	title := strings.TrimSpace(req.Title)
-	if title == "" {
-		writeError(w, http.StatusBadRequest, "title is required", "MISSING_TITLE")
-		return
-	}
-	body := strings.TrimSpace(req.Body)
-	summary := strings.TrimSpace(thread.Summary)
-	bodyFromSummary := false
-	if body == "" {
-		if summary == "" {
-			writeError(w, http.StatusBadRequest, "please generate or fill in summary first", "MISSING_THREAD_SUMMARY")
-			return
-		}
-		body = summary
-		bodyFromSummary = true
-	}
-
-	sourceType := "thread_manual"
-	if bodyFromSummary {
-		sourceType = "thread_summary"
-	}
-
-	// Create issue.
-	issue := &core.WorkItem{
-		Title:     title,
-		Body:      body,
-		Status:    core.WorkItemOpen,
-		Priority:  core.PriorityMedium,
-		ProjectID: req.ProjectID,
-		Metadata: map[string]any{
-			"source_thread_id":  threadID,
-			"source_type":       sourceType,
-			"body_from_summary": bodyFromSummary,
-		},
-	}
-	issueID, err := h.store.CreateWorkItem(r.Context(), issue)
+	issue, err := h.createWorkItemFromThreadData(r.Context(), thread, req.Title, req.Body, req.ProjectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_ISSUE_FAILED")
-		return
-	}
-	issue.ID = issueID
-
-	// Auto-create primary link.
-	link := &core.ThreadWorkItemLink{
-		ThreadID:     threadID,
-		WorkItemID:   issueID,
-		RelationType: "drives",
-		IsPrimary:    true,
-	}
-	if _, err := h.store.CreateThreadWorkItemLink(r.Context(), link); err != nil {
-		if rollbackErr := h.store.DeleteWorkItem(r.Context(), issueID); rollbackErr != nil {
-			writeError(w, http.StatusInternalServerError, err.Error()+"; rollback failed: "+rollbackErr.Error(), "CREATE_LINK_FAILED")
+		if apiErr, ok := err.(*threadMessageAPIError); ok {
+			writeError(w, http.StatusBadRequest, apiErr.Message, apiErr.Code)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_LINK_FAILED")
+		code := "CREATE_ISSUE_FAILED"
+		if strings.Contains(err.Error(), "rollback failed") {
+			code = "CREATE_LINK_FAILED"
+		}
+		writeError(w, http.StatusInternalServerError, err.Error(), code)
 		return
 	}
 
@@ -612,6 +645,11 @@ func (h *Handler) inviteThreadAgent(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
 			return
 		}
+		if _, err := h.ensureThreadParticipant(r.Context(), threadID, profileID, "agent"); err != nil {
+			_ = h.threadPool.RemoveAgent(r.Context(), threadID, sess.ID)
+			writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
+			return
+		}
 		writeJSON(w, http.StatusCreated, sess)
 		return
 	}
@@ -622,12 +660,29 @@ func (h *Handler) inviteThreadAgent(w http.ResponseWriter, r *http.Request) {
 		AgentProfileID: profileID,
 		Status:         core.ThreadAgentActive,
 	}
-	id, err := h.store.CreateThreadAgentSession(r.Context(), sess)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
-		return
+	if txStore, ok := h.store.(threadAggregateStore); ok {
+		participant := &core.ThreadParticipant{
+			ThreadID: threadID,
+			UserID:   profileID,
+			Role:     "agent",
+		}
+		if err := txStore.CreateThreadAgentSessionWithParticipant(r.Context(), sess, participant); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
+			return
+		}
+	} else {
+		id, err := h.store.CreateThreadAgentSession(r.Context(), sess)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
+			return
+		}
+		sess.ID = id
+		if _, err := h.ensureThreadParticipant(r.Context(), threadID, profileID, "agent"); err != nil {
+			_ = h.store.DeleteThreadAgentSession(r.Context(), sess.ID)
+			writeError(w, http.StatusInternalServerError, err.Error(), "INVITE_AGENT_FAILED")
+			return
+		}
 	}
-	sess.ID = id
 	writeJSON(w, http.StatusCreated, sess)
 }
 
