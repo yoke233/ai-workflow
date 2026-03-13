@@ -503,6 +503,57 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_category ON notifications(category)`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_issue ON notifications(issue_id)`,
+		// inspection_reports table (self-evolving inspection system).
+		`CREATE TABLE IF NOT EXISTS inspection_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER,
+            status TEXT NOT NULL DEFAULT 'pending',
+            trigger_source TEXT NOT NULL DEFAULT 'manual',
+            period_start DATETIME NOT NULL,
+            period_end DATETIME NOT NULL,
+            snapshot TEXT,
+            summary TEXT NOT NULL DEFAULT '',
+            suggested_skills TEXT,
+            error_message TEXT NOT NULL DEFAULT '',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            finished_at DATETIME
+        )`,
+		`CREATE INDEX IF NOT EXISTS idx_inspection_reports_project ON inspection_reports(project_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_inspection_reports_status ON inspection_reports(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_inspection_reports_created ON inspection_reports(created_at)`,
+		// inspection_findings table.
+		`CREATE TABLE IF NOT EXISTS inspection_findings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inspection_id INTEGER NOT NULL REFERENCES inspection_reports(id) ON DELETE CASCADE,
+            category TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            evidence TEXT NOT NULL DEFAULT '',
+            work_item_id INTEGER,
+            action_id INTEGER,
+            run_id INTEGER,
+            project_id INTEGER,
+            recommendation TEXT NOT NULL DEFAULT '',
+            recurring INTEGER NOT NULL DEFAULT 0,
+            occurrence_count INTEGER NOT NULL DEFAULT 1,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+		`CREATE INDEX IF NOT EXISTS idx_inspection_findings_inspection ON inspection_findings(inspection_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_inspection_findings_category ON inspection_findings(category)`,
+		`CREATE INDEX IF NOT EXISTS idx_inspection_findings_severity ON inspection_findings(severity)`,
+		// inspection_insights table.
+		`CREATE TABLE IF NOT EXISTS inspection_insights (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inspection_id INTEGER NOT NULL REFERENCES inspection_reports(id) ON DELETE CASCADE,
+            type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            trend TEXT NOT NULL DEFAULT '',
+            action_items TEXT,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+		`CREATE INDEX IF NOT EXISTS idx_inspection_insights_inspection ON inspection_insights(inspection_id)`,
 	} {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			if strings.Contains(err.Error(), "duplicate column name") {

@@ -72,6 +72,10 @@ import type {
   Notification,
   CreateNotificationRequest,
   UnreadCountResponse,
+  InspectionReport,
+  InspectionFinding,
+  InspectionInsight,
+  TriggerInspectionRequest,
 } from "../types/apiV2";
 import type {
   LLMConfigResponse,
@@ -425,6 +429,20 @@ export interface ApiClient {
     body: Partial<{ key: string; description: string; status: FeatureStatus; tags: string[] }>,
   ): Promise<FeatureEntry>;
   deleteManifestEntry(entryId: number): Promise<void>;
+
+  // Inspections (self-evolving inspection system)
+  listInspections(params?: {
+    project_id?: number;
+    status?: string;
+    since?: string;
+    until?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<InspectionReport[]>;
+  getInspection(inspectionId: number): Promise<InspectionReport>;
+  triggerInspection(body?: TriggerInspectionRequest): Promise<InspectionReport>;
+  listInspectionFindings(inspectionId: number): Promise<InspectionFinding[]>;
+  listInspectionInsights(inspectionId: number): Promise<InspectionInsight[]>;
 }
 
 export const createApiClient = (opts: ApiClientOptions): ApiClient => {
@@ -1207,5 +1225,35 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       request<void>({ path: `/notifications/${notificationId}`, method: "DELETE" }),
     getUnreadNotificationCount: () =>
       request<UnreadCountResponse>({ path: "/notifications/unread-count" }),
+
+    // Inspections (self-evolving inspection system)
+    listInspections: (params) =>
+      request<InspectionReport[]>({
+        path: "/inspections",
+        query: {
+          project_id: params?.project_id,
+          status: params?.status,
+          since: params?.since,
+          until: params?.until,
+          limit: params?.limit,
+          offset: params?.offset,
+        },
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    getInspection: (inspectionId) =>
+      request<InspectionReport>({ path: `/inspections/${inspectionId}` }),
+    triggerInspection: (body) =>
+      request<InspectionReport, TriggerInspectionRequest>({
+        path: "/inspections/trigger",
+        method: "POST",
+        body: body ?? {},
+      }),
+    listInspectionFindings: (inspectionId) =>
+      request<InspectionFinding[]>({ path: `/inspections/${inspectionId}/findings` }).then(
+        (items) => (Array.isArray(items) ? items : []),
+      ),
+    listInspectionInsights: (inspectionId) =>
+      request<InspectionInsight[]>({ path: `/inspections/${inspectionId}/insights` }).then(
+        (items) => (Array.isArray(items) ? items : []),
+      ),
   };
 };

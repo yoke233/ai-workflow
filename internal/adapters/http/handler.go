@@ -9,6 +9,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/adapters/llmconfig"
 	"github.com/yoke233/ai-workflow/internal/adapters/sandbox"
 	issueapp "github.com/yoke233/ai-workflow/internal/application/flow"
+	inspectionapp "github.com/yoke233/ai-workflow/internal/application/inspection"
 	probeapp "github.com/yoke233/ai-workflow/internal/application/probe"
 	"github.com/yoke233/ai-workflow/internal/core"
 	skillset "github.com/yoke233/ai-workflow/internal/skills"
@@ -32,6 +33,7 @@ type Handler struct {
 	gitPAT              string
 	textCompleter       TextCompleter
 	threadPool          ThreadAgentRuntime
+	inspectionEngine    *inspectionapp.Engine
 	dataDir             string
 }
 
@@ -116,6 +118,11 @@ func WithTextCompleter(tc TextCompleter) HandlerOption {
 // WithThreadAgentRuntime sets the thread agent runtime for real ACP sessions.
 func WithThreadAgentRuntime(pool ThreadAgentRuntime) HandlerOption {
 	return func(h *Handler) { h.threadPool = pool }
+}
+
+// WithInspectionEngine sets the inspection engine for self-evolving inspections.
+func WithInspectionEngine(engine *inspectionapp.Engine) HandlerOption {
+	return func(h *Handler) { h.inspectionEngine = engine }
 }
 
 // WithDataDir sets the data directory for file storage (uploads, etc.).
@@ -232,6 +239,13 @@ func (h *Handler) Register(r chi.Router) {
 
 	// Chat (lead agent)
 	registerChatRoutes(r, h)
+
+	// Inspections (self-evolving inspection system)
+	r.Get("/inspections", h.listInspections)
+	r.Get("/inspections/{inspectionID}", h.getInspection)
+	r.Post("/inspections/trigger", h.triggerInspection)
+	r.Get("/inspections/{inspectionID}/findings", h.listInspectionFindings)
+	r.Get("/inspections/{inspectionID}/insights", h.listInspectionInsights)
 
 	// Admin controls
 	r.Group(func(r chi.Router) {

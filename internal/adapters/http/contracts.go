@@ -28,6 +28,7 @@ type Store interface {
 	core.ActionSignalStore
 	core.WorkItemAttachmentStore
 	core.NotificationStore
+	core.InspectionStore
 	Close() error
 }
 

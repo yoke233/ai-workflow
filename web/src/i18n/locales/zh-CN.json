@@ -48,6 +48,7 @@
     "chat": "对话",
     "flows": "工作项",
     "analytics": "运行分析",
+    "inspections": "系统巡检",
     "usage": "用量统计",
     "llmApi": "LLM API",
     "sandbox": "沙盒",

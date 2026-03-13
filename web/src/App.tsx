@@ -20,6 +20,7 @@ import { SkillsPage } from "@/pages/SkillsPage";
 import { TemplatesPage } from "@/pages/TemplatesPage";
 import { ThreadsPage } from "@/pages/ThreadsPage";
 import { ThreadDetailPage } from "@/pages/ThreadDetailPage";
+import { InspectionPage } from "@/pages/InspectionPage";
 import { UsagePage } from "@/pages/UsagePage";
 
 interface AppProps {
@@ -85,6 +86,7 @@ const WorkbenchRoutes = () => {
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/executions/:execId" element={<ExecutionDetailPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/inspections" element={<InspectionPage />} />
           <Route path="/usage" element={<UsagePage />} />
           <Route path="/llm-api" element={<Navigate to="/agents" replace />} />
           <Route path="/sandbox" element={<SandboxPage />} />

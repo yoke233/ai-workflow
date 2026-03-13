@@ -107,6 +107,7 @@ type Store interface {
 	ActionSignalStore
 	WorkItemAttachmentStore
 	NotificationStore
+	InspectionStore
 	Close() error
 }
 

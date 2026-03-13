@@ -48,6 +48,7 @@
     "chat": "Chat",
     "flows": "Work Items",
     "analytics": "Analytics",
+    "inspections": "Inspections",
     "usage": "Usage",
     "llmApi": "LLM API",
     "sandbox": "Sandbox",
