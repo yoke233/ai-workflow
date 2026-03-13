@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -9,17 +9,13 @@ import {
   FileStack,
   Check,
   Wand2,
-  Paperclip,
-  Upload,
-  X,
-  FileText,
-  Image as ImageIcon,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
+import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { getScmFlowProviderFromBindings } from "@/lib/scm";
 import { getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
 import { cn } from "@/lib/utils";
@@ -52,8 +48,6 @@ export function CreateIssuePage() {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploadedAttachments, setUploadedAttachments] = useState<IssueAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [templates, setTemplates] = useState<DAGTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
@@ -134,55 +128,15 @@ export function CreateIssuePage() {
     return created.id;
   };
 
-  const allowedExtensions = [".md", ".txt", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"];
-  const maxFileSize = 10 * 1024 * 1024; // 10 MB
-
-  const validateFiles = (files: File[]): File[] => {
-    const valid: File[] = [];
-    for (const file of files) {
-      const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
-      if (!allowedExtensions.includes(ext)) {
-        setError(t("createFlow.unsupportedFileType", { name: file.name }));
-        continue;
-      }
-      if (file.size > maxFileSize) {
-        setError(t("createFlow.fileTooLarge", { name: file.name }));
-        continue;
-      }
-      valid.push(file);
-    }
-    return valid;
-  };
-
   const handleFilesSelected = (files: File[]) => {
-    const valid = validateFiles(files);
-    if (valid.length > 0) {
-      setPendingFiles((prev) => [...prev, ...valid]);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    const files = Array.from(e.dataTransfer.files);
-    handleFilesSelected(files);
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
+    setPendingFiles((prev) => [...prev, ...files]);
   };
 
   const removePendingFile = (index: number) => {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const removeUploadedAttachment = async (att: IssueAttachment) => {
+  const removeUploadedAttachment = async (att: { id: number }) => {
     try {
       await apiClient.deleteIssueAttachment(att.id);
       setUploadedAttachments((prev) => prev.filter((a) => a.id !== att.id));
@@ -450,128 +404,14 @@ export function CreateIssuePage() {
                 />
               </div>
 
-              {/* Attachment upload area */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">{t("createFlow.attachments")}</label>
-                <div
-                  className={cn(
-                    "relative flex min-h-[100px] flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-6 transition-colors",
-                    dragOver
-                      ? "border-primary bg-primary/5"
-                      : "border-muted-foreground/25 hover:border-muted-foreground/50",
-                  )}
-                  onDrop={handleDrop}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    className="hidden"
-                    multiple
-                    accept=".md,.txt,.png,.jpg,.jpeg,.gif,.webp,.svg"
-                    onChange={(e) => {
-                      if (e.target.files) {
-                        handleFilesSelected(Array.from(e.target.files));
-                        e.target.value = "";
-                      }
-                    }}
-                  />
-                  {dragOver ? (
-                    <div className="flex flex-col items-center gap-2 text-primary">
-                      <Upload className="h-8 w-8" />
-                      <span className="text-sm font-medium">{t("createFlow.dropFilesHere")}</span>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <Paperclip className="h-6 w-6" />
-                      <span className="text-xs">{t("createFlow.attachmentsDesc")}</span>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="mt-1"
-                        onClick={() => fileInputRef.current?.click()}
-                      >
-                        {t("createFlow.browseFiles")}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Pending files (not yet uploaded) */}
-                {pendingFiles.length > 0 && (
-                  <div className="flex flex-wrap gap-2 pt-2">
-                    {pendingFiles.map((file, idx) => {
-                      const isImage = file.type.startsWith("image/");
-                      return (
-                        <div
-                          key={`pending-${idx}`}
-                          className="group flex items-center gap-1.5 rounded-md border bg-muted/50 px-2.5 py-1.5 text-xs"
-                        >
-                          {isImage ? (
-                            <ImageIcon className="h-3.5 w-3.5 text-green-600" />
-                          ) : (
-                            <FileText className="h-3.5 w-3.5 text-blue-600" />
-                          )}
-                          <span className="max-w-[120px] truncate">{file.name}</span>
-                          <span className="text-muted-foreground">
-                            {file.size < 1024
-                              ? `${file.size}B`
-                              : file.size < 1024 * 1024
-                                ? `${(file.size / 1024).toFixed(0)}KB`
-                                : `${(file.size / (1024 * 1024)).toFixed(1)}MB`}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => removePendingFile(idx)}
-                            className="ml-0.5 text-muted-foreground hover:text-red-500"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Already uploaded attachments */}
-                {uploadedAttachments.length > 0 && (
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {uploadedAttachments.map((att) => {
-                      const isImage = att.mime_type.startsWith("image/");
-                      return (
-                        <div
-                          key={`uploaded-${att.id}`}
-                          className="group flex items-center gap-1.5 rounded-md border border-green-200 bg-green-50 px-2.5 py-1.5 text-xs"
-                        >
-                          {isImage ? (
-                            <ImageIcon className="h-3.5 w-3.5 text-green-600" />
-                          ) : (
-                            <FileText className="h-3.5 w-3.5 text-blue-600" />
-                          )}
-                          <span className="max-w-[120px] truncate">{att.file_name}</span>
-                          <Check className="h-3 w-3 text-green-600" />
-                          <button
-                            type="button"
-                            onClick={() => void removeUploadedAttachment(att)}
-                            className="ml-0.5 text-muted-foreground hover:text-red-500"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {uploading && (
-                  <div className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    {t("createFlow.uploadingFiles")}
-                  </div>
-                )}
-              </div>
+              <AttachmentUploader
+                pendingFiles={pendingFiles}
+                uploadedAttachments={uploadedAttachments}
+                uploading={uploading}
+                onFilesSelected={handleFilesSelected}
+                onRemovePending={removePendingFile}
+                onRemoveUploaded={(att) => void removeUploadedAttachment(att)}
+              />
             </CardContent>
           </Card>
 

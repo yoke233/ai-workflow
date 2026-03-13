@@ -15,8 +15,6 @@ import type {
   SessionRecord,
   ChatMessageView,
   ChatActivityView,
-  ChatFeedItem,
-  ChatFeedEntry,
   RealtimeChatOutputPayload,
   RealtimeChatAckPayload,
   RealtimeChatErrorPayload,
@@ -32,45 +30,23 @@ import {
   driverLabelForId,
   fallbackLabel,
   formatUsagePercent,
-  toEventListItem,
   touchSessionList,
   applyActivityPayload,
   buildRealtimeEvent,
   buildActivityHistory,
-  computeEventLevel,
-  EVENT_LEVEL_ORDER,
-  type EventLevel,
 } from "@/components/chat/chatUtils";
-import { cn } from "@/lib/utils";
 import { ChatSessionSidebar } from "@/components/chat/ChatSessionSidebar";
 import { ChatHeader } from "@/components/chat/ChatHeader";
 import { DraftSessionSetup } from "@/components/chat/DraftSessionSetup";
 import { MessageFeedView } from "@/components/chat/MessageFeedView";
 import { ChatInputBar } from "@/components/chat/ChatInputBar";
-import { EventLogRow } from "@/components/chat/EventLogRow";
+import { ChatEventsPanel } from "@/components/chat/ChatEventsPanel";
+import { PermissionBar, type PermissionRequest } from "@/components/chat/PermissionBar";
 import { ChatScrollTrack } from "@/components/chat/ChatScrollTrack";
+import { useChatFeed } from "@/components/chat/useChatFeed";
 import { Loader2 } from "lucide-react";
 
 const FEED_PAGE_SIZE = 100;
-
-interface PermissionOption {
-  option_id: string;
-  kind: string;
-  name: string;
-}
-
-interface PermissionRequest {
-  permission_id: string;
-  session_id: string;
-  tool_call: {
-    tool_call_id?: string;
-    kind?: string;
-    title?: string;
-    locations?: { path: string }[];
-    raw_input?: unknown;
-  };
-  options: PermissionOption[];
-}
 
 export function ChatPage() {
   const { t } = useTranslation();
@@ -131,9 +107,6 @@ export function ChatPage() {
   // Feed pagination: show last FEED_PAGE_SIZE entries, expand on scroll-to-top
   const [feedVisibleCount, setFeedVisibleCount] = useState(FEED_PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
-
-  // Event level filter for the events panel
-  const [minEventLevel, setMinEventLevel] = useState<EventLevel>("info");
 
   const syncSessionDetail = (detail: import("@/types/apiV2").ChatSessionDetail) => {
     const record = toDetailRecord(detail, t);
@@ -467,20 +440,6 @@ export function ChatPage() {
   const currentEvents = currentSession ? (eventsBySession[currentSession.session_id] ?? []) : [];
   const currentActivities = currentSession ? (activitiesBySession[currentSession.session_id] ?? []) : [];
   const isDraftSessionView = initialLoaded && !currentSession && currentMessages.length === 0;
-  const currentEventItems = useMemo(
-    () =>
-      [...currentEvents]
-        .sort((left, right) => {
-          const timeDiff = new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime();
-          if (timeDiff !== 0) {
-            return timeDiff;
-          }
-          return left.id - right.id;
-        })
-        .map((event) => toEventListItem(event, t)),
-    [currentEvents],
-  );
-
   const currentUsage = useMemo(
     () =>
       [...currentActivities]
@@ -491,84 +450,13 @@ export function ChatPage() {
 
   const currentUsagePercent = formatUsagePercent(currentUsage?.usageUsed, currentUsage?.usageSize);
 
-  const chatFeed = useMemo<ChatFeedItem[]>(() => {
-    const items: ChatFeedItem[] = [];
-    for (const msg of currentMessages) {
-      items.push({ kind: "message", data: msg });
-    }
-    for (const act of currentActivities) {
-      if (act.type === "agent_thought") {
-        items.push({ kind: "thought", data: act });
-      } else if (act.type === "tool_call") {
-        items.push({ kind: "tool_call", data: act });
-      } else if (act.type === "agent_message") {
-        items.push({
-          kind: "message",
-          data: {
-            id: act.id,
-            role: "assistant",
-            content: act.detail || act.title,
-            time: act.time,
-            at: act.at,
-          },
-        });
-      }
-    }
-    items.sort((a, b) => {
-      const aAt = a.kind === "message" ? a.data.at : a.data.at;
-      const bAt = b.kind === "message" ? b.data.at : b.data.at;
-      return new Date(aAt).getTime() - new Date(bAt).getTime();
-    });
-    return items;
-  }, [currentMessages, currentActivities]);
+  const { chatFeedEntries, visibleFeedEntries, hasMoreFeedEntries } = useChatFeed(
+    currentMessages, currentActivities, feedVisibleCount,
+  );
 
-  const chatFeedEntries = useMemo<ChatFeedEntry[]>(() => {
-    const entries: ChatFeedEntry[] = [];
-    let toolBuffer: (ChatFeedItem & { kind: "tool_call" })[] = [];
-    let groupCounter = 0;
-
-    const flushTools = () => {
-      if (toolBuffer.length > 0) {
-        entries.push({ type: "tool_group", id: `tg-${groupCounter++}`, items: [...toolBuffer] });
-        toolBuffer = [];
-      }
-    };
-
-    for (const item of chatFeed) {
-      if (item.kind === "tool_call") {
-        toolBuffer.push(item);
-      } else {
-        flushTools();
-        if (item.kind === "message") {
-          entries.push({ type: "message", item });
-        } else if (item.kind === "thought") {
-          entries.push({ type: "thought", item });
-        }
-      }
-    }
-    flushTools();
-    return entries;
-  }, [chatFeed]);
-
-  // Paginated slice of the feed — show last feedVisibleCount entries
-  const visibleFeedEntries = useMemo(() => {
-    const start = Math.max(0, chatFeedEntries.length - feedVisibleCount);
-    return chatFeedEntries.slice(start);
-  }, [chatFeedEntries, feedVisibleCount]);
-
-  const hasMoreFeedEntries = feedVisibleCount < chatFeedEntries.length;
   const visiblePendingPermissions = useMemo(
     () => pendingPermissions.filter((perm) => perm.session_id === activeSession),
     [pendingPermissions, activeSession],
-  );
-
-  // Event level filter
-  const filteredEventItems = useMemo(
-    () =>
-      currentEventItems.filter(
-        (item) => EVENT_LEVEL_ORDER[computeEventLevel(item.rawType)] >= EVENT_LEVEL_ORDER[minEventLevel],
-      ),
-    [currentEventItems, minEventLevel],
   );
 
   // Reset feed pagination when switching sessions
@@ -604,7 +492,7 @@ export function ChatPage() {
   useEffect(() => {
     const isStreaming = currentMessages.at(-1)?.id.endsWith("stream-assistant");
     messagesEndRef.current?.scrollIntoView({ behavior: isStreaming ? "auto" : "smooth" });
-  }, [currentEventItems, currentMessages, currentActivities, detailView]);
+  }, [currentEvents, currentMessages, currentActivities, detailView]);
 
   useEffect(() => {
     const unsubscribeOutput = wsClient.subscribe<RealtimeChatOutputPayload>(
@@ -1158,50 +1046,7 @@ export function ChatPage() {
             onScroll={handleChatScroll}
           >
           {detailView === "events" ? (
-            <>
-              {/* Event level filter */}
-              <div className="mx-auto mb-3 flex w-full max-w-[1200px] items-center gap-2 text-xs text-muted-foreground">
-                <span>{t("chat.showLevel", { defaultValue: "显示级别:" })}</span>
-                {(["debug", "info", "warning", "error"] as EventLevel[]).map((level) => (
-                  <button
-                    key={level}
-                    type="button"
-                    onClick={() => setMinEventLevel(level)}
-                    className={[
-                      "rounded px-2 py-0.5 font-mono transition-colors",
-                      minEventLevel === level
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted hover:bg-muted/80 text-muted-foreground",
-                    ].join(" ")}
-                  >
-                    {level}
-                  </button>
-                ))}
-                <span className="ml-auto text-[10px]">
-                  {filteredEventItems.length} / {currentEventItems.length}
-                </span>
-              </div>
-              {filteredEventItems.length === 0 ? (
-                <div className="mx-auto w-full max-w-[1200px] rounded-xl border border-dashed bg-muted/20 px-5 py-6 text-sm text-muted-foreground">
-                  {t("chat.noEvents")}
-                </div>
-              ) : (
-                <table className="mx-auto w-full max-w-[1200px] border-collapse text-left">
-                  <thead>
-                    <tr className="border-b border-border text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      <th className="py-1.5 pl-3 pr-2">{t("chat.colTime", { defaultValue: "时间" })}</th>
-                      <th className="py-1.5 pr-2" />
-                      <th className="py-1.5 pr-3">{t("chat.colType", { defaultValue: "类型" })}</th>
-                      <th className="py-1.5 pr-2">{t("chat.colSummary", { defaultValue: "摘要" })}</th>
-                      <th className="py-1.5 pr-2" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredEventItems.map((item) => <EventLogRow key={item.id} item={item} />)}
-                  </tbody>
-                </table>
-              )}
-            </>
+            <ChatEventsPanel events={currentEvents} />
           ) : isDraftSessionView ? (
             <div className="flex min-h-full items-center justify-center">
               <DraftSessionSetup
@@ -1267,42 +1112,10 @@ export function ChatPage() {
           <ChatScrollTrack containerRef={chatContainerRef} />
         </div>{/* end relative wrapper */}
 
-        {visiblePendingPermissions.length > 0 && (
-          <div className="space-y-2 border-t bg-amber-50/50 px-6 py-3">
-            {visiblePendingPermissions.map((perm) => {
-              const title = perm.tool_call.title || perm.tool_call.kind || "Tool Call";
-              const location = perm.tool_call.locations?.[0]?.path;
-              return (
-                <div key={perm.permission_id} className="flex items-center gap-3 rounded-lg border border-amber-200 bg-white px-4 py-2.5 text-sm">
-                  <div className="min-w-0 flex-1">
-                    <span className="font-medium text-amber-800">{title}</span>
-                    {location && <span className="ml-2 truncate font-mono text-xs text-muted-foreground">{location}</span>}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {perm.options.map((opt) => {
-                      const isAllow = opt.kind.startsWith("allow");
-                      return (
-                        <button
-                          key={opt.option_id}
-                          type="button"
-                          className={cn(
-                            "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                            isAllow
-                              ? "bg-emerald-500 text-white hover:bg-emerald-600"
-                              : "bg-muted text-muted-foreground hover:bg-muted/80",
-                          )}
-                          onClick={() => handlePermissionResponse(perm.permission_id, opt.option_id, !isAllow)}
-                        >
-                          {opt.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <PermissionBar
+          permissions={visiblePendingPermissions}
+          onResponse={handlePermissionResponse}
+        />
 
         {!isDraftSessionView && (
           <ChatInputBar
