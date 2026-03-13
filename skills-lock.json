@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "skills": {
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "computedHash": "516bd2154eb843a8240e43d5b285229129853114ad7075a5e141e1c08e408c84"
+    },
+    "nexus-mapper": {
+      "source": "haaaiawd/nexus-skills",
+      "sourceType": "github",
+      "computedHash": "8b1a1fd7c4653aae9224f6c223eb82a9b332d0606ea9d5856fd3630cea977db0"
+    },
+    "nexus-query": {
+      "source": "haaaiawd/nexus-skills",
+      "sourceType": "github",
+      "computedHash": "fe46f956e7268282e7a6623d203a8c4755ef73f17c89c960cc110efecd856477"
+    },
+    "pencil-design": {
+      "source": "chiroro-jr/pencil-design-skill",
+      "sourceType": "github",
+      "computedHash": "f04f1121eaa74ff4faad70a967fecfb0b5d5e40abfd0cc4de1c71afd4f6749e4"
+    }
+  }
+}

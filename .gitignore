@@ -3,6 +3,7 @@
 artifacts/
 .tmp/
 .claude/
+.agents/
 /ai-flow
 /vendor-sync
 /data.db
