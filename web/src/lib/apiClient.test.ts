@@ -152,6 +152,107 @@ describe("apiClient", () => {
     expect(JSON.parse(String(init.body))).toEqual({ enabled: true, provider: "home_dir" });
   });
 
+  it("getLLMConfig 会命中 /admin/system/llm-config", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          default_config_id: "openai-response-default",
+          configs: [
+            {
+              id: "openai-chat-default",
+              type: "openai_chat_completion",
+              base_url: "https://api.openai.com/v1",
+              api_key: "",
+              model: "gpt-4.1",
+            },
+            {
+              id: "openai-response-default",
+              type: "openai_response",
+              base_url: "https://api.openai.com/v1",
+              api_key: "",
+              model: "gpt-4.1-mini",
+            },
+            {
+              id: "anthropic-default",
+              type: "anthropic",
+              base_url: "https://api.anthropic.com",
+              api_key: "",
+              model: "claude-3-7-sonnet-latest",
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
+    await client.getLLMConfig();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/admin/system/llm-config");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("GET");
+  });
+
+  it("updateLLMConfig 会命中 /admin/system/llm-config 并 PUT JSON body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          default_config_id: "anthropic-default",
+          configs: [
+            {
+              id: "anthropic-default",
+              type: "anthropic",
+              base_url: "https://api.anthropic.com",
+              api_key: "sk-ant",
+              model: "claude-sonnet-4-5",
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
+    await client.updateLLMConfig({
+      default_config_id: "anthropic-default",
+      configs: [
+        {
+          id: "anthropic-default",
+          type: "anthropic",
+          base_url: "https://api.anthropic.com",
+          api_key: "sk-ant",
+          model: "claude-sonnet-4-5",
+        },
+      ],
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/admin/system/llm-config");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(String(init.body))).toEqual({
+      default_config_id: "anthropic-default",
+      configs: [
+        {
+          id: "anthropic-default",
+          type: "anthropic",
+          base_url: "https://api.anthropic.com",
+          api_key: "sk-ant",
+          model: "claude-sonnet-4-5",
+        },
+      ],
+    });
+  });
+
   it("listWorkItems 会透传 archived 查询参数", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), {

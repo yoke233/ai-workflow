@@ -92,10 +92,22 @@ func addDescriptions(schema *jsonschema.Schema) {
 		"RuntimeConfig": {
 			"mock_executor": "是否使用本地 stub 执行器",
 			"collector":     "运行时元数据采集配置",
+			"llm":           "LLM API provider 配置",
 			"sandbox":       "运行时沙箱配置",
 			"agents":        "运行时 driver 和 profile 配置",
 			"mcp":           "运行时 MCP server 与绑定配置",
 			"prompts":       "运行时提示词模板",
+		},
+		"RuntimeLLMConfig": {
+			"default_config_id": "当前默认启用的 LLM 配置 ID",
+			"configs":           "可维护的多条 LLM 配置项",
+		},
+		"RuntimeLLMEntryConfig": {
+			"id":       "配置唯一标识",
+			"type":     "LLM provider 类型（openai_chat_completion / openai_response / anthropic）",
+			"base_url": "LLM API 根地址",
+			"api_key":  "LLM API 密钥",
+			"model":    "默认模型名",
 		},
 		"RuntimeDriverConfig": {
 			"id": "driver 唯一标识", "launch_command": "启动命令", "launch_args": "启动参数",

@@ -207,6 +207,14 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 				}
 			}
 		}
+		if llm := runtime.LLM; llm != nil {
+			if llm.DefaultConfigID != nil {
+				cfg.Runtime.LLM.DefaultConfigID = *llm.DefaultConfigID
+			}
+			if llm.Configs != nil {
+				cfg.Runtime.LLM.Configs = cloneRuntimeLLMEntries(*llm.Configs)
+			}
+		}
 		if sandbox := runtime.Sandbox; sandbox != nil {
 			if sandbox.Enabled != nil {
 				cfg.Runtime.Sandbox.Enabled = *sandbox.Enabled
@@ -446,6 +454,7 @@ func cloneStringMap(in map[string]string) map[string]string {
 
 func cloneRuntimeConfig(in RuntimeConfig) RuntimeConfig {
 	out := in
+	out.LLM.Configs = cloneRuntimeLLMEntries(in.LLM.Configs)
 	out.Sandbox.LiteBox.BridgeArgs = cloneStringSlice(in.Sandbox.LiteBox.BridgeArgs)
 	out.Sandbox.LiteBox.RunnerArgs = cloneStringSlice(in.Sandbox.LiteBox.RunnerArgs)
 	out.Sandbox.BoxLite.RunArgs = cloneStringSlice(in.Sandbox.BoxLite.RunArgs)
@@ -455,6 +464,15 @@ func cloneRuntimeConfig(in RuntimeConfig) RuntimeConfig {
 	out.Agents.Profiles = cloneRuntimeProfiles(in.Agents.Profiles)
 	out.MCP.Servers = cloneRuntimeMCPServers(in.MCP.Servers)
 	out.MCP.ProfileBindings = cloneRuntimeMCPBindings(in.MCP.ProfileBindings)
+	return out
+}
+
+func cloneRuntimeLLMEntries(in []RuntimeLLMEntryConfig) []RuntimeLLMEntryConfig {
+	if in == nil {
+		return nil
+	}
+	out := make([]RuntimeLLMEntryConfig, len(in))
+	copy(out, in)
 	return out
 }
 

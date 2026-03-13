@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 
 	"github.com/yoke233/ai-workflow/internal/adapters/http"
+	"github.com/yoke233/ai-workflow/internal/adapters/llmconfig"
 	"github.com/yoke233/ai-workflow/internal/adapters/sandbox"
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	"github.com/yoke233/ai-workflow/internal/core"
@@ -21,8 +22,10 @@ func buildAPIOptions(
 	dagGen api.DAGGenerator,
 ) []api.HandlerOption {
 	fallback := config.RuntimeSandboxConfig{}
+	llmFallback := config.RuntimeLLMConfig{}
 	if bootstrapCfg != nil {
 		fallback = bootstrapCfg.Runtime.Sandbox
+		llmFallback = bootstrapCfg.Runtime.LLM
 	}
 	skillsRoot := ""
 	if dataDir, err := appdata.ResolveDataDir(); err == nil {
@@ -43,6 +46,7 @@ func buildAPIOptions(
 		api.WithRegistry(registry),
 		api.WithDAGGenerator(dagGen),
 		api.WithSandboxController(sandbox.NewRuntimeControlService(runtimeManager, fallback)),
+		api.WithLLMConfigController(llmconfig.NewRuntimeControlService(runtimeManager, llmFallback)),
 		api.WithSkillsRoot(skillsRoot),
 		api.WithGitPAT(gitPAT),
 		api.WithPRFlowPromptsProvider(func() flowapp.PRFlowPrompts {

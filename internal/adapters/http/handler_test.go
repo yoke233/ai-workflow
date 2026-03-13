@@ -15,11 +15,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	membus "github.com/yoke233/ai-workflow/internal/adapters/events/memory"
+	"github.com/yoke233/ai-workflow/internal/adapters/llmconfig"
 	v2sandbox "github.com/yoke233/ai-workflow/internal/adapters/sandbox"
 	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
 	chatapp "github.com/yoke233/ai-workflow/internal/application/chat"
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/platform/config"
 )
 
 type failingCreateThreadMessageStore struct {
@@ -125,6 +127,30 @@ func (s *stubSandboxController) Update(_ context.Context, req v2sandbox.UpdateRe
 				s.report.CurrentSupported = support.Supported && support.Implemented
 			}
 		}
+	}
+	return s.report, nil
+}
+
+type stubLLMConfigController struct {
+	report    llmconfig.Report
+	updateErr error
+	lastReq   llmconfig.UpdateRequest
+}
+
+func (s *stubLLMConfigController) Inspect(context.Context) llmconfig.Report {
+	return s.report
+}
+
+func (s *stubLLMConfigController) Update(_ context.Context, req llmconfig.UpdateRequest) (llmconfig.Report, error) {
+	s.lastReq = req
+	if s.updateErr != nil {
+		return s.report, s.updateErr
+	}
+	if req.DefaultConfigID != nil {
+		s.report.DefaultConfigID = *req.DefaultConfigID
+	}
+	if req.Configs != nil {
+		s.report.Configs = append([]config.RuntimeLLMEntryConfig(nil), (*req.Configs)...)
 	}
 	return s.report, nil
 }
@@ -1089,9 +1115,9 @@ func TestAPI_WebSocket(t *testing.T) {
 
 	// Publish an event.
 	h.bus.Publish(context.Background(), core.Event{
-		Type:      core.EventWorkItemStarted,
+		Type:       core.EventWorkItemStarted,
 		WorkItemID: 42,
-		Timestamp: time.Now().UTC(),
+		Timestamp:  time.Now().UTC(),
 	})
 
 	// Read event from WebSocket.
@@ -1338,6 +1364,152 @@ func TestAPI_UpdateSandboxSupport_BadRequest(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("update sandbox support bad request: %v", err)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestAPI_GetLLMConfig(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, err := get(ts, "/admin/system/llm-config")
+	if err != nil {
+		t.Fatalf("get llm config: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var got struct {
+		DefaultConfigID string `json:"default_config_id"`
+		Configs         []struct {
+			ID      string `json:"id"`
+			Type    string `json:"type"`
+			BaseURL string `json:"base_url"`
+			APIKey  string `json:"api_key"`
+			Model   string `json:"model"`
+		} `json:"configs"`
+	}
+	if err := decodeJSON(resp, &got); err != nil {
+		t.Fatalf("decode llm config: %v", err)
+	}
+	if got.DefaultConfigID != "openai-response-default" {
+		t.Fatalf("default_config_id = %q, want openai-response-default", got.DefaultConfigID)
+	}
+	if len(got.Configs) < 3 {
+		t.Fatalf("expected at least 3 llm configs, got %#v", got.Configs)
+	}
+	if got.Configs[0].ID == "" || got.Configs[0].Type == "" {
+		t.Fatalf("expected llm config id/type, got %#v", got.Configs[0])
+	}
+}
+
+func TestAPI_UpdateLLMConfig(t *testing.T) {
+	h, ts := setupAPI(t)
+	ctrl := &stubLLMConfigController{
+		report: llmconfig.Report{
+			DefaultConfigID: "openai-response-default",
+			Configs: []config.RuntimeLLMEntryConfig{
+				{
+					ID:      "openai-chat-default",
+					Type:    "openai_chat_completion",
+					BaseURL: "https://api.openai.com/v1",
+					APIKey:  "",
+					Model:   "gpt-4.1",
+				},
+				{
+					ID:      "openai-response-default",
+					Type:    "openai_response",
+					BaseURL: "https://api.openai.com/v1",
+					APIKey:  "",
+					Model:   "gpt-4.1-mini",
+				},
+				{
+					ID:      "anthropic-default",
+					Type:    "anthropic",
+					BaseURL: "https://api.anthropic.com",
+					APIKey:  "",
+					Model:   "claude-3-7-sonnet-latest",
+				},
+			},
+		},
+	}
+	h.llmConfig = ctrl
+
+	resp, err := put(ts, "/admin/system/llm-config", map[string]any{
+		"default_config_id": "anthropic-default",
+		"configs": []map[string]any{
+			{
+				"id":       "anthropic-default",
+				"type":     "anthropic",
+				"base_url": "https://api.anthropic.com",
+				"api_key":  "sk-ant",
+				"model":    "claude-sonnet-4-5",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("update llm config: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var got llmconfig.Report
+	if err := decodeJSON(resp, &got); err != nil {
+		t.Fatalf("decode llm update: %v", err)
+	}
+	if got.DefaultConfigID != "anthropic-default" {
+		t.Fatalf("default_config_id = %q, want anthropic-default", got.DefaultConfigID)
+	}
+	if len(got.Configs) != 1 || got.Configs[0].APIKey != "sk-ant" {
+		t.Fatalf("anthropic api key not updated: %#v", got.Configs)
+	}
+	if ctrl.lastReq.DefaultConfigID == nil || *ctrl.lastReq.DefaultConfigID != "anthropic-default" {
+		t.Fatalf("default_config_id request not passed through: %#v", ctrl.lastReq)
+	}
+	if ctrl.lastReq.Configs == nil || len(*ctrl.lastReq.Configs) != 1 || (*ctrl.lastReq.Configs)[0].Model != "claude-sonnet-4-5" {
+		t.Fatalf("configs request not passed through: %#v", ctrl.lastReq)
+	}
+}
+
+func TestAPI_UpdateLLMConfig_ConfigUnavailable(t *testing.T) {
+	h, ts := setupAPI(t)
+	h.llmConfig = &stubLLMConfigController{
+		report: llmconfig.Report{
+			DefaultConfigID: "openai-response-default",
+			Configs:         []config.RuntimeLLMEntryConfig{},
+		},
+		updateErr: llmconfig.ErrLLMConfigUnavailable,
+	}
+
+	resp, err := put(ts, "/admin/system/llm-config", map[string]any{
+		"default_config_id": "openai-response-default",
+	})
+	if err != nil {
+		t.Fatalf("update llm config unavailable: %v", err)
+	}
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", resp.StatusCode)
+	}
+}
+
+func TestAPI_UpdateLLMConfig_BadRequest(t *testing.T) {
+	h, ts := setupAPI(t)
+	h.llmConfig = &stubLLMConfigController{
+		report: llmconfig.Report{
+			DefaultConfigID: "openai-response-default",
+			Configs:         []config.RuntimeLLMEntryConfig{},
+		},
+		updateErr: errors.New("unknown llm provider"),
+	}
+
+	resp, err := put(ts, "/admin/system/llm-config", map[string]any{
+		"default_config_id": "bad-provider",
+	})
+	if err != nil {
+		t.Fatalf("update llm config bad request: %v", err)
 	}
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)

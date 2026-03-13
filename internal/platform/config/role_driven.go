@@ -22,7 +22,39 @@ func validateConfig(cfg *Config) error {
 	if err := validateRuntimeMCPConfig(cfg); err != nil {
 		return err
 	}
+	if err := validateRuntimeLLMConfig(cfg); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+func validateRuntimeLLMConfig(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(cfg.Runtime.LLM.Configs))
+	for _, item := range cfg.Runtime.LLM.Configs {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			return fmt.Errorf("runtime.llm.configs.id is required")
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("duplicate runtime.llm.configs id %q", id)
+		}
+		seen[id] = struct{}{}
+		typ := strings.ToLower(strings.TrimSpace(item.Type))
+		switch typ {
+		case "openai_chat_completion", "openai_response", "anthropic":
+		default:
+			return fmt.Errorf("runtime.llm.configs[%q].type must be openai_chat_completion, openai_response, or anthropic", id)
+		}
+	}
+	if defaultID := strings.TrimSpace(cfg.Runtime.LLM.DefaultConfigID); defaultID != "" {
+		if _, ok := seen[defaultID]; !ok {
+			return fmt.Errorf("runtime.llm.default_config_id %q not found in runtime.llm.configs", defaultID)
+		}
+	}
 	return nil
 }
 

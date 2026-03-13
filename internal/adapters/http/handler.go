@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/adapters/http/server"
+	"github.com/yoke233/ai-workflow/internal/adapters/llmconfig"
 	"github.com/yoke233/ai-workflow/internal/adapters/sandbox"
 	issueapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	probeapp "github.com/yoke233/ai-workflow/internal/application/probe"
@@ -26,6 +27,7 @@ type Handler struct {
 	skillsRoot          string
 	skillGitHubImporter skillset.GitHubImporter
 	sandbox             sandbox.ControlService
+	llmConfig           llmconfig.ControlService
 	prPrompts           issueapp.PRFlowPromptsProvider
 	gitPAT              string
 	textCompleter       TextCompleter
@@ -89,6 +91,11 @@ func WithSandboxInspector(inspector sandbox.SupportInspector) HandlerOption {
 // WithSandboxController sets the runtime sandbox support + update controller.
 func WithSandboxController(controller sandbox.ControlService) HandlerOption {
 	return func(h *Handler) { h.sandbox = controller }
+}
+
+// WithLLMConfigController sets the runtime LLM config controller.
+func WithLLMConfigController(controller llmconfig.ControlService) HandlerOption {
+	return func(h *Handler) { h.llmConfig = controller }
 }
 
 // WithPRFlowPromptsProvider sets a provider for built-in PR issue prompt text.
@@ -229,7 +236,9 @@ func (h *Handler) Register(r chi.Router) {
 	// Admin controls
 	r.Group(func(r chi.Router) {
 		r.Use(httpx.RequireScope(httpx.ScopeAdmin))
+		r.Get("/admin/system/llm-config", h.getLLMConfig)
 		r.Put("/admin/system/sandbox-support", h.updateSandboxSupport)
+		r.Put("/admin/system/llm-config", h.updateLLMConfig)
 		r.Post("/executions/{execID}/probe", h.createRunProbe)
 		r.Get("/executions/{execID}/probes", h.listExecutionProbes)
 		r.Get("/executions/{execID}/probe/latest", h.getLatestRunProbe)

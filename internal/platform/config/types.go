@@ -47,6 +47,7 @@ type RuntimeConfig struct {
 	// Useful for smoke tests and environments without LLM credentials.
 	MockExecutor   bool                        `toml:"mock_executor" yaml:"mock_executor" json:"mock_executor"`
 	Collector      RuntimeCollectorConfig      `toml:"collector" yaml:"collector" json:"collector"`
+	LLM            RuntimeLLMConfig            `toml:"llm" yaml:"llm" json:"llm"`
 	Sandbox        RuntimeSandboxConfig        `toml:"sandbox"   yaml:"sandbox" json:"sandbox"`
 	Agents         RuntimeAgentsConfig         `toml:"agents"    yaml:"agents" json:"agents"`
 	MCP            RuntimeMCPConfig            `toml:"mcp"       yaml:"mcp" json:"mcp"`
@@ -249,6 +250,20 @@ type RuntimeCollectorConfig struct {
 	OpenAI     RuntimeOpenAIConfig `toml:"openai"       yaml:"openai"`
 }
 
+// RuntimeLLMConfig stores editable LLM provider endpoints in config.toml.
+type RuntimeLLMConfig struct {
+	DefaultConfigID string                  `toml:"default_config_id" yaml:"default_config_id" json:"default_config_id"`
+	Configs         []RuntimeLLMEntryConfig `toml:"configs"           yaml:"configs" json:"configs"`
+}
+
+type RuntimeLLMEntryConfig struct {
+	ID      string `toml:"id"       yaml:"id" json:"id"`
+	Type    string `toml:"type"     yaml:"type" json:"type"`
+	BaseURL string `toml:"base_url" yaml:"base_url" json:"base_url"`
+	APIKey  string `toml:"api_key"  yaml:"api_key" json:"api_key"`
+	Model   string `toml:"model"    yaml:"model" json:"model"`
+}
+
 // RuntimeOpenAIConfig configures the OpenAI client used by the runtime collector.
 type RuntimeOpenAIConfig struct {
 	BaseURL string `toml:"base_url" yaml:"base_url"`
@@ -350,6 +365,7 @@ type ConfigLayer struct {
 
 type RuntimeLayer struct {
 	Collector      *RuntimeCollectorLayer      `toml:"collector"       yaml:"collector"`
+	LLM            *RuntimeLLMLayer            `toml:"llm"             yaml:"llm"`
 	Sandbox        *RuntimeSandboxLayer        `toml:"sandbox"         yaml:"sandbox"`
 	Agents         *RuntimeAgentsLayerCfg      `toml:"agents"          yaml:"agents"`
 	MCP            *RuntimeMCPLayer            `toml:"mcp"             yaml:"mcp"`
@@ -467,6 +483,11 @@ type RuntimeMCPLayer struct {
 type RuntimeCollectorLayer struct {
 	MaxRetries *int                `toml:"max_retries" yaml:"max_retries"`
 	OpenAI     *RuntimeOpenAILayer `toml:"openai"      yaml:"openai"`
+}
+
+type RuntimeLLMLayer struct {
+	DefaultConfigID *string                  `toml:"default_config_id" yaml:"default_config_id"`
+	Configs         *[]RuntimeLLMEntryConfig `toml:"configs"           yaml:"configs"`
 }
 
 type RuntimeOpenAILayer struct {

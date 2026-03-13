@@ -71,7 +71,12 @@ import type {
   CreateNotificationRequest,
   UnreadCountResponse,
 } from "../types/apiV2";
-import type { SandboxSupportResponse, UpdateSandboxSupportRequest } from "../types/system";
+import type {
+  LLMConfigResponse,
+  SandboxSupportResponse,
+  UpdateLLMConfigRequest,
+  UpdateSandboxSupportRequest,
+} from "../types/system";
 
 export interface DetectGitInfoResponse {
   is_git: boolean;
@@ -181,6 +186,8 @@ export interface ApiClient {
   getSchedulerStats(): Promise<SchedulerStats>;
   getSandboxSupport(): Promise<SandboxSupportResponse>;
   updateSandboxSupport(body: UpdateSandboxSupportRequest): Promise<SandboxSupportResponse>;
+  getLLMConfig(): Promise<LLMConfigResponse>;
+  updateLLMConfig(body: UpdateLLMConfigRequest): Promise<LLMConfigResponse>;
   sendSystemEvent(body: AdminSystemEventRequest): Promise<AdminSystemEventResponse>;
 
   listProjects(params?: { limit?: number; offset?: number }): Promise<Project[]>;
@@ -706,6 +713,16 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     updateSandboxSupport: (body) =>
       request<SandboxSupportResponse, UpdateSandboxSupportRequest>({
         path: "/admin/system/sandbox-support",
+        method: "PUT",
+        body,
+      }),
+    getLLMConfig: () =>
+      request<LLMConfigResponse>({
+        path: "/admin/system/llm-config",
+      }),
+    updateLLMConfig: (body) =>
+      request<LLMConfigResponse, UpdateLLMConfigRequest>({
+        path: "/admin/system/llm-config",
         method: "PUT",
         body,
       }),

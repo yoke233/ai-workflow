@@ -25,6 +25,30 @@ max_retries = 2
   api_key = "xxxxxxxxxxxx"
   model = "deepseek-v3.2"
 
+[runtime.llm]
+default_config_id = "openai-response-default"
+
+  [[runtime.llm.configs]]
+  id = "openai-chat-default"
+  type = "openai_chat_completion"
+  base_url = "https://api.openai.com/v1"
+  api_key = ""
+  model = "gpt-4.1-mini"
+
+  [[runtime.llm.configs]]
+  id = "openai-response-default"
+  type = "openai_response"
+  base_url = "https://api.openai.com/v1"
+  api_key = ""
+  model = "gpt-4.1-mini"
+
+  [[runtime.llm.configs]]
+  id = "anthropic-default"
+  type = "anthropic"
+  base_url = "https://api.anthropic.com"
+  api_key = ""
+  model = "claude-3-7-sonnet-latest"
+
 [runtime.sandbox]
 enabled = false
 provider = "home_dir"

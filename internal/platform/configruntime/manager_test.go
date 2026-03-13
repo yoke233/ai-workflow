@@ -167,6 +167,74 @@ func TestManager_UpdateRuntimeWritesSandboxConfig(t *testing.T) {
 	}
 }
 
+func TestManager_UpdateRuntimeWritesLLMConfig(t *testing.T) {
+	manager, _ := newManagerForTest(t)
+
+	current := manager.GetRuntime()
+	current.LLM = config.RuntimeLLMConfig{
+		DefaultConfigID: "anthropic-main",
+		Configs: []config.RuntimeLLMEntryConfig{
+			{
+				ID:      "openai-chat-main",
+				Type:    "openai_chat_completion",
+				BaseURL: "https://openai.example.com/v1",
+				APIKey:  "chat-key",
+				Model:   "gpt-4.1",
+			},
+			{
+				ID:      "openai-response-main",
+				Type:    "openai_response",
+				BaseURL: "https://responses.example.com/v1",
+				APIKey:  "responses-key",
+				Model:   "gpt-4.1-mini",
+			},
+			{
+				ID:      "anthropic-main",
+				Type:    "anthropic",
+				BaseURL: "https://api.anthropic.com",
+				APIKey:  "anthropic-key",
+				Model:   "claude-3-7-sonnet-latest",
+			},
+		},
+	}
+
+	if _, err := manager.UpdateRuntime(context.Background(), current); err != nil {
+		t.Fatalf("UpdateRuntime() error = %v", err)
+	}
+
+	got := manager.GetRuntime().LLM
+	if got.DefaultConfigID != "anthropic-main" {
+		t.Fatalf("default_config_id = %q, want anthropic-main", got.DefaultConfigID)
+	}
+	if len(got.Configs) != 3 {
+		t.Fatalf("configs len = %d, want 3", len(got.Configs))
+	}
+	if got.Configs[1].APIKey != "responses-key" {
+		t.Fatalf("openai response api key not persisted: %+v", got.Configs[1])
+	}
+
+	raw, err := manager.ReadRawString()
+	if err != nil {
+		t.Fatalf("ReadRawString() error = %v", err)
+	}
+	layer, err := config.LoadLayerBytes([]byte(raw))
+	if err != nil {
+		t.Fatalf("LoadLayerBytes() error = %v", err)
+	}
+	if layer.Runtime == nil || layer.Runtime.LLM == nil {
+		t.Fatalf("expected runtime llm section written back")
+	}
+	if layer.Runtime.LLM.DefaultConfigID == nil || *layer.Runtime.LLM.DefaultConfigID != "anthropic-main" {
+		t.Fatalf("llm default_config_id missing in raw layer: %+v", layer.Runtime.LLM)
+	}
+	if layer.Runtime.LLM.Configs == nil || len(*layer.Runtime.LLM.Configs) != 3 {
+		t.Fatalf("llm configs missing in raw layer: %+v", layer.Runtime.LLM)
+	}
+	if (*layer.Runtime.LLM.Configs)[1].Model != "gpt-4.1-mini" {
+		t.Fatalf("openai response model missing in raw layer: %+v", (*layer.Runtime.LLM.Configs)[1])
+	}
+}
+
 func newManagerForTest(t *testing.T) (*Manager, string) {
 	t.Helper()
 	dir := t.TempDir()

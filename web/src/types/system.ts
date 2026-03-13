@@ -18,3 +18,21 @@ export interface UpdateSandboxSupportRequest {
   enabled?: boolean;
   provider?: string;
 }
+
+export interface LLMConfigItem {
+  id: string;
+  type: "openai_chat_completion" | "openai_response" | "anthropic";
+  base_url: string;
+  api_key: string;
+  model: string;
+}
+
+export interface LLMConfigResponse {
+  default_config_id: string;
+  configs: LLMConfigItem[];
+}
+
+export interface UpdateLLMConfigRequest {
+  default_config_id?: string;
+  configs?: LLMConfigItem[];
+}

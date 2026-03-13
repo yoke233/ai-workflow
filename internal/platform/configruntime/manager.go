@@ -80,6 +80,7 @@ func (e *ValidationError) Unwrap() error {
 
 type RuntimeConfig struct {
 	Sandbox config.RuntimeSandboxConfig `json:"sandbox"`
+	LLM     config.RuntimeLLMConfig     `json:"llm"`
 	Agents  config.RuntimeAgentsConfig  `json:"agents"`
 	MCP     config.RuntimeMCPConfig     `json:"mcp"`
 	Prompts config.RuntimePromptsConfig `json:"prompts"`
@@ -164,6 +165,7 @@ func (m *Manager) GetRuntime() RuntimeConfig {
 	}
 	return RuntimeConfig{
 		Sandbox: snap.Config.Runtime.Sandbox,
+		LLM:     snap.Config.Runtime.LLM,
 		Agents:  snap.Config.Runtime.Agents,
 		MCP:     snap.Config.Runtime.MCP,
 		Prompts: snap.Config.Runtime.Prompts,
@@ -228,6 +230,7 @@ func (m *Manager) UpdateRuntime(ctx context.Context, next RuntimeConfig) (*Snaps
 		layer.Runtime = &config.RuntimeLayer{}
 	}
 	layer.Runtime.Sandbox = buildRuntimeSandboxLayer(next.Sandbox)
+	layer.Runtime.LLM = buildRuntimeLLMLayer(next.LLM)
 	layer.Runtime.Agents = &config.RuntimeAgentsLayerCfg{
 		Drivers:  cloneRuntimeDrivers(next.Agents.Drivers),
 		Profiles: cloneRuntimeProfiles(next.Agents.Profiles),
@@ -287,6 +290,22 @@ func buildRuntimeSandboxLayer(in config.RuntimeSandboxConfig) *config.RuntimeSan
 			Tmpfs:          cloneStringSlicePtr(in.Docker.Tmpfs),
 		},
 	}
+}
+
+func buildRuntimeLLMLayer(in config.RuntimeLLMConfig) *config.RuntimeLLMLayer {
+	return &config.RuntimeLLMLayer{
+		DefaultConfigID: stringPtr(in.DefaultConfigID),
+		Configs:         cloneRuntimeLLMEntriesPtr(in.Configs),
+	}
+}
+
+func cloneRuntimeLLMEntriesPtr(in []config.RuntimeLLMEntryConfig) *[]config.RuntimeLLMEntryConfig {
+	if in == nil {
+		return nil
+	}
+	out := make([]config.RuntimeLLMEntryConfig, len(in))
+	copy(out, in)
+	return &out
 }
 
 func buildPRProviderPromptLayer(in config.RuntimePRProviderPromptConfig) *config.RuntimePRProviderPromptLayer {

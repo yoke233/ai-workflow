@@ -392,6 +392,10 @@
           "$ref": "#/$defs/RuntimeCollectorConfig",
           "description": "运行时元数据采集配置"
         },
+        "llm": {
+          "$ref": "#/$defs/RuntimeLLMConfig",
+          "description": "LLM API provider 配置"
+        },
         "sandbox": {
           "$ref": "#/$defs/RuntimeSandboxConfig",
           "description": "运行时沙箱配置"
@@ -422,6 +426,7 @@
       "required": [
         "mock_executor",
         "collector",
+        "llm",
         "sandbox",
         "agents",
         "mcp",
@@ -596,6 +601,58 @@
         "idle_after",
         "timeout",
         "max_attempts"
+      ]
+    },
+    "RuntimeLLMConfig": {
+      "properties": {
+        "default_config_id": {
+          "type": "string",
+          "description": "当前默认启用的 LLM 配置 ID"
+        },
+        "configs": {
+          "items": {
+            "$ref": "#/$defs/RuntimeLLMEntryConfig"
+          },
+          "type": "array",
+          "description": "可维护的多条 LLM 配置项"
+        }
+      },
+      "type": "object",
+      "required": [
+        "default_config_id",
+        "configs"
+      ]
+    },
+    "RuntimeLLMEntryConfig": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "配置唯一标识"
+        },
+        "type": {
+          "type": "string",
+          "description": "LLM provider 类型（openai_chat_completion / openai_response / anthropic）"
+        },
+        "base_url": {
+          "type": "string",
+          "description": "LLM API 根地址"
+        },
+        "api_key": {
+          "type": "string",
+          "description": "LLM API 密钥"
+        },
+        "model": {
+          "type": "string",
+          "description": "默认模型名"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "base_url",
+        "api_key",
+        "model"
       ]
     },
     "RuntimeLiteBoxConfig": {
@@ -989,13 +1046,25 @@
             "10s",
             "500ms"
           ]
+        },
+        "thread_boot_template": {
+          "type": "string"
+        },
+        "max_context_tokens": {
+          "type": "integer"
+        },
+        "context_warn_ratio": {
+          "type": "number"
         }
       },
       "type": "object",
       "required": [
         "reuse",
         "max_turns",
-        "idle_ttl"
+        "idle_ttl",
+        "thread_boot_template",
+        "max_context_tokens",
+        "context_warn_ratio"
       ]
     },
     "RuntimeSessionManagerConfig": {
@@ -1047,12 +1116,16 @@
         "port": {
           "type": "integer",
           "description": "监听端口"
+        },
+        "auth_required": {
+          "type": "boolean"
         }
       },
       "type": "object",
       "required": [
         "host",
-        "port"
+        "port",
+        "auth_required"
       ]
     },
     "StoreConfig": {
