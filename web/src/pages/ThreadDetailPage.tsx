@@ -1,15 +1,34 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Bot, Link2, Loader2, Plus, Send, Users } from "lucide-react";
+import { ArrowLeft, Bot, Link2, Loader2, Plus, Save, Send, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { formatRelativeTime, getErrorMessage } from "@/lib/v2Workbench";
 import { Link } from "react-router-dom";
 import type { Thread, ThreadMessage, ThreadParticipant, ThreadWorkItemLink, ThreadAgentSession, Issue } from "@/types/apiV2";
+
+function hasSavedSummary(thread: Thread | null): boolean {
+  return Boolean(thread?.summary?.trim());
+}
+
+function deriveWorkItemTitle(thread: Thread): string {
+  const firstMeaningfulLine = (thread.summary ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[-*#\d.\)\s]+/, "").trim())
+    .find((line) => line.length > 0);
+  const title = firstMeaningfulLine || thread.title.trim();
+  return title.length > 80 ? `${title.slice(0, 77)}...` : title;
+}
+
+function readSourceType(issue: Issue | undefined): string | null {
+  const value = issue?.metadata?.source_type;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
 
 export function ThreadDetailPage() {
   const { t } = useTranslation();
@@ -26,13 +45,22 @@ export function ThreadDetailPage() {
   const [linkedIssues, setLinkedIssues] = useState<Record<number, Issue>>({});
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [summaryDraft, setSummaryDraft] = useState("");
+  const [savingSummary, setSavingSummary] = useState(false);
   const [showCreateWI, setShowCreateWI] = useState(false);
   const [newWITitle, setNewWITitle] = useState("");
+  const [newWIBody, setNewWIBody] = useState("");
   const [showLinkWI, setShowLinkWI] = useState(false);
   const [linkWIId, setLinkWIId] = useState("");
   const [agentSessions, setAgentSessions] = useState<ThreadAgentSession[]>([]);
 
   const id = Number(threadId);
+  const orderedWorkItemLinks = [...workItemLinks].sort((a, b) => {
+    if (a.is_primary === b.is_primary) {
+      return a.id - b.id;
+    }
+    return a.is_primary ? -1 : 1;
+  });
 
   useEffect(() => {
     if (!id || isNaN(id)) return;
@@ -51,6 +79,7 @@ export function ThreadDetailPage() {
         ]);
         if (!cancelled) {
           setThread(th);
+          setSummaryDraft(th.summary ?? "");
           setMessages(msgs);
           setParticipants(parts);
           setWorkItemLinks(links);
@@ -78,6 +107,7 @@ export function ThreadDetailPage() {
   const handleSend = async () => {
     if (!newMessage.trim() || !id) return;
     setSending(true);
+    setError(null);
     try {
       const msg = await apiClient.createThreadMessage(id, {
         content: newMessage.trim(),
@@ -92,14 +122,59 @@ export function ThreadDetailPage() {
     }
   };
 
+  const handleSaveSummary = async () => {
+    if (!thread || !id) return;
+    setSavingSummary(true);
+    setError(null);
+    try {
+      const updated = await apiClient.updateThread(id, { summary: summaryDraft.trim() });
+      setThread(updated);
+      setSummaryDraft(updated.summary ?? "");
+      if (showCreateWI) {
+        const nextSummary = updated.summary?.trim() ?? "";
+        setNewWIBody(nextSummary);
+        setNewWITitle(nextSummary ? deriveWorkItemTitle(updated) : "");
+      }
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setSavingSummary(false);
+    }
+  };
+
+  const handleOpenCreateWorkItem = () => {
+    if (!thread) return;
+    if (!hasSavedSummary(thread)) {
+      setError("请先生成或填写 summary，再创建 WorkItem。");
+      setShowCreateWI(false);
+      return;
+    }
+    setError(null);
+    setShowCreateWI((prev) => {
+      const next = !prev;
+      if (next) {
+        setNewWITitle(deriveWorkItemTitle(thread));
+        setNewWIBody(thread.summary?.trim() ?? "");
+      }
+      return next;
+    });
+  };
+
   const handleCreateWorkItem = async () => {
     if (!newWITitle.trim() || !id) return;
+    setError(null);
     try {
-      const issue = await apiClient.createWorkItemFromThread(id, { title: newWITitle.trim() });
+      const trimmedBody = newWIBody.trim();
+      const savedSummary = thread?.summary?.trim() ?? "";
+      const issue = await apiClient.createWorkItemFromThread(id, {
+        title: newWITitle.trim(),
+        body: trimmedBody !== "" && trimmedBody !== savedSummary ? trimmedBody : undefined,
+      });
       const links = await apiClient.listWorkItemsByThread(id);
       setWorkItemLinks(links);
       setLinkedIssues((prev) => ({ ...prev, [issue.id]: issue }));
       setNewWITitle("");
+      setNewWIBody("");
       setShowCreateWI(false);
     } catch (e) {
       setError(getErrorMessage(e));
@@ -109,6 +184,7 @@ export function ThreadDetailPage() {
   const handleLinkWorkItem = async () => {
     const wiId = Number(linkWIId);
     if (!wiId || isNaN(wiId) || !id) return;
+    setError(null);
     try {
       await apiClient.createThreadWorkItemLink(id, { work_item_id: wiId, relation_type: "related" });
       const links = await apiClient.listWorkItemsByThread(id);
@@ -132,7 +208,7 @@ export function ThreadDetailPage() {
     );
   }
 
-  if (error || !thread) {
+  if (!thread) {
     return (
       <div className="space-y-4 p-6">
         <Button variant="ghost" size="sm" onClick={() => navigate("/threads")}>
@@ -164,6 +240,12 @@ export function ThreadDetailPage() {
           </div>
         </div>
       </div>
+
+      {error ? (
+        <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
 
       <div className="flex flex-1 gap-4 overflow-hidden">
         {/* Messages area */}
@@ -297,6 +379,52 @@ export function ThreadDetailPage() {
         </div>
       </div>
 
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center justify-between text-sm">
+            <span>{t("threads.summary", "Summary")}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSaveSummary}
+              disabled={savingSummary || summaryDraft.trim() === (thread.summary?.trim() ?? "")}
+            >
+              {savingSummary ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="mr-1 h-3.5 w-3.5" />
+              )}
+              {t("common.save", "Save")}
+            </Button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "threads.summaryEntryHint",
+              "Summary is the convergence bridge between discussion and execution. Save it here before creating a work item.",
+            )}
+          </p>
+          <Textarea
+            value={summaryDraft}
+            onChange={(e) => setSummaryDraft(e.target.value)}
+            placeholder={t(
+              "threads.summaryPlaceholder",
+              "Capture the current consensus, decisions, scope, risks, and next actions for this thread.",
+            )}
+            className="min-h-[132px] resize-y text-sm"
+          />
+          {!hasSavedSummary(thread) ? (
+            <p className="text-xs text-amber-700">
+              {t(
+                "threads.summaryMissingHint",
+                "Work item creation depends on summary. Save a summary first to turn this discussion into execution.",
+              )}
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+
       {/* Linked Work Items */}
       <Card>
         <CardHeader className="pb-2">
@@ -306,7 +434,7 @@ export function ThreadDetailPage() {
               {t("threads.linkedWorkItems", "Linked Work Items")} ({workItemLinks.length})
             </span>
             <span className="flex gap-1">
-              <Button variant="ghost" size="sm" onClick={() => setShowCreateWI(!showCreateWI)}>
+              <Button variant="ghost" size="sm" onClick={handleOpenCreateWorkItem}>
                 <Plus className="mr-1 h-3 w-3" />
                 {t("threads.createWorkItem", "Create")}
               </Button>
@@ -319,16 +447,46 @@ export function ThreadDetailPage() {
         </CardHeader>
         <CardContent>
           {showCreateWI && (
-            <div className="mb-3 flex gap-2">
+            <div className="mb-3 space-y-3 rounded-md border border-border/60 bg-muted/20 p-3">
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-foreground">
+                  {t("threads.summaryToWorkItem", "Create Work Item from Summary")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    "threads.summaryToWorkItemHint",
+                    "The body is prefilled from the saved summary. Update the summary first if the discussion has changed.",
+                  )}
+                </p>
+              </div>
               <Input
                 placeholder={t("threads.workItemTitle", "Work item title...")}
                 value={newWITitle}
                 onChange={(e) => setNewWITitle(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleCreateWorkItem()}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleCreateWorkItem()}
               />
-              <Button size="sm" onClick={handleCreateWorkItem} disabled={!newWITitle.trim()}>
-                {t("common.create", "Create")}
-              </Button>
+              <Textarea
+                placeholder={t("threads.workItemBody", "Work item body...")}
+                value={newWIBody}
+                onChange={(e) => setNewWIBody(e.target.value)}
+                className="min-h-[120px] resize-y text-sm"
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setShowCreateWI(false);
+                    setNewWITitle("");
+                    setNewWIBody("");
+                  }}
+                >
+                  {t("common.cancel", "Cancel")}
+                </Button>
+                <Button size="sm" onClick={handleCreateWorkItem} disabled={!newWITitle.trim() || !newWIBody.trim()}>
+                  {t("common.create", "Create")}
+                </Button>
+              </div>
             </div>
           )}
           {showLinkWI && (
@@ -350,29 +508,49 @@ export function ThreadDetailPage() {
             </p>
           ) : (
             <div className="space-y-2">
-              {workItemLinks.map((link) => {
+              {orderedWorkItemLinks.map((link) => {
                 const issue = linkedIssues[link.work_item_id];
+                const sourceType = readSourceType(issue);
                 return (
-                  <div key={link.id} className="flex items-center gap-2 text-sm">
-                    {link.is_primary && (
-                      <Badge variant="default" className="text-[10px]">
-                        {t("threads.primary", "primary")}
+                  <div
+                    key={link.id}
+                    className={`rounded-md border px-3 py-2 text-sm ${
+                      link.is_primary
+                        ? "border-blue-200 bg-blue-50/50"
+                        : "border-border/60"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {link.is_primary && (
+                        <Badge variant="default" className="text-[10px]">
+                          {t("threads.primary", "primary")}
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className="text-[10px]">
+                        {link.relation_type}
                       </Badge>
-                    )}
-                    <Badge variant="outline" className="text-[10px]">
-                      {link.relation_type}
-                    </Badge>
-                    <Link
-                      to={`/work-items/${link.work_item_id}`}
-                      className="font-medium text-primary hover:underline"
-                    >
-                      {issue ? issue.title : `#${link.work_item_id}`}
-                    </Link>
-                    {issue && (
-                      <Badge variant="secondary" className="text-[10px]">
-                        {issue.status}
-                      </Badge>
-                    )}
+                      {sourceType ? (
+                        <Badge variant="secondary" className="text-[10px]">
+                          {sourceType === "thread_summary" ? "summary" : sourceType === "thread_manual" ? "manual" : sourceType}
+                        </Badge>
+                      ) : null}
+                      <Link
+                        to={`/work-items/${link.work_item_id}`}
+                        className="min-w-0 flex-1 truncate font-medium text-primary hover:underline"
+                      >
+                        {issue ? issue.title : `#${link.work_item_id}`}
+                      </Link>
+                      {issue && (
+                        <Badge variant="secondary" className="text-[10px]">
+                          {issue.status}
+                        </Badge>
+                      )}
+                    </div>
+                    {link.is_primary ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t("threads.primaryWorkItemHint", "This is the primary work item converged from the current thread.")}
+                      </p>
+                    ) : null}
                   </div>
                 );
               })}
@@ -380,17 +558,6 @@ export function ThreadDetailPage() {
           )}
         </CardContent>
       </Card>
-
-      {thread.summary && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">{t("threads.summary", "Summary")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">{thread.summary}</p>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

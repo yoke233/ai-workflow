@@ -409,9 +409,19 @@ func TestThreadCreateWorkItem(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	// Create thread.
-	resp, _ := post(ts, "/threads", map[string]any{"title": "create-wi-thread"})
+	resp, _ := post(ts, "/threads", map[string]any{
+		"title":   "create-wi-thread",
+		"summary": "summary should be ignored on create",
+	})
 	var thread core.Thread
 	decodeJSON(resp, &thread)
+
+	resp, _ = put(ts, fmt.Sprintf("/threads/%d", thread.ID), map[string]any{
+		"summary": "Ship the thread summary as the default work item body.",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 updating summary, got %d", resp.StatusCode)
+	}
 
 	// Create work item from thread.
 	resp, err := post(ts, fmt.Sprintf("/threads/%d/create-work-item", thread.ID), map[string]any{
@@ -423,6 +433,22 @@ func TestThreadCreateWorkItem(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
+	var issue core.WorkItem
+	if err := decodeJSON(resp, &issue); err != nil {
+		t.Fatalf("decode issue: %v", err)
+	}
+	if issue.Body != "Ship the thread summary as the default work item body." {
+		t.Fatalf("expected summary-backed body, got %q", issue.Body)
+	}
+	if issue.Metadata["source_thread_id"] != float64(thread.ID) {
+		t.Fatalf("expected source_thread_id=%d, got %#v", thread.ID, issue.Metadata["source_thread_id"])
+	}
+	if issue.Metadata["source_type"] != "thread_summary" {
+		t.Fatalf("expected source_type=thread_summary, got %#v", issue.Metadata["source_type"])
+	}
+	if issue.Metadata["body_from_summary"] != true {
+		t.Fatalf("expected body_from_summary=true, got %#v", issue.Metadata["body_from_summary"])
+	}
 
 	// Verify link was created.
 	resp, _ = get(ts, fmt.Sprintf("/threads/%d/work-items", thread.ID))
@@ -433,6 +459,71 @@ func TestThreadCreateWorkItem(t *testing.T) {
 	}
 	if !links[0].IsPrimary {
 		t.Fatal("expected auto-created link to be primary")
+	}
+}
+
+func TestThreadCreateWorkItemRequiresSummaryWhenBodyMissing(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "create-wi-thread"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	resp, err := post(ts, fmt.Sprintf("/threads/%d/create-work-item", thread.ID), map[string]any{
+		"title": "spawned work item",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+
+	var apiErr map[string]any
+	if err := decodeJSON(resp, &apiErr); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if apiErr["error"] != "please generate or fill in summary first" {
+		t.Fatalf("unexpected error message: %#v", apiErr["error"])
+	}
+	if apiErr["code"] != "MISSING_THREAD_SUMMARY" {
+		t.Fatalf("unexpected error code: %#v", apiErr["code"])
+	}
+}
+
+func TestThreadCreateWorkItemWithExplicitBodyMarksManualSource(t *testing.T) {
+	_, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "create-wi-thread"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	resp, err := post(ts, fmt.Sprintf("/threads/%d/create-work-item", thread.ID), map[string]any{
+		"title": "spawned work item",
+		"body":  "Custom body that does not come from summary.",
+	})
+	if err != nil {
+		t.Fatalf("create work item: %v", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+
+	var issue core.WorkItem
+	if err := decodeJSON(resp, &issue); err != nil {
+		t.Fatalf("decode issue: %v", err)
+	}
+	if issue.Body != "Custom body that does not come from summary." {
+		t.Fatalf("unexpected body: %q", issue.Body)
+	}
+	if issue.Metadata["source_thread_id"] != float64(thread.ID) {
+		t.Fatalf("expected source_thread_id=%d, got %#v", thread.ID, issue.Metadata["source_thread_id"])
+	}
+	if issue.Metadata["source_type"] != "thread_manual" {
+		t.Fatalf("expected source_type=thread_manual, got %#v", issue.Metadata["source_type"])
+	}
+	if issue.Metadata["body_from_summary"] != false {
+		t.Fatalf("expected body_from_summary=false, got %#v", issue.Metadata["body_from_summary"])
 	}
 }
 

@@ -493,7 +493,8 @@ func (h *Handler) createWorkItemFromThread(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Verify thread exists.
-	if _, err := h.store.GetThread(r.Context(), threadID); err != nil {
+	thread, err := h.store.GetThread(r.Context(), threadID)
+	if err != nil {
 		if err == core.ErrNotFound {
 			writeError(w, http.StatusNotFound, "thread not found", "THREAD_NOT_FOUND")
 			return
@@ -516,14 +517,35 @@ func (h *Handler) createWorkItemFromThread(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "title is required", "MISSING_TITLE")
 		return
 	}
+	body := strings.TrimSpace(req.Body)
+	summary := strings.TrimSpace(thread.Summary)
+	bodyFromSummary := false
+	if body == "" {
+		if summary == "" {
+			writeError(w, http.StatusBadRequest, "please generate or fill in summary first", "MISSING_THREAD_SUMMARY")
+			return
+		}
+		body = summary
+		bodyFromSummary = true
+	}
+
+	sourceType := "thread_manual"
+	if bodyFromSummary {
+		sourceType = "thread_summary"
+	}
 
 	// Create issue.
 	issue := &core.WorkItem{
 		Title:     title,
-		Body:      req.Body,
+		Body:      body,
 		Status:    core.WorkItemOpen,
 		Priority:  core.PriorityMedium,
 		ProjectID: req.ProjectID,
+		Metadata: map[string]any{
+			"source_thread_id":  threadID,
+			"source_type":       sourceType,
+			"body_from_summary": bodyFromSummary,
+		},
 	}
 	issueID, err := h.store.CreateWorkItem(r.Context(), issue)
 	if err != nil {
@@ -539,7 +561,14 @@ func (h *Handler) createWorkItemFromThread(w http.ResponseWriter, r *http.Reques
 		RelationType: "drives",
 		IsPrimary:    true,
 	}
-	h.store.CreateThreadWorkItemLink(r.Context(), link)
+	if _, err := h.store.CreateThreadWorkItemLink(r.Context(), link); err != nil {
+		if rollbackErr := h.store.DeleteWorkItem(r.Context(), issueID); rollbackErr != nil {
+			writeError(w, http.StatusInternalServerError, err.Error()+"; rollback failed: "+rollbackErr.Error(), "CREATE_LINK_FAILED")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_LINK_FAILED")
+		return
+	}
 
 	writeJSON(w, http.StatusCreated, issue)
 }

@@ -39,6 +39,12 @@ import type {
   UpdateWorkItemRequest,
 } from "@/types/apiV2";
 
+type SourceTypeDisplay = {
+  label: string;
+  text: string;
+  bg: string;
+};
+
 const statusConfig: Record<string, { label: string; text: string; bg: string }> = {
   open: { label: "待评估", text: "text-blue-600", bg: "bg-blue-50" },
   accepted: { label: "已确认", text: "text-amber-600", bg: "bg-amber-50" },
@@ -82,6 +88,37 @@ const labelColors = [
   { text: "text-violet-600", bg: "bg-violet-50" },
   { text: "text-rose-600", bg: "bg-rose-50" },
 ];
+
+const sourceTypeConfig: Record<string, SourceTypeDisplay> = {
+  thread_summary: { label: "Summary 收敛", text: "text-blue-600", bg: "bg-blue-50" },
+  thread_manual: { label: "Thread 手工整理", text: "text-amber-600", bg: "bg-amber-50" },
+};
+
+function readMetadataString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readMetadataNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function getSourceTypeDisplay(sourceType: string | null): SourceTypeDisplay | null {
+  if (!sourceType) {
+    return null;
+  }
+  return sourceTypeConfig[sourceType] ?? {
+    label: sourceType,
+    text: "text-zinc-600",
+    bg: "bg-zinc-100",
+  };
+}
 
 function StepRow({ step, index, isLast }: { step: Action; index: number; isLast: boolean }) {
   const statusStyle = stepStatusConfig[step.status] ?? stepStatusConfig.pending;
@@ -237,6 +274,13 @@ export function WorkItemDetailPage() {
   const selectedProject = workItem?.project_id == null
     ? null
     : projects.find((project) => project.id === workItem.project_id) ?? null;
+  const sourceThreadID = readMetadataNumber(workItem?.metadata?.source_thread_id);
+  const sourceType = readMetadataString(workItem?.metadata?.source_type);
+  const sourceTypeDisplay = getSourceTypeDisplay(sourceType);
+  const sourceThreadLink = sourceThreadID == null
+    ? null
+    : threadLinks.find((link) => link.thread_id === sourceThreadID) ?? null;
+  const sourceThread = sourceThreadID == null ? null : linkedThreads[sourceThreadID] ?? null;
 
   const statusStyle = statusConfig[workItem?.status ?? "open"] ?? statusConfig.open;
   const priorityStyle = priorityConfig[workItem?.priority ?? "medium"] ?? priorityConfig.medium;
@@ -433,22 +477,66 @@ export function WorkItemDetailPage() {
               <hr className="border-border" />
 
               <div className="space-y-2.5">
+                <h4 className="text-[13px] text-muted-foreground">来源 Thread</h4>
+                {sourceThreadID != null ? (
+                  <Link
+                    to={`/threads/${sourceThreadID}`}
+                    className={cn(
+                      "flex items-start gap-2 rounded-md border px-3 py-2 text-xs transition-colors hover:bg-muted/50",
+                      sourceThreadLink?.is_primary ? "border-blue-200 bg-blue-50/50" : "border-border",
+                    )}
+                  >
+                    <MessageCircle className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", sourceThreadLink?.is_primary ? "text-blue-500" : "text-muted-foreground")} />
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="truncate font-medium">{sourceThread?.title ?? `Thread #${sourceThreadID}`}</div>
+                      <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                        {sourceTypeDisplay ? (
+                          <span className={cn("rounded px-1.5 py-px font-medium", sourceTypeDisplay.text, sourceTypeDisplay.bg)}>
+                            {sourceTypeDisplay.label}
+                          </span>
+                        ) : null}
+                        {sourceThreadLink?.is_primary ? (
+                          <span className="rounded bg-foreground px-1.5 py-px font-medium text-background">primary</span>
+                        ) : null}
+                        <span>回到来源讨论</span>
+                      </div>
+                      {sourceThread?.summary ? (
+                        <div className="line-clamp-2 text-[11px] text-muted-foreground">{sourceThread.summary}</div>
+                      ) : null}
+                    </div>
+                    <ArrowUpRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  </Link>
+                ) : (
+                  <span className="text-xs italic text-muted-foreground">无来源 Thread</span>
+                )}
+              </div>
+
+              <hr className="border-border" />
+
+              <div className="space-y-2.5">
                 <h4 className="text-[13px] text-muted-foreground">{t("workItemDetail.linkedThreads")}</h4>
                 {threadLinks.length > 0 ? (
                   <div className="space-y-2">
                     {threadLinks.map((link) => {
                       const linkedThread = linkedThreads[link.thread_id];
+                      const isSourceThread = sourceThreadID === link.thread_id;
                       return (
                         <Link
                           key={link.id}
                           to={`/threads/${link.thread_id}`}
-                          className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs transition-colors hover:bg-muted/50"
+                          className={cn(
+                            "flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs transition-colors hover:bg-muted/50",
+                            link.is_primary ? "border-blue-200 bg-blue-50/50" : "border-border",
+                          )}
                         >
                           <MessageCircle className={cn("h-3.5 w-3.5 shrink-0", link.is_primary ? "text-blue-500" : "text-muted-foreground")} />
                           <div className="min-w-0 flex-1">
                             <div className="truncate font-medium">{linkedThread?.title ?? `Thread #${link.thread_id}`}</div>
                             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                               <span>{link.relation_type}</span>
+                              {isSourceThread ? (
+                                <span className="rounded bg-zinc-900 px-1.5 py-px text-[9px] font-medium text-white">source</span>
+                              ) : null}
                               {link.is_primary ? (
                                 <span className="rounded bg-foreground px-1.5 py-px text-[9px] font-medium text-background">primary</span>
                               ) : null}

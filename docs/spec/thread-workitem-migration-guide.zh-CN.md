@@ -56,6 +56,21 @@
 | GET | `/issues/{id}/threads` | 按 WorkItem 反查 Thread |
 | POST | `/threads/{id}/create-work-item` | 从 Thread 创建 WorkItem（自动关联） |
 
+补充说明（按 2026-03-13 当前代码）：
+
+- `POST /threads/{id}/create-work-item` 现在要求满足以下其一：
+  - 显式提供 `body`
+  - 或 Thread 已保存非空 `summary`
+- 当请求未提供 `body` 时，后端会自动使用 `Thread.summary` 作为 WorkItem `body`
+- 当请求未提供 `body` 且 `Thread.summary` 为空时，接口返回 `400 MISSING_THREAD_SUMMARY`
+- 创建出的 WorkItem 会记录 `metadata.source_thread_id`
+- 如果正文由后端用 `Thread.summary` 自动回填，则记录：
+  - `metadata.source_type = "thread_summary"`
+  - `metadata.body_from_summary = true`
+- 如果请求显式提供了 `body`，则记录：
+  - `metadata.source_type = "thread_manual"`
+  - `metadata.body_from_summary = false`
+
 ### 新增 Thread Agent 端点
 
 | 方法 | 路由 | 说明 |
