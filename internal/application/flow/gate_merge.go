@@ -1,0 +1,304 @@
+package flow
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/exec"
+	"strings"
+	"text/template"
+	"time"
+
+	"github.com/yoke233/ai-workflow/internal/core"
+)
+
+// mergePRIfConfigured attempts to merge the associated PR/MR when merge_on_pass is enabled.
+func (e *IssueEngine) mergePRIfConfigured(ctx context.Context, step *core.Step) error {
+	mergeOnPass := false
+	mergeMethod := "squash"
+	if step.Config != nil {
+		if v, ok := step.Config["merge_on_pass"].(bool); ok {
+			mergeOnPass = v
+		}
+		if v, ok := step.Config["merge_method"].(string); ok && strings.TrimSpace(v) != "" {
+			mergeMethod = strings.TrimSpace(v)
+		}
+	}
+	if !mergeOnPass {
+		return nil
+	}
+
+	prNumber, err := e.resolvePRNumber(ctx, step)
+	if err != nil {
+		return err
+	}
+
+	ws := WorkspaceFromContext(ctx)
+	if ws == nil {
+		return fmt.Errorf("workspace is required for merge")
+	}
+	originURL, err := gitOutput(ctx, ws.Path, nil, "remote", "get-url", "origin")
+	if err != nil {
+		return fmt.Errorf("resolve origin url: %w", err)
+	}
+	originURL = strings.TrimSpace(originURL)
+
+	token := e.scmTokens.EffectivePAT()
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("missing merge PAT")
+	}
+
+	if e.crFactory == nil {
+		return fmt.Errorf("change request provider factory is not configured")
+	}
+
+	providers := e.crFactory(token)
+	provider, repo, ok, err := detectChangeRequestProvider(ctx, originURL, providers)
+	if err != nil {
+		return err
+	}
+	if !ok || provider == nil {
+		return fmt.Errorf("unsupported origin for merge: %s", originURL)
+	}
+
+	extra := map[string]any{}
+	if ws.Metadata != nil {
+		for _, key := range []string{
+			"organization_id",
+			"repository_id",
+			"project_id",
+			"source_project_id",
+			"target_project_id",
+			"remove_source_branch",
+		} {
+			if value, exists := ws.Metadata[key]; exists {
+				extra[key] = value
+			}
+		}
+	}
+	if step.Config != nil {
+		for _, key := range []string{
+			"organization_id",
+			"repository_id",
+			"project_id",
+			"source_project_id",
+			"target_project_id",
+			"remove_source_branch",
+		} {
+			if value, exists := step.Config[key]; exists {
+				extra[key] = value
+			}
+		}
+	}
+
+	return provider.Merge(ctx, repo, prNumber, MergeInput{
+		Method:        mergeMethod,
+		CommitTitle:   fmt.Sprintf("merge: issue %d", step.IssueID),
+		CommitMessage: fmt.Sprintf("merged by ai-workflow gate step %d", step.ID),
+		Extra:         extra,
+	})
+}
+
+// resolvePRNumber finds the PR number from gate artifact or predecessor artifacts.
+func (e *IssueEngine) resolvePRNumber(ctx context.Context, step *core.Step) (int, error) {
+	// Prefer gate artifact metadata.
+	art, err := e.store.GetLatestArtifactByStep(ctx, step.ID)
+	if err == nil && art != nil && art.Metadata != nil {
+		if n, ok := toInt64(art.Metadata["pr_number"]); ok && n > 0 {
+			return int(n), nil
+		}
+	}
+
+	// Fallback: scan predecessor artifacts.
+	predecessors := e.predecessorIDs(ctx, step)
+	for _, id := range predecessors {
+		a, err := e.store.GetLatestArtifactByStep(ctx, id)
+		if err != nil || a == nil || a.Metadata == nil {
+			continue
+		}
+		if n, ok := toInt64(a.Metadata["pr_number"]); ok && n > 0 {
+			return int(n), nil
+		}
+	}
+	return 0, fmt.Errorf("pr_number not found for merge")
+}
+
+// handleMergeConflictBlock detects merge conflicts (dirty) and immediately blocks
+// the gate for human resolution instead of entering a rework cycle.
+// Returns true if the error was a merge conflict that was handled.
+func (e *IssueEngine) handleMergeConflictBlock(ctx context.Context, step *core.Step, err error) bool {
+	reason, metadata := e.formatMergeFailureFeedback(step, err)
+
+	var mergeErr *MergeError
+	if !errors.As(err, &mergeErr) || mergeErr == nil {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(mergeErr.MergeableState), "dirty") {
+		return false
+	}
+
+	e.recordMergeConflict(ctx, step, reason, metadata)
+	e.bus.Publish(ctx, core.Event{
+		Type:      core.EventGateAwaitingHuman,
+		IssueID:   step.IssueID,
+		StepID:    step.ID,
+		Timestamp: time.Now().UTC(),
+		Data:      metadata,
+	})
+	_ = e.transitionStep(ctx, step, core.StepBlocked)
+	return true
+}
+
+// formatMergeFailureFeedback builds a human-readable reason and metadata map from a merge error.
+func (e *IssueEngine) formatMergeFailureFeedback(step *core.Step, err error) (string, map[string]any) {
+	metadata := map[string]any{
+		"merge_error": err.Error(),
+	}
+	reason := "merge failed: " + err.Error()
+
+	var mergeErr *MergeError
+	if !errors.As(err, &mergeErr) || mergeErr == nil {
+		return reason, metadata
+	}
+
+	if mergeErr.Number > 0 {
+		metadata["pr_number"] = mergeErr.Number
+	}
+	if strings.TrimSpace(mergeErr.URL) != "" {
+		metadata["pr_url"] = strings.TrimSpace(mergeErr.URL)
+	}
+	if strings.TrimSpace(mergeErr.MergeableState) != "" {
+		metadata["mergeable_state"] = strings.TrimSpace(mergeErr.MergeableState)
+	}
+	if strings.TrimSpace(mergeErr.Provider) != "" {
+		metadata["merge_provider"] = strings.TrimSpace(mergeErr.Provider)
+	}
+
+	providerPrompts := e.getPRFlowPrompts().Provider(mergeErr.Provider)
+	hint := providerPrompts.MergeStates.Default
+	switch strings.ToLower(strings.TrimSpace(mergeErr.MergeableState)) {
+	case "dirty":
+		hint = providerPrompts.MergeStates.Dirty
+	case "blocked":
+		hint = providerPrompts.MergeStates.Blocked
+	case "behind":
+		hint = providerPrompts.MergeStates.Behind
+	case "unstable":
+		hint = providerPrompts.MergeStates.Unstable
+	case "draft":
+		hint = providerPrompts.MergeStates.Draft
+	}
+	if strings.TrimSpace(hint) == "" {
+		hint = DefaultPRFlowPrompts().Provider(mergeErr.Provider).MergeStates.Default
+	}
+	metadata["merge_action_hint"] = hint
+
+	return renderMergeReworkFeedbackTemplate(providerPrompts.MergeReworkFeedback, mergeReworkTemplateVars{
+		PRNumber:       mergeErr.Number,
+		PRURL:          strings.TrimSpace(mergeErr.URL),
+		Provider:       strings.TrimSpace(mergeErr.Provider),
+		MergeableState: strings.TrimSpace(mergeErr.MergeableState),
+		Message:        mergeErr.Message,
+		Hint:           hint,
+	}), metadata
+}
+
+type mergeReworkTemplateVars struct {
+	PRNumber       int
+	PRURL          string
+	Provider       string
+	MergeableState string
+	Message        string
+	Hint           string
+}
+
+func renderMergeReworkFeedbackTemplate(tmplText string, vars mergeReworkTemplateVars) string {
+	if strings.TrimSpace(tmplText) == "" {
+		tmplText = DefaultPRFlowPrompts().Global.MergeReworkFeedback
+	}
+	tmpl, err := template.New("merge-rework-feedback").Parse(tmplText)
+	if err != nil {
+		return fmt.Sprintf("自动合并失败。%s", vars.Hint)
+	}
+	var sb strings.Builder
+	if err := tmpl.Execute(&sb, vars); err != nil {
+		return fmt.Sprintf("自动合并失败。%s", vars.Hint)
+	}
+	out := strings.TrimSpace(sb.String())
+	if out == "" {
+		return fmt.Sprintf("自动合并失败。%s", vars.Hint)
+	}
+	return out
+}
+
+// recordMergeConflict creates a SignalContext on the gate step,
+// recording merge conflict details as a structured signal.
+func (e *IssueEngine) recordMergeConflict(ctx context.Context, gateStep *core.Step, reason string, metadata map[string]any) {
+	var content strings.Builder
+	content.WriteString(reason)
+	if metadata != nil {
+		if mergeErr, ok := metadata["merge_error"].(string); ok {
+			content.WriteString("\n\nMerge Error: ")
+			content.WriteString(mergeErr)
+		}
+		if hint, ok := metadata["merge_action_hint"].(string); ok && strings.TrimSpace(hint) != "" {
+			content.WriteString("\nAction: ")
+			content.WriteString(strings.TrimSpace(hint))
+		}
+	}
+
+	sig := &core.StepSignal{
+		StepID:    gateStep.ID,
+		IssueID:   gateStep.IssueID,
+		Type:      core.SignalContext,
+		Source:    core.SignalSourceSystem,
+		Summary:   "merge_conflict",
+		Content:   content.String(),
+		Payload:   metadata,
+		Actor:     "system",
+		CreatedAt: time.Now().UTC(),
+	}
+	if _, err := e.store.CreateStepSignal(ctx, sig); err != nil {
+		slog.Error("failed to record merge conflict signal", "step_id", gateStep.ID, "error", err)
+	}
+}
+
+func detectChangeRequestProvider(ctx context.Context, originURL string, providers []ChangeRequestProvider) (ChangeRequestProvider, ChangeRequestRepo, bool, error) {
+	for _, provider := range providers {
+		if provider == nil {
+			continue
+		}
+		repo, ok, err := provider.Detect(ctx, originURL)
+		if err != nil {
+			return nil, ChangeRequestRepo{}, false, err
+		}
+		if ok {
+			return provider, repo, true, nil
+		}
+	}
+	return nil, ChangeRequestRepo{}, false, nil
+}
+
+func gitOutput(ctx context.Context, dir string, extraEnv []string, args ...string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
+	}
+	return stdout.String(), nil
+}

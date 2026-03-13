@@ -330,38 +330,63 @@ func (e *IssueEngine) handleSuccess(ctx context.Context, step *core.Step, exec *
 }
 ```
 
-### `finalizeGate` 改造
+### `finalizeGate` 改造 — 评估链模式
+
+`finalizeGate` 使用 **evaluator chain** 模式：一组 `GateEvaluator` 按顺序求值，首个返回 `Decided=true` 的评估器决定 gate 结果。
 
 ```go
+// GateVerdict 表示单个评估器的输出
+type GateVerdict struct {
+    Decided  bool              // 是否已作出决定
+    Passed   bool              // 通过/拒绝
+    Reason   string
+    ResetTo  []int64           // reject 时重置的上游 step IDs
+    Metadata map[string]any    // 来源上下文 (art.Metadata / signal.Payload)
+    Signal   *core.StepSignal  // 信号驱动的 verdict 携带原始信号
+}
+
+// GateEvaluator 评估函数签名
+type GateEvaluator func(ctx context.Context, step *core.Step) (GateVerdict, error)
+
 func (e *IssueEngine) finalizeGate(ctx context.Context, step *core.Step) error {
-    // 1. manifest check（如果启用）
-    if manifestCheckEnabled(step) { ... }
-
-    // 2. 查 StepSignal（MCP 工具调用 / 人类 HTTP API）
-    signal, _ := e.store.GetLatestStepSignal(ctx, step.ID, core.SignalApprove, core.SignalReject)
-    if signal != nil {
-        return e.processGateSignal(ctx, step, signal)
+    evaluators := e.gateEvaluators // 可通过 WithGateEvaluators() 注入自定义链
+    if len(evaluators) == 0 {
+        evaluators = []GateEvaluator{
+            e.evalSignalVerdict,    // 1. StepSignal (MCP / HTTP)
+            e.evalManifestCheck,    // 2. Feature manifest
+            e.evalArtifactMetadata, // 3. Artifact metadata (verdict field)
+        }
     }
-
-    // 3. 降级：artifact metadata（现有行为）
-    return e.finalizeGateLegacy(ctx, step)
+    for _, eval := range evaluators {
+        v, err := eval(ctx, step)
+        if err != nil { return err }
+        if v.Decided {
+            return e.applyGateVerdict(ctx, step, v)
+        }
+    }
+    return e.applyGatePass(ctx, step, GateVerdict{}) // 默认 pass
 }
 ```
 
-### 处理优先级链
+**`applyGateVerdict`** 分发决定：pass → `applyGatePass`（含 merge PR）；reject → `processGateReject`。
+**`applyGatePass`** 统一处理：merge PR（如果配置）→ 发事件 → transition done。
+
+### 评估链优先级
 
 ```
-StepSignal (MCP tool / HTTP API)
-  │ 有 → 直接用
-  │ 无 ↓
-Artifact Metadata 正则提取 (AI_WORKFLOW_GATE_JSON)
-  │ 有 → 用
-  │ 无 ↓
-LLM Collector 提取
-  │ 有 → 用
-  │ 无 ↓
-默认行为 (exec: Done, gate: pass)
+evalSignalVerdict — StepSignal (MCP tool / HTTP API)
+  │ Decided → applyGateVerdict (pass: merge+done, reject: rework)
+  │ 未决 ↓
+evalManifestCheck — Feature manifest entries
+  │ Decided → applyGateVerdict
+  │ 未决 ↓
+evalArtifactMetadata — Artifact metadata verdict field
+  │ Decided → applyGateVerdict
+  │ 未决 ↓
+默认行为 → applyGatePass (pass)
 ```
+
+评估链可通过 `WithGateEvaluators()` 扩展，例如加入 CI 状态检查、外部审批系统等自定义评估器。
 
 ## 五、人类介入
 
@@ -384,7 +409,7 @@ POST /steps/{stepID}/decision
 ```
 
 → 写入 `StepSignal{type: "approve", source: "human", actor: "alice"}`
-→ 调用 `processGateSignal()` → `ProcessGate()`
+→ 触发 `evalSignalVerdict()` → `applyGateVerdict()` → `ProcessGate()`
 
 #### 解除阻塞（exec 或 gate）
 
@@ -606,4 +631,4 @@ Issue "fix login bug" → Run
 - **统一信号模型**：exec 和 gate 共用 StepSignal 表 + 时间线 UI，AI 和人类共用同一管道
 - **向后兼容**：StepSignal 优先，无则降级到现有行为（Collector / 正则 / 默认）
 - **幂等安全**：终态信号同一次执行只接受第一个
-- **最小侵入**：`ProcessGate()` 完全不变，`handleFailure()` 完全不变，只改 `handleSuccess()` 和 `finalizeGate()` 的入口判断
+- **最小侵入**：`ProcessGate()` 完全不变，`handleFailure()` 完全不变；`finalizeGate()` 重构为 evaluator chain 模式，支持 `WithGateEvaluators()` 自定义扩展

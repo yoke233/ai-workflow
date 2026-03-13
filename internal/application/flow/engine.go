@@ -15,18 +15,19 @@ type StepExecutor func(ctx context.Context, step *core.Step, exec *core.Executio
 
 // IssueEngine orchestrates Issue execution: sequential step scheduling, state transitions, events.
 type IssueEngine struct {
-	store      Store
-	bus        EventPublisher
-	sem        *Semaphore
-	executor   StepExecutor
-	resolver   Resolver              // optional: agent selection
-	briefer    BriefingBuilder       // optional: briefing assembly
-	collector  Collector             // optional: metadata extraction
-	expander   CompositeExpander     // optional: composite decomposition
-	wsProvider WorkspaceProvider     // optional: workspace isolation
-	scmTokens  SCMTokens             // optional: SCM automation tokens (push/PR/merge)
-	prPrompts  PRFlowPromptsProvider // optional: configurable PR flow prompts
-	crFactory  ChangeRequestProviderFactory
+	store          Store
+	bus            EventPublisher
+	sem            *Semaphore
+	executor       StepExecutor
+	resolver       Resolver              // optional: agent selection
+	briefer        BriefingBuilder       // optional: briefing assembly
+	collector      Collector             // optional: metadata extraction
+	expander       CompositeExpander     // optional: composite decomposition
+	wsProvider     WorkspaceProvider     // optional: workspace isolation
+	scmTokens      SCMTokens             // optional: SCM automation tokens (push/PR/merge)
+	prPrompts      PRFlowPromptsProvider // optional: configurable PR flow prompts
+	crFactory      ChangeRequestProviderFactory
+	gateEvaluators []GateEvaluator // optional: custom gate evaluation chain (defaults to signal→manifest→artifact)
 }
 
 // Option configures the IssueEngine.
@@ -80,6 +81,12 @@ type ChangeRequestProviderFactory func(token string) []ChangeRequestProvider
 // WithChangeRequestProviders sets the provider factory used by gate auto-merge flow.
 func WithChangeRequestProviders(factory ChangeRequestProviderFactory) Option {
 	return func(e *IssueEngine) { e.crFactory = factory }
+}
+
+// WithGateEvaluators overrides the default gate evaluation chain (signal→manifest→artifact).
+// Evaluators are tried in order; the first one that returns Decided=true wins.
+func WithGateEvaluators(evaluators ...GateEvaluator) Option {
+	return func(e *IssueEngine) { e.gateEvaluators = evaluators }
 }
 
 // New creates an IssueEngine.
