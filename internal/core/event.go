@@ -66,6 +66,9 @@ const (
 	EventNotificationCreated EventType = "notification.created"
 	EventNotificationRead    EventType = "notification.read"
 	EventNotificationAllRead EventType = "notification.all_read"
+
+	// Workspace events.
+	EventWorkspaceWarning EventType = "workspace.warning"
 )
 
 // IsTransientAgentEvent returns true for streaming chunk events that should

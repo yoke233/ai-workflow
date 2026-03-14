@@ -198,21 +198,60 @@ export interface UpdateProjectRequest {
   metadata?: Record<string, string>;
 }
 
+export type ResourceBindingKind = "git" | "local_fs" | "s3" | "http" | "webdav" | string;
+
 export interface ResourceBinding {
   id: number;
   project_id: number;
-  kind: string;
+  kind: ResourceBindingKind;
   uri: string;
   config?: Record<string, unknown>;
   label?: string;
   created_at: string;
+  updated_at: string;
 }
 
 export interface CreateResourceBindingRequest {
-  kind: string;
+  kind: ResourceBindingKind;
   uri: string;
   config?: Record<string, unknown>;
   label?: string;
+}
+
+export interface UpdateResourceBindingRequest {
+  kind?: ResourceBindingKind;
+  uri?: string;
+  config?: Record<string, unknown>;
+  label?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Action Resources (per-action input/output resource declarations)
+// ---------------------------------------------------------------------------
+
+export type ActionResourceDirection = "input" | "output";
+
+export interface ActionResource {
+  id: number;
+  action_id: number;
+  resource_binding_id: number;
+  direction: ActionResourceDirection;
+  path: string;
+  media_type?: string;
+  description?: string;
+  required: boolean;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface CreateActionResourceRequest {
+  resource_binding_id: number;
+  direction: ActionResourceDirection;
+  path: string;
+  media_type?: string;
+  description?: string;
+  required?: boolean;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CreateActionRequest {

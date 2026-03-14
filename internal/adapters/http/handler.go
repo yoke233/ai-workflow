@@ -145,11 +145,17 @@ func (h *Handler) Register(r chi.Router) {
 	r.Put("/projects/{projectID}", h.updateProject)
 	r.Delete("/projects/{projectID}", h.deleteProject)
 
-	// Resource Bindings
+	// Resource Bindings (unified: workspace sources + I/O storage)
 	r.Post("/projects/{projectID}/resources", h.createResourceBinding)
 	r.Get("/projects/{projectID}/resources", h.listResourceBindings)
 	r.Get("/resources/{resourceID}", h.getResourceBinding)
+	r.Put("/resources/{resourceID}", h.updateResourceBinding)
 	r.Delete("/resources/{resourceID}", h.deleteResourceBinding)
+
+	// Action Resources (per-action input/output resource declarations)
+	r.Post("/actions/{actionID}/resources", h.createActionResource)
+	r.Get("/actions/{actionID}/resources", h.listActionResources)
+	r.Delete("/action-resources/{resourceID}", h.deleteActionResource)
 
 	// Work Item public routes.
 	h.registerWorkItemRoutes(r, "/work-items")

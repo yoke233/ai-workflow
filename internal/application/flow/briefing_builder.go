@@ -20,6 +20,7 @@ const (
 	CtxUpstreamArtifact ContextRefType = "upstream_artifact"
 	CtxAgentMemory      ContextRefType = "agent_memory"
 	CtxFeatureManifest  ContextRefType = "feature_manifest"
+	CtxResourceManifest ContextRefType = "resource_manifest"
 	CtxProgressSummary  ContextRefType = "progress_summary"
 	CtxSkillsSummary    ContextRefType = "skills_summary"
 )

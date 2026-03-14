@@ -14,14 +14,7 @@ type ProjectStore interface {
 	DeleteProject(ctx context.Context, id int64) error
 }
 
-// ResourceBindingStore persists ResourceBinding records (including attachment bindings).
-type ResourceBindingStore interface {
-	CreateResourceBinding(ctx context.Context, rb *ResourceBinding) (int64, error)
-	GetResourceBinding(ctx context.Context, id int64) (*ResourceBinding, error)
-	ListResourceBindings(ctx context.Context, projectID int64) ([]*ResourceBinding, error)
-	ListResourceBindingsByIssue(ctx context.Context, issueID int64, kind string) ([]*ResourceBinding, error)
-	DeleteResourceBinding(ctx context.Context, id int64) error
-}
+// ResourceBindingStore is declared in resource.go.
 
 // ActionStore persists Action aggregates.
 type ActionStore interface {
@@ -80,6 +73,7 @@ type DAGTemplateStore interface {
 type Store interface {
 	ProjectStore
 	ResourceBindingStore
+	ActionResourceStore
 	WorkItemStore
 	ThreadStore
 	ActionStore

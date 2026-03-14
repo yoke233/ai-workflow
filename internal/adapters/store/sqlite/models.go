@@ -65,6 +65,7 @@ type ResourceBindingModel struct {
 	Config    JSONField[map[string]any] `gorm:"column:config;type:text"`
 	Label     string                    `gorm:"column:label;not null"`
 	CreatedAt time.Time                 `gorm:"column:created_at"`
+	UpdatedAt time.Time                 `gorm:"column:updated_at"`
 }
 
 func (ResourceBindingModel) TableName() string { return "resource_bindings" }
@@ -533,6 +534,7 @@ func resourceBindingModelFromCore(rb *core.ResourceBinding) *ResourceBindingMode
 		Config:    JSONField[map[string]any]{Data: rb.Config},
 		Label:     rb.Label,
 		CreatedAt: rb.CreatedAt,
+		UpdatedAt: rb.UpdatedAt,
 	}
 }
 
@@ -549,6 +551,7 @@ func (m *ResourceBindingModel) toCore() *core.ResourceBinding {
 		Config:    m.Config.Data,
 		Label:     m.Label,
 		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
 	}
 }
 
@@ -909,5 +912,60 @@ func (m *UsageRecordModel) toCore() *core.UsageRecord {
 		TotalTokens:      m.TotalTokens,
 		DurationMs:       m.DurationMs,
 		CreatedAt:        m.CreatedAt,
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ActionResource
+// ---------------------------------------------------------------------------
+
+type ActionResourceModel struct {
+	ID                int64                     `gorm:"column:id;primaryKey;autoIncrement"`
+	ActionID          int64                     `gorm:"column:action_id;not null"`
+	ResourceBindingID int64                     `gorm:"column:resource_binding_id;not null"`
+	Direction         string                    `gorm:"column:direction;not null"`
+	Path              string                    `gorm:"column:path;not null"`
+	MediaType         string                    `gorm:"column:media_type;not null"`
+	Description       string                    `gorm:"column:description;not null"`
+	Required          bool                      `gorm:"column:required;not null"`
+	Metadata          JSONField[map[string]any] `gorm:"column:metadata;type:text"`
+	CreatedAt         time.Time                 `gorm:"column:created_at"`
+}
+
+func (ActionResourceModel) TableName() string { return "action_resources" }
+
+func actionResourceModelFromCore(ar *core.ActionResource) *ActionResourceModel {
+	if ar == nil {
+		return nil
+	}
+	return &ActionResourceModel{
+		ID:                ar.ID,
+		ActionID:          ar.ActionID,
+		ResourceBindingID: ar.ResourceBindingID,
+		Direction:         string(ar.Direction),
+		Path:              ar.Path,
+		MediaType:         ar.MediaType,
+		Description:       ar.Description,
+		Required:          ar.Required,
+		Metadata:          JSONField[map[string]any]{Data: ar.Metadata},
+		CreatedAt:         ar.CreatedAt,
+	}
+}
+
+func (m *ActionResourceModel) toCore() *core.ActionResource {
+	if m == nil {
+		return nil
+	}
+	return &core.ActionResource{
+		ID:                m.ID,
+		ActionID:          m.ActionID,
+		ResourceBindingID: m.ResourceBindingID,
+		Direction:         core.ActionResourceDirection(m.Direction),
+		Path:              m.Path,
+		MediaType:         m.MediaType,
+		Description:       m.Description,
+		Required:          m.Required,
+		Metadata:          m.Metadata.Data,
+		CreatedAt:         m.CreatedAt,
 	}
 }

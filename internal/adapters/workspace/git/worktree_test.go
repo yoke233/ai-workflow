@@ -33,7 +33,7 @@ func TestWorktreeCreateAndRemove(t *testing.T) {
 	wtPath := filepath.Join(t.TempDir(), "wt-test")
 	branch := "feature/test-wt"
 
-	if err := runner.WorktreeAdd(wtPath, branch); err != nil {
+	if err := runner.WorktreeAdd(wtPath, branch, ""); err != nil {
 		t.Fatalf("worktree add: %v", err)
 	}
 	if _, err := os.Stat(wtPath); err != nil {

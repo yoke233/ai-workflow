@@ -21,6 +21,28 @@ func (r *Runner) RemoteURL(name string) (string, error) {
 	return r.run("remote", "get-url", name)
 }
 
+// HasRemote checks whether the named remote (e.g. "origin") exists.
+func (r *Runner) HasRemote(name string) bool {
+	_, err := r.run("remote", "get-url", name)
+	return err == nil
+}
+
+// Fetch fetches all refs from the named remote (e.g. "origin").
+// It's a no-op if the remote doesn't exist (pure local repo).
+func (r *Runner) Fetch(remote string) error {
+	if !r.HasRemote(remote) {
+		return nil
+	}
+	_, err := r.run("fetch", remote, "--prune")
+	return err
+}
+
+// RefExists checks whether the given ref (branch, tag, etc.) exists locally.
+func (r *Runner) RefExists(ref string) bool {
+	_, err := r.run("rev-parse", "--verify", ref)
+	return err == nil
+}
+
 func (r *Runner) run(args ...string) (string, error) {
 	stdout, stderr, _, err := r.runRaw(args...)
 	if err != nil {

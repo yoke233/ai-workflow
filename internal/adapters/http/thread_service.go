@@ -205,7 +205,7 @@ func (h *Handler) autoRouteMessage(ctx context.Context, message string, activePr
 			continue
 		}
 
-		profile, _, err := h.registry.ResolveByID(ctx, profileID)
+		profile, err := h.registry.ResolveByID(ctx, profileID)
 		if err != nil || profile == nil {
 			continue
 		}

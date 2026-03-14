@@ -145,8 +145,29 @@ const SystemEventBanner = ({ wsClient }: Props) => {
       },
     );
 
+    // Subscribe to workspace preparation warnings (e.g. git fetch failures).
+    const unsubWorkspace = wsClient.subscribe<{
+      warnings?: string[];
+    }>("workspace.warning", (payload) => {
+      if (!payload?.warnings?.length) return;
+      clearHideTimer();
+      setState({
+        visible: true,
+        variant: "warning",
+        title: t("systemEvent.workspaceWarning", "工作区准备警告"),
+        steps: payload.warnings.map((msg) => ({
+          name: msg,
+          status: "WARN",
+          duration: "",
+        })),
+        countdown: null,
+      });
+      autoHide();
+    });
+
     return () => {
       unsub();
+      unsubWorkspace();
       clearHideTimer();
     };
   }, [wsClient, t]);
@@ -179,7 +200,7 @@ const SystemEventBanner = ({ wsClient }: Props) => {
         <div className="mt-2 space-y-1">
           {state.steps.map((step, i) => (
             <div key={i} className="flex items-center gap-2 text-xs">
-              <span>{step.status === "PASS" ? "\u2705" : "\u274C"}</span>
+              <span>{step.status === "PASS" ? "\u2705" : step.status === "WARN" ? "\u26A0\uFE0F" : "\u274C"}</span>
               <span className="font-medium">{step.name}</span>
               {step.duration && (
                 <span className="opacity-60">{step.duration}</span>

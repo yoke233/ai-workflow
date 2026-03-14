@@ -393,6 +393,33 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read, id)`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_category ON notifications(category)`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_issue ON notifications(issue_id)`,
+
+		// Add updated_at to resource_bindings (unified resource model).
+		`ALTER TABLE resource_bindings ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+
+		// Action resources — per-action input/output resource declarations.
+		// References resource_bindings directly (no separate locators table).
+		`CREATE TABLE IF NOT EXISTS action_resources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action_id INTEGER NOT NULL REFERENCES steps(id),
+            resource_binding_id INTEGER NOT NULL REFERENCES resource_bindings(id),
+            direction TEXT NOT NULL,
+            path TEXT NOT NULL,
+            media_type TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            required INTEGER NOT NULL DEFAULT 0,
+            metadata TEXT,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )`,
+		`CREATE INDEX IF NOT EXISTS idx_action_resources_action ON action_resources(action_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_action_resources_binding ON action_resources(resource_binding_id)`,
+
+		// Migration: rename locator_id → resource_binding_id if old schema exists.
+		`ALTER TABLE action_resources RENAME COLUMN locator_id TO resource_binding_id`,
+
+		// Drop legacy resource_locators table if it exists.
+		`DROP TABLE IF EXISTS resource_locators`,
+
 		// Schema simplification: drop legacy briefings table (replaced by steps.input).
 		`DROP TABLE IF EXISTS briefings`,
 		// Schema simplification: merge work_item_attachments into resource_bindings.
