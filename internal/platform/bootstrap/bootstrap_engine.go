@@ -38,7 +38,7 @@ func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, scmTokens 
 	sessionMgr, sessionMode := buildSessionManager(bootstrapCfg, base.store, base.dataDir, acpPool, sb)
 	llmClient := buildCollectorClient(bootstrapCfg)
 	executor := buildActionExecutor(base.store, base.bus, base.registry, sessionMgr, base.runtimeManager, bootstrapCfg, base.dataDir, scmTokens, upgradeFn, base.signalCfg)
-	engine := buildWorkItemEngine(base.store, base.bus, executor, base.runtimeManager, bootstrapCfg, scmTokens, llmClient)
+	engine := buildWorkItemEngine(base.store, base.bus, executor, base.registry, base.runtimeManager, bootstrapCfg, base.dataDir, scmTokens, llmClient)
 	schedulerCtx, schedulerStop := context.WithCancel(context.Background())
 	schedulerCfg := resolveWorkItemSchedulerConfig(bootstrapCfg)
 	scheduler := flowapp.NewWorkItemScheduler(engine, base.store, base.bus, schedulerCfg)
@@ -145,11 +145,22 @@ func buildWorkItemEngine(
 	store core.Store,
 	bus core.EventBus,
 	executor flowapp.ActionExecutor,
+	registry core.AgentRegistry,
 	runtimeManager *configruntime.Manager,
 	bootstrapCfg *config.Config,
+	_ string, // dataDir reserved for future use
 	scmTokens SCMTokens,
 	llmClient *llm.Client,
 ) *flowapp.WorkItemEngine {
+	// Build InputBuilder with optional registry + skills root for context injection.
+	inputBuilderOpts := []flowapp.InputBuilderOption{}
+	if registry != nil {
+		inputBuilderOpts = append(inputBuilderOpts, flowapp.WithRegistry(registry))
+	}
+	if skillsRoot, err := skills.ResolveSkillsRoot(); err == nil {
+		inputBuilderOpts = append(inputBuilderOpts, flowapp.WithSkillsRoot(skillsRoot))
+	}
+
 	opts := []flowapp.Option{
 		flowapp.WithWorkspaceProvider(workspaceprovider.NewCompositeProvider()),
 		flowapp.WithSCMTokens(flowapp.SCMTokens{
@@ -160,7 +171,7 @@ func buildWorkItemEngine(
 			return currentPRFlowPrompts(runtimeManager, bootstrapCfg)
 		}),
 		flowapp.WithChangeRequestProviders(scmadapter.NewChangeRequestProviders),
-		flowapp.WithInputBuilder(flowapp.NewInputBuilder(store)),
+		flowapp.WithInputBuilder(flowapp.NewInputBuilder(store, inputBuilderOpts...)),
 	}
 	if llmClient != nil {
 		opts = append(opts, flowapp.WithCollector(llmcollector.NewLLMCollector(llmClient.Complete)))

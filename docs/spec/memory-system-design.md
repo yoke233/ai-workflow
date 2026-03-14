@@ -51,9 +51,9 @@
 > - ✅ Feature Manifest 注入 (`CtxFeatureManifest`) — `briefing_builder.go` `injectManifestContext()`
 > - ✅ 按类型分配字符预算 — `pipeline.go` `refBudget()`
 > - ✅ Session Token 预算监控 — `acp_session_pool.go` `CheckTokenBudget()` / `NoteTokens()`
-> - 🔲 1.1 `CtxProjectBrief` — 未实现
-> - 🔲 1.2 `CtxFlowSummary` — 仍为设计草案，当前代码中尚无该 `ContextRefType`
-> - 🔲 1.3 Skills 内容注入 — 未实现；当前只有 skills 分发/校验/挂载
+> - ✅ 1.1 `CtxProjectBrief` — 已实现（2026-03-13），`briefing_builder.go` `injectProjectBriefContext()`
+> - ✅ 1.2 `CtxProgressSummary` — 已实现（2026-03-13），`briefing_builder.go` `injectProgressContext()`，取代原设计的 `CtxFlowSummary`
+> - ✅ 1.3 Skills 内容注入 — 已实现（2026-03-13），`briefing_builder.go` `injectSkillsContext()`；需配置 `WithRegistry()` + `WithSkillsRoot()`
 
 #### 1.1 填充 `CtxProjectBrief`
 

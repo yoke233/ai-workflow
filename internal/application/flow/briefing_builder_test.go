@@ -2,6 +2,8 @@ package flow
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,8 +16,10 @@ import (
 type stubInputStore struct {
 	panicStore
 	workItems map[int64]*core.WorkItem
-	actions   map[int64][]*core.Action // keyed by WorkItemID
-	runs      map[int64]*core.Run     // keyed by ActionID (latest run with result)
+	actions   map[int64][]*core.Action          // keyed by WorkItemID
+	runs      map[int64]*core.Run               // keyed by ActionID (latest run with result)
+	projects  map[int64]*core.Project
+	bindings  map[int64][]*core.ResourceBinding // keyed by ProjectID
 }
 
 func newStubInputStore() *stubInputStore {
@@ -23,6 +27,8 @@ func newStubInputStore() *stubInputStore {
 		workItems: make(map[int64]*core.WorkItem),
 		actions:   make(map[int64][]*core.Action),
 		runs:      make(map[int64]*core.Run),
+		projects:  make(map[int64]*core.Project),
+		bindings:  make(map[int64][]*core.ResourceBinding),
 	}
 }
 
@@ -46,6 +52,17 @@ func (s *stubInputStore) GetLatestRunWithResult(_ context.Context, actionID int6
 
 func (s *stubInputStore) ListFeatureEntries(_ context.Context, _ core.FeatureEntryFilter) ([]*core.FeatureEntry, error) {
 	return nil, nil
+}
+
+func (s *stubInputStore) GetProject(_ context.Context, id int64) (*core.Project, error) {
+	if project, ok := s.projects[id]; ok {
+		return project, nil
+	}
+	return nil, core.ErrNotFound
+}
+
+func (s *stubInputStore) ListResourceBindings(_ context.Context, projectID int64) ([]*core.ResourceBinding, error) {
+	return s.bindings[projectID], nil
 }
 
 // --- panicStore satisfies Store by panicking on any unimplemented method ---
@@ -415,5 +432,296 @@ func TestExtractRunResultSummary_EmptyRun(t *testing.T) {
 	got := extractRunResultSummary(run)
 	if got != "" {
 		t.Errorf("expected empty string for empty run, got: %q", got)
+	}
+}
+
+// --- Project Brief tests ---
+
+func TestInputBuilder_InjectsProjectBrief(t *testing.T) {
+	store := newStubInputStore()
+	projID := int64(10)
+	store.projects[projID] = &core.Project{
+		ID:          projID,
+		Name:        "my-app",
+		Kind:        core.ProjectDev,
+		Description: "A sample application for testing.",
+	}
+	store.bindings[projID] = []*core.ResourceBinding{
+		{ID: 1, ProjectID: projID, Kind: "git", URI: "https://github.com/example/my-app", Label: "main repo"},
+	}
+	store.workItems[1] = &core.WorkItem{ID: 1, Title: "Task", ProjectID: &projID}
+	action := &core.Action{ID: 10, WorkItemID: 1, Name: "implement", Position: 0}
+	store.actions[1] = []*core.Action{action}
+
+	builder := NewInputBuilder(store)
+	input, err := builder.Build(context.Background(), action)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if !strings.Contains(input, "my-app") {
+		t.Errorf("expected project name in input, got: %q", input)
+	}
+	if !strings.Contains(input, "dev") {
+		t.Errorf("expected project kind in input, got: %q", input)
+	}
+	if !strings.Contains(input, "sample application") {
+		t.Errorf("expected project description in input, got: %q", input)
+	}
+	if !strings.Contains(input, "main repo") {
+		t.Errorf("expected resource binding label in input, got: %q", input)
+	}
+	if !strings.Contains(input, "github.com/example/my-app") {
+		t.Errorf("expected resource binding URI in input, got: %q", input)
+	}
+}
+
+func TestInputBuilder_SkipsProjectBriefWhenNoProject(t *testing.T) {
+	store := newStubInputStore()
+	store.workItems[1] = &core.WorkItem{ID: 1, Title: "Task"}
+	action := &core.Action{ID: 10, WorkItemID: 1, Name: "s", Position: 0}
+	store.actions[1] = []*core.Action{action}
+
+	builder := NewInputBuilder(store)
+	input, err := builder.Build(context.Background(), action)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if strings.Contains(input, "project") {
+		t.Errorf("expected no project section when no ProjectID, got: %q", input)
+	}
+}
+
+// --- Progress Summary tests ---
+
+func TestInputBuilder_InjectsProgressSummary(t *testing.T) {
+	store := newStubInputStore()
+	store.workItems[1] = &core.WorkItem{ID: 1, Title: "Task"}
+	store.actions[1] = []*core.Action{
+		{ID: 100, WorkItemID: 1, Name: "plan", Position: 0, Status: core.ActionDone},
+		{ID: 101, WorkItemID: 1, Name: "implement", Position: 1, Status: core.ActionRunning},
+		{ID: 102, WorkItemID: 1, Name: "review", Position: 2, Status: core.ActionPending},
+	}
+
+	action := store.actions[1][1] // implement (running)
+	builder := NewInputBuilder(store)
+	input, err := builder.Build(context.Background(), action)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if !strings.Contains(input, "1/3 actions completed") {
+		t.Errorf("expected progress fraction, got: %q", input)
+	}
+	if !strings.Contains(input, "[done] plan") {
+		t.Errorf("expected done marker for plan, got: %q", input)
+	}
+	if !strings.Contains(input, "[running] implement") {
+		t.Errorf("expected running marker for implement, got: %q", input)
+	}
+	if !strings.Contains(input, "← current") {
+		t.Errorf("expected current marker, got: %q", input)
+	}
+	if !strings.Contains(input, "[pending] review") {
+		t.Errorf("expected pending marker for review, got: %q", input)
+	}
+}
+
+func TestInputBuilder_SkipsProgressWhenSingleAction(t *testing.T) {
+	store := newStubInputStore()
+	store.workItems[1] = &core.WorkItem{ID: 1, Title: "Task"}
+	action := &core.Action{ID: 10, WorkItemID: 1, Name: "only", Position: 0}
+	store.actions[1] = []*core.Action{action}
+
+	builder := NewInputBuilder(store)
+	input, err := builder.Build(context.Background(), action)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if strings.Contains(input, "Progress:") {
+		t.Errorf("expected no progress section for single action, got: %q", input)
+	}
+}
+
+// --- Context Ref Priority Order with new types ---
+
+func TestInputBuilder_ProjectBriefBeforeWorkItemSummary(t *testing.T) {
+	store := newStubInputStore()
+	projID := int64(10)
+	store.projects[projID] = &core.Project{ID: projID, Name: "my-proj", Kind: core.ProjectDev}
+	store.workItems[1] = &core.WorkItem{ID: 1, Title: "My Task", ProjectID: &projID}
+	action := &core.Action{ID: 10, WorkItemID: 1, Name: "s", Position: 0}
+	store.actions[1] = []*core.Action{action}
+
+	builder := NewInputBuilder(store)
+	input, err := builder.Build(context.Background(), action)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	projIdx := strings.Index(input, "project")
+	wiIdx := strings.Index(input, "work item")
+	if projIdx < 0 || wiIdx < 0 {
+		t.Fatalf("expected both project and work item sections, got: %q", input)
+	}
+	if projIdx > wiIdx {
+		t.Errorf("expected project brief before work item summary")
+	}
+}
+
+// --- stubRegistry is a minimal AgentRegistry for skills injection tests ---
+
+type stubRegistry struct {
+	profiles []*core.AgentProfile
+}
+
+func (r *stubRegistry) GetProfile(_ context.Context, id string) (*core.AgentProfile, error) {
+	for _, p := range r.profiles {
+		if p.ID == id {
+			return p, nil
+		}
+	}
+	return nil, core.ErrProfileNotFound
+}
+func (r *stubRegistry) ListProfiles(_ context.Context) ([]*core.AgentProfile, error) {
+	return r.profiles, nil
+}
+func (r *stubRegistry) CreateProfile(_ context.Context, _ *core.AgentProfile) error { return nil }
+func (r *stubRegistry) UpdateProfile(_ context.Context, _ *core.AgentProfile) error { return nil }
+func (r *stubRegistry) DeleteProfile(_ context.Context, _ string) error              { return nil }
+func (r *stubRegistry) ResolveForAction(_ context.Context, action *core.Action) (*core.AgentProfile, error) {
+	role := strings.TrimSpace(action.AgentRole)
+	for _, p := range r.profiles {
+		if string(p.Role) == role && p.MatchesRequirements(action.RequiredCapabilities) {
+			return p, nil
+		}
+	}
+	return nil, core.ErrProfileNotFound
+}
+func (r *stubRegistry) ResolveByID(_ context.Context, id string) (*core.AgentProfile, error) {
+	for _, p := range r.profiles {
+		if p.ID == id {
+			return p, nil
+		}
+	}
+	return nil, core.ErrProfileNotFound
+}
+
+// createTestSkillDir creates a temp skill directory with a valid SKILL.md.
+func createTestSkillDir(t *testing.T, root, name, description string) {
+	t.Helper()
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: " + name + "\ndescription: " + description + "\n---\n\nSkill body."
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- Skills Injection tests ---
+
+func TestInputBuilder_InjectsSkillsSummary(t *testing.T) {
+	store := newStubInputStore()
+	store.workItems[1] = &core.WorkItem{ID: 1, Title: "Task"}
+	action := &core.Action{ID: 10, WorkItemID: 1, Name: "impl", Position: 0, AgentRole: "worker"}
+	store.actions[1] = []*core.Action{action}
+
+	root := t.TempDir()
+	createTestSkillDir(t, root, "code-review", "Reviews code for quality issues")
+	createTestSkillDir(t, root, "testing", "Writes and runs automated tests")
+
+	registry := &stubRegistry{
+		profiles: []*core.AgentProfile{
+			{ID: "worker-1", Role: core.RoleWorker, Driver: core.DriverConfig{LaunchCommand: "echo"}, Skills: []string{"code-review", "testing"}},
+		},
+	}
+
+	builder := NewInputBuilder(store, WithRegistry(registry), WithSkillsRoot(root))
+	input, err := builder.Build(context.Background(), action)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if !strings.Contains(input, "code-review") {
+		t.Errorf("expected skill name 'code-review' in input, got: %q", input)
+	}
+	if !strings.Contains(input, "Reviews code for quality issues") {
+		t.Errorf("expected skill description in input, got: %q", input)
+	}
+	if !strings.Contains(input, "testing") {
+		t.Errorf("expected skill name 'testing' in input, got: %q", input)
+	}
+}
+
+func TestInputBuilder_SkipsSkillsWhenNoRegistry(t *testing.T) {
+	store := newStubInputStore()
+	store.workItems[1] = &core.WorkItem{ID: 1, Title: "Task"}
+	action := &core.Action{ID: 10, WorkItemID: 1, Name: "impl", Position: 0, AgentRole: "worker"}
+	store.actions[1] = []*core.Action{action}
+
+	builder := NewInputBuilder(store) // no WithRegistry
+	input, err := builder.Build(context.Background(), action)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if strings.Contains(input, "available skills") {
+		t.Errorf("expected no skills section without registry, got: %q", input)
+	}
+}
+
+func TestInputBuilder_SkipsSkillsWhenNoRole(t *testing.T) {
+	store := newStubInputStore()
+	store.workItems[1] = &core.WorkItem{ID: 1, Title: "Task"}
+	action := &core.Action{ID: 10, WorkItemID: 1, Name: "impl", Position: 0, AgentRole: ""} // no role
+	store.actions[1] = []*core.Action{action}
+
+	root := t.TempDir()
+	createTestSkillDir(t, root, "code-review", "Reviews code")
+
+	registry := &stubRegistry{
+		profiles: []*core.AgentProfile{
+			{ID: "worker-1", Role: core.RoleWorker, Driver: core.DriverConfig{LaunchCommand: "echo"}, Skills: []string{"code-review"}},
+		},
+	}
+
+	builder := NewInputBuilder(store, WithRegistry(registry), WithSkillsRoot(root))
+	input, err := builder.Build(context.Background(), action)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if strings.Contains(input, "available skills") {
+		t.Errorf("expected no skills section without agent role, got: %q", input)
+	}
+}
+
+func TestInputBuilder_SkipsSkillsWithTODODescription(t *testing.T) {
+	store := newStubInputStore()
+	store.workItems[1] = &core.WorkItem{ID: 1, Title: "Task"}
+	action := &core.Action{ID: 10, WorkItemID: 1, Name: "impl", Position: 0, AgentRole: "worker"}
+	store.actions[1] = []*core.Action{action}
+
+	root := t.TempDir()
+	createTestSkillDir(t, root, "wip-skill", "TODO")
+
+	registry := &stubRegistry{
+		profiles: []*core.AgentProfile{
+			{ID: "worker-1", Role: core.RoleWorker, Driver: core.DriverConfig{LaunchCommand: "echo"}, Skills: []string{"wip-skill"}},
+		},
+	}
+
+	builder := NewInputBuilder(store, WithRegistry(registry), WithSkillsRoot(root))
+	input, err := builder.Build(context.Background(), action)
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	if strings.Contains(input, "available skills") {
+		t.Errorf("expected no skills section when all skills have TODO description, got: %q", input)
 	}
 }

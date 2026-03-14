@@ -4,21 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/skills"
 )
 
 // ContextRefType classifies the kind of context reference used in input building.
 type ContextRefType string
 
 const (
-	CtxIssueSummary      ContextRefType = "issue_summary"
-	CtxProjectBrief      ContextRefType = "project_brief"
-	CtxUpstreamArtifact  ContextRefType = "upstream_artifact"
-	CtxAgentMemory       ContextRefType = "agent_memory"
-	CtxFeatureManifest   ContextRefType = "feature_manifest"
-	CtxResourceManifest  ContextRefType = "resource_manifest"
+	CtxIssueSummary     ContextRefType = "issue_summary"
+	CtxProjectBrief     ContextRefType = "project_brief"
+	CtxUpstreamArtifact ContextRefType = "upstream_artifact"
+	CtxAgentMemory      ContextRefType = "agent_memory"
+	CtxFeatureManifest  ContextRefType = "feature_manifest"
+	CtxResourceManifest ContextRefType = "resource_manifest"
+	CtxProgressSummary  ContextRefType = "progress_summary"
+	CtxSkillsSummary    ContextRefType = "skills_summary"
 )
 
 // ContextRef points to a piece of context used when building input.
@@ -32,33 +36,93 @@ type ContextRef struct {
 // DefaultInputBuilder assembles input text by reading upstream Deliverables
 // and action configuration.
 type DefaultInputBuilder struct {
-	store Store
+	store     Store
+	registry  core.AgentRegistry // optional: for skills resolution
+	skillsRoot string            // optional: on-disk skills directory
+}
+
+// InputBuilderOption configures the DefaultInputBuilder.
+type InputBuilderOption func(*DefaultInputBuilder)
+
+// WithRegistry enables skills injection by providing agent profile lookup.
+func WithRegistry(r core.AgentRegistry) InputBuilderOption {
+	return func(b *DefaultInputBuilder) { b.registry = r }
+}
+
+// WithSkillsRoot sets the on-disk skills directory for skills metadata lookup.
+func WithSkillsRoot(root string) InputBuilderOption {
+	return func(b *DefaultInputBuilder) { b.skillsRoot = root }
 }
 
 // NewInputBuilder creates an InputBuilder backed by the given store.
-func NewInputBuilder(store Store) *DefaultInputBuilder {
-	return &DefaultInputBuilder{store: store}
+func NewInputBuilder(store Store, opts ...InputBuilderOption) *DefaultInputBuilder {
+	b := &DefaultInputBuilder{store: store}
+	for _, opt := range opts {
+		opt(b)
+	}
+	return b
 }
 
 // Build constructs the input string for the given action.
-// Context refs are appended in priority order: work item summary → upstream deliverables → feature manifest.
+// Context refs are appended in priority order:
+//
+//	project brief → work item summary → progress summary → upstream deliverables → feature manifest → skills summary
 func (b *DefaultInputBuilder) Build(ctx context.Context, action *core.Action) (string, error) {
 	var refs []ContextRef
 	constraints := action.AcceptanceCriteria
 
-	// Fetch work item once — used by both work item summary and manifest injection.
+	// Fetch work item once — used by multiple injectors.
 	workItem, _ := b.store.GetWorkItem(ctx, action.WorkItemID)
 
-	// 1. Work item summary — small, provides orientation.
+	// Fetch sibling actions once — used by progress + upstream injectors.
+	actions, _ := b.store.ListActionsByWorkItem(ctx, action.WorkItemID)
+
+	// 1. Project brief — project name, description, resource bindings.
+	refs = b.injectProjectBriefContext(ctx, workItem, refs)
+
+	// 2. Work item summary — small, provides orientation.
 	refs = b.injectWorkItemContext(workItem, refs)
 
-	// 2. Upstream deliverables — tiered by distance (L2 immediate, L0 distant).
-	refs = b.injectUpstreamContext(ctx, action, refs)
+	// 3. Progress summary — where the current work item execution stands.
+	refs = b.injectProgressContext(action, actions, refs)
 
-	// 3. Feature manifest snapshot.
+	// 4. Upstream deliverables — tiered by distance (L2 immediate, L0 distant).
+	refs = b.injectUpstreamContext(ctx, action, actions, refs)
+
+	// 5. Feature manifest snapshot.
 	refs = b.injectManifestContext(ctx, workItem, refs)
 
-	return buildInputFromRefs(action, refs, constraints), nil
+	// 6. Skills summary — agent profile's available skills.
+	refs = b.injectSkillsContext(ctx, action, refs)
+
+	// Log the assembled context refs for observability.
+	result := buildInputFromRefs(action, refs, constraints)
+	logContextRefs(action, refs, len(result))
+
+	return result, nil
+}
+
+// logContextRefs emits a structured log entry summarizing the injected context refs.
+// finalLen is the length of the fully rendered (post-truncation) input string.
+func logContextRefs(action *core.Action, refs []ContextRef, finalLen int) {
+	if len(refs) == 0 {
+		return
+	}
+	entries := make([]string, 0, len(refs))
+	rawChars := 0
+	for _, ref := range refs {
+		n := len(ref.Inline)
+		rawChars += n
+		entries = append(entries, fmt.Sprintf("%s(%d):%d", ref.Type, ref.RefID, n))
+	}
+	slog.Info("briefing context assembled",
+		"action_id", action.ID,
+		"work_item_id", action.WorkItemID,
+		"ref_count", len(refs),
+		"raw_chars", rawChars,
+		"final_chars", finalLen,
+		"refs", strings.Join(entries, ", "),
+	)
 }
 
 // buildInputFromRefs constructs the input string from objective, context refs and constraints.
@@ -163,9 +227,8 @@ func (b *DefaultInputBuilder) injectWorkItemContext(workItem *core.WorkItem, ref
 // injectUpstreamContext adds upstream run results tiered by distance:
 //   - L2 (immediate predecessor): full ResultMarkdown
 //   - L0 (distant predecessors): ResultMetadata["summary"] or first 300 chars fallback
-func (b *DefaultInputBuilder) injectUpstreamContext(ctx context.Context, action *core.Action, refs []ContextRef) []ContextRef {
-	actions, err := b.store.ListActionsByWorkItem(ctx, action.WorkItemID)
-	if err != nil {
+func (b *DefaultInputBuilder) injectUpstreamContext(ctx context.Context, action *core.Action, actions []*core.Action, refs []ContextRef) []ContextRef {
+	if len(actions) == 0 {
 		return refs
 	}
 
@@ -265,6 +328,153 @@ func (b *DefaultInputBuilder) injectManifestContext(ctx context.Context, workIte
 		RefID:  *workItem.ProjectID,
 		Label:  "feature manifest",
 		Inline: string(snapshot),
+	})
+}
+
+// injectProjectBriefContext adds the project name, kind, description and resource bindings
+// as a CtxProjectBrief reference so the agent understands the project context.
+func (b *DefaultInputBuilder) injectProjectBriefContext(ctx context.Context, workItem *core.WorkItem, refs []ContextRef) []ContextRef {
+	if workItem == nil || workItem.ProjectID == nil {
+		return refs
+	}
+	project, err := b.store.GetProject(ctx, *workItem.ProjectID)
+	if err != nil || project == nil {
+		return refs
+	}
+
+	var sb strings.Builder
+	sb.WriteString("**")
+	sb.WriteString(strings.TrimSpace(project.Name))
+	sb.WriteString("**")
+	if project.Kind != "" {
+		sb.WriteString(" (")
+		sb.WriteString(string(project.Kind))
+		sb.WriteString(")")
+	}
+	if desc := strings.TrimSpace(project.Description); desc != "" {
+		sb.WriteString("\n\n")
+		sb.WriteString(desc)
+	}
+
+	bindings, err := b.store.ListResourceBindings(ctx, project.ID)
+	if err == nil && len(bindings) > 0 {
+		sb.WriteString("\n\nResources:\n")
+		for _, rb := range bindings {
+			label := strings.TrimSpace(rb.Label)
+			if label == "" {
+				label = rb.Kind
+			}
+			sb.WriteString("- ")
+			sb.WriteString(label)
+			sb.WriteString(": ")
+			sb.WriteString(rb.URI)
+			sb.WriteString("\n")
+		}
+	}
+
+	content := strings.TrimSpace(sb.String())
+	if content == "" {
+		return refs
+	}
+	return append(refs, ContextRef{
+		Type:   CtxProjectBrief,
+		RefID:  project.ID,
+		Label:  "project",
+		Inline: content,
+	})
+}
+
+// injectProgressContext adds a compact progress summary of the work item's action pipeline
+// so the agent knows where execution currently stands.
+func (b *DefaultInputBuilder) injectProgressContext(action *core.Action, actions []*core.Action, refs []ContextRef) []ContextRef {
+	if len(actions) <= 1 {
+		return refs
+	}
+
+	var sb strings.Builder
+	total := len(actions)
+	doneCount := 0
+	for _, a := range actions {
+		if a.Status == core.ActionDone {
+			doneCount++
+		}
+	}
+	sb.WriteString(fmt.Sprintf("Progress: %d/%d actions completed\n", doneCount, total))
+
+	for _, a := range actions {
+		var marker string
+		switch a.Status {
+		case core.ActionDone:
+			marker = "done"
+		case core.ActionRunning:
+			marker = "running"
+		case core.ActionReady:
+			marker = "ready"
+		case core.ActionFailed:
+			marker = "failed"
+		case core.ActionBlocked:
+			marker = "blocked"
+		case core.ActionWaitingGate:
+			marker = "waiting"
+		default:
+			marker = "pending"
+		}
+		current := ""
+		if a.ID == action.ID {
+			current = " ← current"
+		}
+		sb.WriteString(fmt.Sprintf("- [%s] %s%s\n", marker, a.Name, current))
+	}
+
+	return append(refs, ContextRef{
+		Type:   CtxProgressSummary,
+		RefID:  action.WorkItemID,
+		Label:  "execution progress",
+		Inline: strings.TrimSpace(sb.String()),
+	})
+}
+
+// injectSkillsContext adds a compact list of the agent profile's available skills
+// (name + description) so the agent knows what capabilities it has.
+func (b *DefaultInputBuilder) injectSkillsContext(ctx context.Context, action *core.Action, refs []ContextRef) []ContextRef {
+	if b.registry == nil || b.skillsRoot == "" {
+		return refs
+	}
+
+	// Resolve the same profile that the Resolver would pick for this action,
+	// ensuring the skills list matches the agent's actual identity.
+	profile, err := b.registry.ResolveForAction(ctx, action)
+	if err != nil || profile == nil || len(profile.Skills) == 0 {
+		return refs
+	}
+
+	var sb strings.Builder
+	injected := 0
+	for _, skillName := range profile.Skills {
+		parsed, err := skills.InspectSkill(b.skillsRoot, skillName)
+		if err != nil || !parsed.Valid || parsed.Metadata == nil {
+			continue
+		}
+		desc := strings.TrimSpace(parsed.Metadata.Description)
+		if desc == "" || desc == "TODO" {
+			continue
+		}
+		sb.WriteString("- **")
+		sb.WriteString(parsed.Metadata.Name)
+		sb.WriteString("**: ")
+		sb.WriteString(desc)
+		sb.WriteString("\n")
+		injected++
+	}
+
+	if injected == 0 {
+		return refs
+	}
+	return append(refs, ContextRef{
+		Type:   CtxSkillsSummary,
+		RefID:  0,
+		Label:  "available skills",
+		Inline: strings.TrimSpace(sb.String()),
 	})
 }
 
