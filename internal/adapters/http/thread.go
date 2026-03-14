@@ -1,13 +1,13 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	threadapp "github.com/yoke233/ai-workflow/internal/application/threadapp"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
@@ -42,10 +42,6 @@ type addThreadParticipantRequest struct {
 
 type inviteThreadAgentRequest struct {
 	AgentProfileID string `json:"agent_profile_id"`
-}
-
-type threadAggregateStore interface {
-	CreateThreadWithParticipants(ctx context.Context, thread *core.Thread, participants []*core.ThreadMember) error
 }
 
 type createWorkItemFromThreadRequest struct {
@@ -101,39 +97,18 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	thread := &core.Thread{
+	result, err := h.threadService().CreateThread(r.Context(), threadapp.CreateThreadInput{
 		Title:    title,
-		Status:   core.ThreadActive,
 		OwnerID:  strings.TrimSpace(req.OwnerID),
 		Summary:  strings.TrimSpace(req.Summary),
 		Metadata: req.Metadata,
+	})
+	if err != nil {
+		writeThreadAppFailure(w, err, "CREATE_THREAD_FAILED")
+		return
 	}
 
-	if txStore, ok := h.store.(threadAggregateStore); ok {
-		participants := buildThreadParticipants(thread.OwnerID, nil)
-		if err := txStore.CreateThreadWithParticipants(r.Context(), thread, participants); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_THREAD_FAILED")
-			return
-		}
-	} else {
-		id, err := h.store.CreateThread(r.Context(), thread)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_THREAD_FAILED")
-			return
-		}
-		thread.ID = id
-
-		if _, err := h.ensureThreadParticipant(r.Context(), thread.ID, thread.OwnerID, "owner"); err != nil {
-			if rollbackErr := h.store.DeleteThread(r.Context(), thread.ID); rollbackErr != nil {
-				writeError(w, http.StatusInternalServerError, err.Error()+"; rollback failed: "+rollbackErr.Error(), "CREATE_THREAD_FAILED")
-				return
-			}
-			writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_THREAD_FAILED")
-			return
-		}
-	}
-
-	writeJSON(w, http.StatusCreated, thread)
+	writeJSON(w, http.StatusCreated, result.Thread)
 }
 
 func (h *Handler) listThreads(w http.ResponseWriter, r *http.Request) {
@@ -247,25 +222,8 @@ func (h *Handler) deleteThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.store.GetThread(r.Context(), threadID); err != nil {
-		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "thread not found", "THREAD_NOT_FOUND")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
-		return
-	}
-
-	if h.threadPool != nil {
-		if err := h.threadPool.CleanupThread(r.Context(), threadID); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error(), "CLEANUP_THREAD_FAILED")
-			return
-		}
-	}
-
-	if err := h.store.DeleteThread(r.Context(), threadID); err != nil {
-		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "thread not found", "THREAD_NOT_FOUND")
+	if err := h.threadService().DeleteThread(r.Context(), threadID); err != nil {
+		if writeThreadAppError(w, err) {
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error(), "DELETE_THREAD_FAILED")
@@ -454,52 +412,21 @@ func (h *Handler) createThreadWorkItemLink(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Verify thread exists.
-	if _, err := h.store.GetThread(r.Context(), threadID); err != nil {
-		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "thread not found", "THREAD_NOT_FOUND")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
-		return
-	}
-
 	var req createThreadWorkItemLinkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
 	}
-	if req.WorkItemID <= 0 {
-		writeError(w, http.StatusBadRequest, "work_item_id is required", "MISSING_WORK_ITEM_ID")
-		return
-	}
-
-	// Verify work item (issue) exists.
-	if _, err := h.store.GetWorkItem(r.Context(), req.WorkItemID); err != nil {
-		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "work item not found", "WORK_ITEM_NOT_FOUND")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
-		return
-	}
-
-	link := &core.ThreadWorkItemLink{
+	link, err := h.threadService().LinkThreadWorkItem(r.Context(), threadapp.LinkThreadWorkItemInput{
 		ThreadID:     threadID,
 		WorkItemID:   req.WorkItemID,
 		RelationType: req.RelationType,
 		IsPrimary:    req.IsPrimary,
-	}
-	if link.RelationType == "" {
-		link.RelationType = "related"
-	}
-
-	id, err := h.store.CreateThreadWorkItemLink(r.Context(), link)
+	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_LINK_FAILED")
+		writeThreadAppFailure(w, err, "CREATE_LINK_FAILED")
 		return
 	}
-	link.ID = id
 	writeJSON(w, http.StatusCreated, link)
 }
 
@@ -533,9 +460,8 @@ func (h *Handler) deleteThreadWorkItemLink(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := h.store.DeleteThreadWorkItemLink(r.Context(), threadID, workItemID); err != nil {
-		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "link not found", "LINK_NOT_FOUND")
+	if err := h.threadService().UnlinkThreadWorkItem(r.Context(), threadID, workItemID); err != nil {
+		if writeThreadAppError(w, err) {
 			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error(), "DELETE_LINK_FAILED")
@@ -573,26 +499,20 @@ func (h *Handler) createWorkItemFromThread(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Verify thread exists.
-	thread, err := h.store.GetThread(r.Context(), threadID)
-	if err != nil {
-		if err == core.ErrNotFound {
-			writeError(w, http.StatusNotFound, "thread not found", "THREAD_NOT_FOUND")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
-		return
-	}
-
 	var req createWorkItemFromThreadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
 	}
-	issue, err := h.createWorkItemFromThreadData(r.Context(), thread, req.Title, req.Body, req.ProjectID)
+
+	result, err := h.threadService().CreateWorkItemFromThread(r.Context(), threadapp.CreateWorkItemFromThreadInput{
+		ThreadID:      threadID,
+		WorkItemTitle: req.Title,
+		WorkItemBody:  req.Body,
+		ProjectID:     req.ProjectID,
+	})
 	if err != nil {
-		if apiErr, ok := err.(*threadMessageAPIError); ok {
-			writeError(w, http.StatusBadRequest, apiErr.Message, apiErr.Code)
+		if writeThreadAppError(w, err) {
 			return
 		}
 		code := "CREATE_ISSUE_FAILED"
@@ -603,7 +523,7 @@ func (h *Handler) createWorkItemFromThread(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, issue)
+	writeJSON(w, http.StatusCreated, result.WorkItem)
 }
 
 // ---------------------------------------------------------------------------

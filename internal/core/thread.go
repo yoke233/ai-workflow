@@ -178,6 +178,7 @@ type ThreadStore interface {
 
 	CreateThreadMessage(ctx context.Context, msg *ThreadMessage) (int64, error)
 	ListThreadMessages(ctx context.Context, threadID int64, limit, offset int) ([]*ThreadMessage, error)
+	DeleteThreadMessagesByThread(ctx context.Context, threadID int64) error
 
 	// ThreadMember CRUD (unified human + agent members).
 	AddThreadMember(ctx context.Context, m *ThreadMember) (int64, error)
@@ -186,6 +187,7 @@ type ThreadStore interface {
 	UpdateThreadMember(ctx context.Context, m *ThreadMember) error
 	RemoveThreadMember(ctx context.Context, id int64) error
 	RemoveThreadMemberByUser(ctx context.Context, threadID int64, userID string) error
+	DeleteThreadMembersByThread(ctx context.Context, threadID int64) error
 
 	CreateThreadWorkItemLink(ctx context.Context, link *ThreadWorkItemLink) (int64, error)
 	ListWorkItemsByThread(ctx context.Context, threadID int64) ([]*ThreadWorkItemLink, error)
@@ -193,5 +195,4 @@ type ThreadStore interface {
 	DeleteThreadWorkItemLink(ctx context.Context, threadID, workItemID int64) error
 	DeleteThreadWorkItemLinksByThread(ctx context.Context, threadID int64) error
 	DeleteThreadWorkItemLinksByWorkItem(ctx context.Context, workItemID int64) error
-
 }

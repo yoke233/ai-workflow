@@ -49,7 +49,7 @@ type localHandle struct {
 	workDir    string
 	mcpServers []acpproto.McpServer
 	reuse      bool
-	issueID    int64
+	workItemID int64
 	stepID     int64
 	execID     int64
 }
@@ -60,17 +60,17 @@ type localInvocationEvent struct {
 }
 
 type localInvocation struct {
-	id        string
-	handleID  string
-	execID    int64
-	issueID   int64
-	stepID    int64
-	status    runtimeapp.ExecutionRuntimeState
-	result    *runtimeapp.ExecutionResult
-	err       error
-	done      chan struct{} // closed when execution completes
-	events    []localInvocationEvent
-	createdAt time.Time
+	id         string
+	handleID   string
+	execID     int64
+	workItemID int64
+	stepID     int64
+	status     runtimeapp.ExecutionRuntimeState
+	result     *runtimeapp.ExecutionResult
+	err        error
+	done       chan struct{} // closed when execution completes
+	events     []localInvocationEvent
+	createdAt  time.Time
 }
 
 // NewLocalSessionManager creates a session manager that runs agents in-process.
@@ -95,9 +95,9 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 	if sb == nil {
 		sb = v2sandbox.NoopSandbox{}
 	}
-	scope := fmt.Sprintf("workitem-%d", in.IssueID)
+	scope := fmt.Sprintf("workitem-%d", in.WorkItemID)
 	if !in.Reuse {
-		scope = fmt.Sprintf("workitem-%d-run-%d", in.IssueID, in.ExecID)
+		scope = fmt.Sprintf("workitem-%d-run-%d", in.WorkItemID, in.ExecID)
 	}
 	sandboxedLaunch, err := sb.Prepare(ctx, v2sandbox.PrepareInput{
 		Profile:         in.Profile,
@@ -115,14 +115,14 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 	m.mu.Unlock()
 
 	lh := &localHandle{
-		reuse:   in.Reuse,
-		profile: in.Profile,
-		issueID: in.IssueID,
-		stepID:  in.StepID,
-		execID:  in.ExecID,
-		launch:  sandboxedLaunch,
-		caps:    in.Caps,
-		workDir: in.WorkDir,
+		reuse:      in.Reuse,
+		profile:    in.Profile,
+		workItemID: in.WorkItemID,
+		stepID:     in.StepID,
+		execID:     in.ExecID,
+		launch:     sandboxedLaunch,
+		caps:       in.Caps,
+		workDir:    in.WorkDir,
 	}
 
 	if in.Reuse && m.pool != nil {
@@ -132,7 +132,7 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 			Caps:       in.Caps,
 			WorkDir:    in.WorkDir,
 			MCPFactory: in.MCPFactory,
-			WorkItemID: in.IssueID,
+			WorkItemID: in.WorkItemID,
 			ActionID:   in.StepID,
 			RunID:      in.ExecID,
 			IdleTTL:    in.IdleTTL,
@@ -214,14 +214,14 @@ func (m *LocalSessionManager) StartExecution(ctx context.Context, handle *runtim
 	invocationID := fmt.Sprintf("li-%d-%d", time.Now().UnixNano(), m.nextID)
 	m.nextID++
 	inv := &localInvocation{
-		id:        invocationID,
-		handleID:  handle.ID,
-		execID:    lh.execID,
-		issueID:   lh.issueID,
-		stepID:    lh.stepID,
-		status:    runtimeapp.ExecutionRunning,
-		done:      make(chan struct{}),
-		createdAt: time.Now().UTC(),
+		id:         invocationID,
+		handleID:   handle.ID,
+		execID:     lh.execID,
+		workItemID: lh.workItemID,
+		stepID:     lh.stepID,
+		status:     runtimeapp.ExecutionRunning,
+		done:       make(chan struct{}),
+		createdAt:  time.Now().UTC(),
 	}
 	m.invocations[invocationID] = inv
 	m.mu.Unlock()
@@ -282,7 +282,7 @@ func (m *LocalSessionManager) executeRun(ctx context.Context, lh *localHandle, t
 			input, output := m.pool.SessionTokenUsage(lh.pooled)
 			slog.Warn("token budget warning: approaching limit",
 				"agent", lh.profile.ID,
-				"workitem_id", lh.issueID,
+				"workitem_id", lh.workItemID,
 				"input_tokens", input,
 				"output_tokens", output,
 				"limit", lh.profile.Session.MaxContextTokens)
@@ -389,7 +389,7 @@ func (m *LocalSessionManager) RecoverExecutions(_ context.Context, since time.Ti
 		status := runtimeapp.ExecutionRuntimeStatus{
 			InvocationID: inv.id,
 			ExecID:       inv.execID,
-			IssueID:      inv.issueID,
+			WorkItemID:   inv.workItemID,
 			StepID:       inv.stepID,
 			Status:       inv.status,
 			CreatedAt:    inv.createdAt,
@@ -454,10 +454,10 @@ func (m *LocalSessionManager) Release(ctx context.Context, handle *runtimeapp.Se
 	return nil
 }
 
-// CleanupIssue releases all sessions for a work item.
-func (m *LocalSessionManager) CleanupIssue(issueID int64) {
+// CleanupWorkItem releases all sessions for a work item.
+func (m *LocalSessionManager) CleanupWorkItem(workItemID int64) {
 	if m.pool != nil {
-		m.pool.CleanupWorkItem(issueID)
+		m.pool.CleanupWorkItem(workItemID)
 	}
 }
 

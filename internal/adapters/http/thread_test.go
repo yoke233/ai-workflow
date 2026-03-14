@@ -201,6 +201,76 @@ func TestThreadDeleteCleansUpRuntime(t *testing.T) {
 	}
 }
 
+func TestThreadDeleteRemovesLinksMessagesAndMembers(t *testing.T) {
+	h, ts := setupAPI(t)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "cleanup-aggregate", "owner_id": "owner-1"})
+	var thread core.Thread
+	decodeJSON(resp, &thread)
+
+	if _, err := h.store.CreateThreadMessage(context.Background(), &core.ThreadMessage{
+		ThreadID: thread.ID,
+		SenderID: "owner-1",
+		Role:     "human",
+		Content:  "cleanup me",
+	}); err != nil {
+		t.Fatalf("create thread message: %v", err)
+	}
+
+	resp, _ = post(ts, fmt.Sprintf("/threads/%d/participants", thread.ID), map[string]any{
+		"user_id": "member-1",
+		"role":    "member",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating participant, got %d", resp.StatusCode)
+	}
+
+	resp, _ = post(ts, "/work-items", map[string]any{"title": "cleanup-work-item"})
+	var issue core.WorkItem
+	decodeJSON(resp, &issue)
+
+	resp, _ = post(ts, fmt.Sprintf("/threads/%d/links/work-items", thread.ID), map[string]any{
+		"work_item_id": issue.ID,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating link, got %d", resp.StatusCode)
+	}
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+fmt.Sprintf("/threads/%d", thread.ID), nil)
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 deleting thread, got %d", resp.StatusCode)
+	}
+
+	msgs, err := h.store.ListThreadMessages(context.Background(), thread.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("list thread messages: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("expected 0 thread messages after delete, got %d", len(msgs))
+	}
+
+	members, err := h.store.ListThreadMembers(context.Background(), thread.ID)
+	if err != nil {
+		t.Fatalf("list thread members: %v", err)
+	}
+	if len(members) != 0 {
+		t.Fatalf("expected 0 thread members after delete, got %d", len(members))
+	}
+
+	links, err := h.store.ListWorkItemsByThread(context.Background(), thread.ID)
+	if err != nil {
+		t.Fatalf("list thread links: %v", err)
+	}
+	if len(links) != 0 {
+		t.Fatalf("expected 0 thread links after delete, got %d", len(links))
+	}
+
+	if _, err := h.store.GetWorkItem(context.Background(), issue.ID); err != nil {
+		t.Fatalf("work item should remain after thread delete: %v", err)
+	}
+}
+
 func TestThreadDeleteStopsWhenRuntimeCleanupFails(t *testing.T) {
 	h, ts := setupAPI(t)
 	threadPool := &stubThreadAgentRuntime{cleanupErr: fmt.Errorf("cleanup failed")}

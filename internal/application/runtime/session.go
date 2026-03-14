@@ -17,7 +17,7 @@ import (
 //   - NATS (opt-in): async execution dispatch via NATS JetStream. Agents survive
 //     server restarts. Supports multiple remote executors with queue-group load balancing.
 type SessionManager interface {
-	// Acquire gets or creates an ACP session for the given agent+issue.
+	// Acquire gets or creates an ACP session for the given agent+work item.
 	Acquire(ctx context.Context, in SessionAcquireInput) (*SessionHandle, error)
 
 	// StartExecution dispatches text to the acquired session. Returns an invocation ID.
@@ -40,8 +40,8 @@ type SessionManager interface {
 	// Release marks a session handle as no longer active.
 	Release(ctx context.Context, handle *SessionHandle) error
 
-	// CleanupIssue releases all sessions for a completed/failed issue.
-	CleanupIssue(issueID int64)
+	// CleanupWorkItem releases all sessions for a completed/failed work item.
+	CleanupWorkItem(workItemID int64)
 
 	// DrainActive blocks until all in-flight executions complete (for graceful upgrade).
 	DrainActive(ctx context.Context) error
@@ -69,9 +69,9 @@ type SessionAcquireInput struct {
 	// Local mode only; remote executors use their own MCP resolver.
 	MCPFactory func(agentSupportsSSE bool) []acpproto.McpServer
 
-	IssueID int64
-	StepID  int64
-	ExecID  int64
+	WorkItemID int64
+	StepID     int64
+	ExecID     int64
 
 	Reuse    bool
 	IdleTTL  time.Duration
@@ -111,7 +111,7 @@ type ExecutionResult struct {
 type ExecutionRuntimeStatus struct {
 	InvocationID string
 	ExecID       int64
-	IssueID      int64
+	WorkItemID   int64
 	StepID       int64
 	Status       ExecutionRuntimeState
 	Result       *ExecutionResult

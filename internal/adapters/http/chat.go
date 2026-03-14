@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	threadapp "github.com/yoke233/ai-workflow/internal/application/threadapp"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
 
@@ -144,8 +145,8 @@ type crystallizeChatSessionRequest struct {
 }
 
 type crystallizeChatSessionResponse struct {
-	Thread       *core.Thread              `json:"thread"`
-	WorkItem     *core.WorkItem            `json:"work_item,omitempty"`
+	Thread       *core.Thread         `json:"thread"`
+	WorkItem     *core.WorkItem       `json:"work_item,omitempty"`
 	Participants []*core.ThreadMember `json:"participants"`
 }
 
@@ -182,140 +183,35 @@ func (h *chatHandlers) crystallizeThread(w http.ResponseWriter, r *http.Request)
 
 	threadSummary := strings.TrimSpace(req.ThreadSummary)
 	ownerID := strings.TrimSpace(req.OwnerID)
-	thread := &core.Thread{
-		Title:    threadTitle,
-		Status:   core.ThreadActive,
-		OwnerID:  ownerID,
-		Summary:  threadSummary,
-		Metadata: map[string]any{"source_chat_session_id": sessionID},
-	}
-
-	participants := buildThreadParticipants(ownerID, req.ParticipantUserIDs)
-	var workItem *core.WorkItem
-	if txRunner, ok := h.handler.store.(core.TransactionalStore); ok {
-		err = txRunner.InTx(r.Context(), func(txStore core.Store) error {
-			threadID, err := txStore.CreateThread(r.Context(), thread)
-			if err != nil {
-				return err
-			}
-			thread.ID = threadID
-
-			for _, participant := range participants {
-				if participant == nil {
-					continue
-				}
-				participant.ThreadID = thread.ID
-				id, err := txStore.AddThreadMember(r.Context(), participant)
-				if err != nil {
-					return err
-				}
-				participant.ID = id
-			}
-
-			if req.CreateWorkItem {
-				workItem, err = createWorkItemFromThreadDataWithStore(
-					txStore, r.Context(), thread, req.WorkItemTitle, req.WorkItemBody, req.ProjectID,
-				)
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			if apiErr, ok := err.(*threadMessageAPIError); ok {
-				writeError(w, http.StatusBadRequest, apiErr.Message, apiErr.Code)
-				return
-			}
-			code := "CREATE_THREAD_FAILED"
-			if req.CreateWorkItem {
-				code = "CREATE_ISSUE_FAILED"
-				if strings.Contains(err.Error(), "rollback failed") {
-					code = "CREATE_LINK_FAILED"
-				}
-			}
-			writeError(w, http.StatusInternalServerError, err.Error(), code)
+	result, err := h.handler.threadService().CrystallizeChatSession(r.Context(), threadapp.CrystallizeChatSessionInput{
+		SessionID:          sessionID,
+		ThreadTitle:        threadTitle,
+		ThreadSummary:      threadSummary,
+		OwnerID:            ownerID,
+		ParticipantUserIDs: req.ParticipantUserIDs,
+		CreateWorkItem:     req.CreateWorkItem,
+		WorkItemTitle:      req.WorkItemTitle,
+		WorkItemBody:       req.WorkItemBody,
+		ProjectID:          req.ProjectID,
+	})
+	if err != nil {
+		if writeThreadAppError(w, err) {
 			return
 		}
-	} else if txStore, ok := h.handler.store.(threadAggregateStore); ok {
-		if err := txStore.CreateThreadWithParticipants(r.Context(), thread, participants); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_THREAD_FAILED")
-			return
-		}
+		code := "CREATE_THREAD_FAILED"
 		if req.CreateWorkItem {
-			workItem, err = h.handler.createWorkItemFromThreadData(r.Context(), thread, req.WorkItemTitle, req.WorkItemBody, req.ProjectID)
-			if err != nil {
-				_ = h.handler.store.DeleteThread(r.Context(), thread.ID)
-				if apiErr, ok := err.(*threadMessageAPIError); ok {
-					writeError(w, http.StatusBadRequest, apiErr.Message, apiErr.Code)
-					return
-				}
-				code := "CREATE_ISSUE_FAILED"
-				if strings.Contains(err.Error(), "rollback failed") {
-					code = "CREATE_LINK_FAILED"
-				}
-				writeError(w, http.StatusInternalServerError, err.Error(), code)
-				return
+			code = "CREATE_ISSUE_FAILED"
+			if strings.Contains(err.Error(), "rollback failed") {
+				code = "CREATE_LINK_FAILED"
 			}
 		}
-	} else {
-		threadID, err := h.handler.store.CreateThread(r.Context(), thread)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_THREAD_FAILED")
-			return
-		}
-		thread.ID = threadID
-
-		participants = participants[:0]
-		if ownerParticipant, err := h.handler.ensureThreadParticipant(r.Context(), thread.ID, ownerID, "owner"); err != nil {
-			_ = h.handler.store.DeleteThread(r.Context(), thread.ID)
-			writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_THREAD_FAILED")
-			return
-		} else if ownerParticipant != nil {
-			participants = append(participants, ownerParticipant)
-		}
-
-		seen := make(map[string]bool)
-		if ownerID != "" {
-			seen[ownerID] = true
-		}
-		for _, participantID := range req.ParticipantUserIDs {
-			participantID = strings.TrimSpace(participantID)
-			if participantID == "" || seen[participantID] {
-				continue
-			}
-			participant, err := h.handler.ensureThreadParticipant(r.Context(), thread.ID, participantID, "member")
-			if err != nil {
-				_ = h.handler.store.DeleteThread(r.Context(), thread.ID)
-				writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_THREAD_FAILED")
-				return
-			}
-			if participant != nil {
-				participants = append(participants, participant)
-			}
-			seen[participantID] = true
-		}
-		if req.CreateWorkItem {
-			workItem, err = h.handler.createWorkItemFromThreadData(r.Context(), thread, req.WorkItemTitle, req.WorkItemBody, req.ProjectID)
-			if err != nil {
-				_ = h.handler.store.DeleteThread(r.Context(), thread.ID)
-				if apiErr, ok := err.(*threadMessageAPIError); ok {
-					writeError(w, http.StatusBadRequest, apiErr.Message, apiErr.Code)
-					return
-				}
-				code := "CREATE_ISSUE_FAILED"
-				if strings.Contains(err.Error(), "rollback failed") {
-					code = "CREATE_LINK_FAILED"
-				}
-				writeError(w, http.StatusInternalServerError, err.Error(), code)
-				return
-			}
-		}
+		writeError(w, http.StatusInternalServerError, err.Error(), code)
+		return
 	}
 
 	writeJSON(w, http.StatusCreated, crystallizeChatSessionResponse{
-		Thread:       thread,
-		WorkItem:     workItem,
-		Participants: participants,
+		Thread:       result.Thread,
+		WorkItem:     result.WorkItem,
+		Participants: result.Participants,
 	})
 }

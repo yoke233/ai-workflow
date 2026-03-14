@@ -33,7 +33,7 @@ func (c *CompositeProvider) RegisterProvider(kind string, p core.WorkspaceProvid
 	c.providers[kind] = p
 }
 
-func (c *CompositeProvider) Prepare(ctx context.Context, project *core.Project, bindings []*core.ResourceBinding, issueID int64) (*core.Workspace, error) {
+func (c *CompositeProvider) Prepare(ctx context.Context, project *core.Project, bindings []*core.ResourceBinding, workItemID int64) (*core.Workspace, error) {
 	if len(bindings) == 0 {
 		return nil, fmt.Errorf("no resource bindings available for workspace preparation")
 	}
@@ -44,7 +44,7 @@ func (c *CompositeProvider) Prepare(ctx context.Context, project *core.Project, 
 	if !ok {
 		return nil, fmt.Errorf("no workspace provider for resource kind %q", binding.Kind)
 	}
-	return p.Prepare(ctx, project, bindings, issueID)
+	return p.Prepare(ctx, project, bindings, workItemID)
 }
 
 func (c *CompositeProvider) Release(ctx context.Context, ws *core.Workspace) error {

@@ -38,7 +38,7 @@ func (s *probeRuntimeStub) ProbeRun(context.Context, runtimeapp.RunProbeRuntimeR
 	return s.result, nil
 }
 func (s *probeRuntimeStub) Release(context.Context, *runtimeapp.SessionHandle) error { return nil }
-func (s *probeRuntimeStub) CleanupIssue(int64)                                       {}
+func (s *probeRuntimeStub) CleanupWorkItem(int64)                                    {}
 func (s *probeRuntimeStub) DrainActive(context.Context) error                        { return nil }
 func (s *probeRuntimeStub) ActiveCount() int                                         { return 0 }
 func (s *probeRuntimeStub) Close()                                                   {}

@@ -90,6 +90,7 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 				launchCfg.Env["AI_WORKFLOW_API_TOKEN"] = tok
 				launchCfg.Env["AI_WORKFLOW_SERVER_ADDR"] = cfg.ServerAddr
 				launchCfg.Env["AI_WORKFLOW_STEP_ID"] = fmt.Sprintf("%d", step.ID)
+				launchCfg.Env["AI_WORKFLOW_WORK_ITEM_ID"] = fmt.Sprintf("%d", step.WorkItemID)
 				launchCfg.Env["AI_WORKFLOW_ISSUE_ID"] = fmt.Sprintf("%d", step.WorkItemID)
 				launchCfg.Env["AI_WORKFLOW_STEP_TYPE"] = string(step.Type)
 				launchCfg.Env["AI_WORKFLOW_EXEC_ID"] = fmt.Sprintf("%d", exec.ID)
@@ -165,7 +166,7 @@ func NewACPActionExecutor(cfg ACPExecutorConfig) flowapp.ActionExecutor {
 			Caps:            acpCaps,
 			WorkDir:         workDir,
 			MCPFactory:      mcpFactory,
-			IssueID:         step.WorkItemID,
+			WorkItemID:      step.WorkItemID,
 			StepID:          step.ID,
 			ExecID:          exec.ID,
 			Reuse:           reuse,
@@ -356,6 +357,7 @@ func buildStepMCPFactory(step *core.Action, profile *core.AgentProfile, execID i
 		// Inject step context env vars into internal stdio MCP servers (mcp-serve).
 		stepEnv := []acpproto.EnvVariable{
 			{Name: "AI_WORKFLOW_STEP_ID", Value: fmt.Sprintf("%d", step.ID)},
+			{Name: "AI_WORKFLOW_WORK_ITEM_ID", Value: fmt.Sprintf("%d", step.WorkItemID)},
 			{Name: "AI_WORKFLOW_ISSUE_ID", Value: fmt.Sprintf("%d", step.WorkItemID)},
 			{Name: "AI_WORKFLOW_STEP_TYPE", Value: string(step.Type)},
 			{Name: "AI_WORKFLOW_EXEC_ID", Value: fmt.Sprintf("%d", execID)},

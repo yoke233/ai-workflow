@@ -308,6 +308,15 @@ func (s *Store) ListThreadMessages(ctx context.Context, threadID int64, limit, o
 	return out, nil
 }
 
+func (s *Store) DeleteThreadMessagesByThread(ctx context.Context, threadID int64) error {
+	if s == nil || s.orm == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+	return s.orm.WithContext(ctx).
+		Where("thread_id = ?", threadID).
+		Delete(&ThreadMessageModel{}).Error
+}
+
 // ---------------------------------------------------------------------------
 // ThreadMember CRUD (unified human + agent members)
 // ---------------------------------------------------------------------------
@@ -438,6 +447,15 @@ func (s *Store) RemoveThreadMemberByUser(ctx context.Context, threadID int64, us
 	return nil
 }
 
+func (s *Store) DeleteThreadMembersByThread(ctx context.Context, threadID int64) error {
+	if s == nil || s.orm == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+	return s.orm.WithContext(ctx).
+		Where("thread_id = ?", threadID).
+		Delete(&ThreadMemberModel{}).Error
+}
+
 // ---------------------------------------------------------------------------
 // ThreadWorkItemLink CRUD
 // ---------------------------------------------------------------------------
@@ -554,4 +572,3 @@ func (s *Store) DeleteThreadWorkItemLinksByWorkItem(ctx context.Context, workIte
 		Where("work_item_id = ?", workItemID).
 		Delete(&ThreadWorkItemLinkModel{}).Error
 }
-

@@ -35,40 +35,6 @@ func (e *threadMessageAPIError) Error() string {
 	return e.Message
 }
 
-func (h *Handler) ensureThreadParticipant(ctx context.Context, threadID int64, userID string, role string) (*core.ThreadMember, error) {
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
-		return nil, nil
-	}
-
-	members, err := h.store.ListThreadMembers(ctx, threadID)
-	if err != nil {
-		return nil, err
-	}
-	for _, m := range members {
-		if m != nil && m.UserID == userID {
-			return m, nil
-		}
-	}
-
-	member := &core.ThreadMember{
-		ThreadID: threadID,
-		Kind:     core.ThreadMemberKindHuman,
-		UserID:   userID,
-		Role:     strings.TrimSpace(role),
-	}
-	if member.Role == "" {
-		member.Role = "member"
-	}
-
-	id, err := h.store.AddThreadMember(ctx, member)
-	if err != nil {
-		return nil, err
-	}
-	member.ID = id
-	return member, nil
-}
-
 func (h *Handler) activeThreadAgentParticipantIDs(ctx context.Context, threadID int64) (map[string]bool, error) {
 	members, err := h.store.ListThreadMembers(ctx, threadID)
 	if err != nil {
@@ -391,71 +357,6 @@ func (h *Handler) createThreadMessageAndRoute(ctx context.Context, input threadM
 	return thread, message, nil
 }
 
-func createWorkItemFromThreadDataWithStore(store Store, ctx context.Context, thread *core.Thread, title string, body string, projectID *int64) (*core.WorkItem, error) {
-	if thread == nil {
-		return nil, errors.New("thread is required")
-	}
-
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return nil, &threadMessageAPIError{Code: "MISSING_TITLE", Message: "title is required"}
-	}
-
-	body = strings.TrimSpace(body)
-	summary := strings.TrimSpace(thread.Summary)
-	bodyFromSummary := false
-	if body == "" {
-		if summary == "" {
-			return nil, &threadMessageAPIError{Code: "MISSING_THREAD_SUMMARY", Message: "please generate or fill in summary first"}
-		}
-		body = summary
-		bodyFromSummary = true
-	}
-
-	sourceType := "thread_manual"
-	if bodyFromSummary {
-		sourceType = "thread_summary"
-	}
-
-	workItem := &core.WorkItem{
-		Title:     title,
-		Body:      body,
-		Status:    core.WorkItemOpen,
-		Priority:  core.PriorityMedium,
-		ProjectID: projectID,
-		Metadata: map[string]any{
-			"source_thread_id":  thread.ID,
-			"source_type":       sourceType,
-			"body_from_summary": bodyFromSummary,
-		},
-	}
-
-	id, err := store.CreateWorkItem(ctx, workItem)
-	if err != nil {
-		return nil, err
-	}
-	workItem.ID = id
-
-	link := &core.ThreadWorkItemLink{
-		ThreadID:     thread.ID,
-		WorkItemID:   id,
-		RelationType: "drives",
-		IsPrimary:    true,
-	}
-	if _, err := store.CreateThreadWorkItemLink(ctx, link); err != nil {
-		if rollbackErr := store.DeleteWorkItem(ctx, id); rollbackErr != nil {
-			return nil, errors.New(err.Error() + "; rollback failed: " + rollbackErr.Error())
-		}
-		return nil, err
-	}
-
-	return workItem, nil
-}
-
-func (h *Handler) createWorkItemFromThreadData(ctx context.Context, thread *core.Thread, title string, body string, projectID *int64) (*core.WorkItem, error) {
-	return createWorkItemFromThreadDataWithStore(h.store, ctx, thread, title, body, projectID)
-}
-
 func cloneAnyMap(in map[string]any) map[string]any {
 	if in == nil {
 		return nil
@@ -465,36 +366,6 @@ func cloneAnyMap(in map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
-}
-
-func buildThreadParticipants(ownerID string, memberIDs []string) []*core.ThreadMember {
-	participants := make([]*core.ThreadMember, 0, len(memberIDs)+1)
-	seen := make(map[string]bool)
-
-	ownerID = strings.TrimSpace(ownerID)
-	if ownerID != "" {
-		participants = append(participants, &core.ThreadMember{
-			Kind:   core.ThreadMemberKindHuman,
-			UserID: ownerID,
-			Role:   "owner",
-		})
-		seen[ownerID] = true
-	}
-
-	for _, participantID := range memberIDs {
-		participantID = strings.TrimSpace(participantID)
-		if participantID == "" || seen[participantID] {
-			continue
-		}
-		participants = append(participants, &core.ThreadMember{
-			Kind:   core.ThreadMemberKindHuman,
-			UserID: participantID,
-			Role:   "member",
-		})
-		seen[participantID] = true
-	}
-
-	return participants
 }
 
 func threadAgentSessionIsActive(status core.ThreadAgentStatus) bool {

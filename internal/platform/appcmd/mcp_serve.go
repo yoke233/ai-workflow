@@ -33,7 +33,7 @@ func RunMCPServe(args []string) error {
 		return fmt.Errorf("AI_WORKFLOW_DB_PATH is required")
 	}
 	stepID := envInt64("AI_WORKFLOW_STEP_ID")
-	issueID := envInt64("AI_WORKFLOW_ISSUE_ID")
+	workItemID := envInt64Compat("AI_WORKFLOW_WORK_ITEM_ID", "AI_WORKFLOW_ISSUE_ID")
 	stepType := strings.TrimSpace(os.Getenv("AI_WORKFLOW_STEP_TYPE"))
 	execID := envInt64("AI_WORKFLOW_EXEC_ID")
 
@@ -49,10 +49,10 @@ func RunMCPServe(args []string) error {
 	}, nil)
 
 	handler := &mcpStepHandler{
-		store:   store,
-		stepID:  stepID,
-		issueID: issueID,
-		execID:  execID,
+		store:      store,
+		stepID:     stepID,
+		workItemID: workItemID,
+		execID:     execID,
 	}
 
 	// step_context — available for all step types.
@@ -84,7 +84,7 @@ func RunMCPServe(args []string) error {
 		}, handler.handleGateReject)
 	}
 
-	slog.Info("mcp-serve: starting", "step_id", stepID, "issue_id", issueID, "step_type", stepType, "exec_id", execID)
+	slog.Info("mcp-serve: starting", "step_id", stepID, "work_item_id", workItemID, "step_type", stepType, "exec_id", execID)
 	return srv.Run(context.Background(), &mcp.StdioTransport{})
 }
 
@@ -97,19 +97,32 @@ func envInt64(key string) int64 {
 	return n
 }
 
+func envInt64Compat(primaryKey string, legacyKeys ...string) int64 {
+	if v := envInt64(primaryKey); v != 0 {
+		return v
+	}
+	for _, key := range legacyKeys {
+		if v := envInt64(key); v != 0 {
+			return v
+		}
+	}
+	return 0
+}
+
 // mcpStepHandler implements the MCP tool handlers.
 type mcpStepHandler struct {
-	store   core.Store
-	stepID  int64
-	issueID int64
-	execID  int64
+	store      core.Store
+	stepID     int64
+	workItemID int64
+	execID     int64
 }
 
 type stepContextInput struct{}
 
 type stepContextOutput struct {
 	Step              map[string]any   `json:"step"`
-	Issue             map[string]any   `json:"issue"`
+	WorkItem          map[string]any   `json:"work_item"`
+	Issue             map[string]any   `json:"issue,omitempty"`
 	UpstreamArtifacts []map[string]any `json:"upstream_artifacts"`
 	ReworkHistory     []any            `json:"rework_history"`
 	Signals           []map[string]any `json:"signals,omitempty"`
@@ -120,13 +133,13 @@ func (h *mcpStepHandler) handleStepContext(ctx context.Context, req *mcp.CallToo
 	if err != nil {
 		return nil, stepContextOutput{}, fmt.Errorf("get action: %w", err)
 	}
-	issue, err := h.store.GetWorkItem(ctx, h.issueID)
+	workItem, err := h.store.GetWorkItem(ctx, h.workItemID)
 	if err != nil {
 		return nil, stepContextOutput{}, fmt.Errorf("get work item: %w", err)
 	}
 
 	// Collect upstream artifacts.
-	allSteps, _ := h.store.ListActionsByWorkItem(ctx, h.issueID)
+	allSteps, _ := h.store.ListActionsByWorkItem(ctx, h.workItemID)
 	var upstreamArtifacts []map[string]any
 	for _, s := range allSteps {
 		if s.Position < step.Position {
@@ -182,15 +195,16 @@ func (h *mcpStepHandler) handleStepContext(ctx context.Context, req *mcp.CallToo
 			"retry_count": step.RetryCount,
 			"description": step.Description,
 		},
-		Issue: map[string]any{
-			"id":    issue.ID,
-			"title": issue.Title,
-			"body":  issue.Body,
+		WorkItem: map[string]any{
+			"id":    workItem.ID,
+			"title": workItem.Title,
+			"body":  workItem.Body,
 		},
 		UpstreamArtifacts: upstreamArtifacts,
 		ReworkHistory:     reworkHistory,
 		Signals:           signalTimeline,
 	}
+	out.Issue = out.WorkItem
 	return nil, out, nil
 }
 
@@ -296,7 +310,7 @@ func (h *mcpStepHandler) checkIdempotent(ctx context.Context) (bool, core.Signal
 func (h *mcpStepHandler) createSignal(ctx context.Context, sigType core.SignalType, payload map[string]any) {
 	sig := &core.ActionSignal{
 		ActionID:   h.stepID,
-		WorkItemID: h.issueID,
+		WorkItemID: h.workItemID,
 		RunID:      h.execID,
 		Type:       sigType,
 		Source:     core.SignalSourceAgent,

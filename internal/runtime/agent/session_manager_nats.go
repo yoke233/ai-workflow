@@ -68,16 +68,29 @@ type natsHandle struct {
 
 // natsInvocationMessage is the payload published to the execution submission subject.
 type natsInvocationMessage struct {
-	InvocationID string                         `json:"invocation_id"`
-	HandleID     string                         `json:"handle_id"`
-	Text         string                         `json:"text"`
-	Input        runtimeapp.SessionAcquireInput `json:"-"` // serialized separately
-	IssueID      int64                          `json:"issue_id"`
-	StepID       int64                          `json:"step_id"`
-	ExecID       int64                          `json:"execution_id"`
-	AgentID      string                         `json:"agent_id"`
-	ProfileID    string                         `json:"profile_id"`
-	WorkDir      string                         `json:"work_dir"`
+	InvocationID  string                         `json:"invocation_id"`
+	HandleID      string                         `json:"handle_id"`
+	Text          string                         `json:"text"`
+	Input         runtimeapp.SessionAcquireInput `json:"-"` // serialized separately
+	WorkItemID    int64                          `json:"work_item_id"`
+	LegacyIssueID int64                          `json:"issue_id,omitempty"`
+	StepID        int64                          `json:"step_id"`
+	ExecID        int64                          `json:"execution_id"`
+	AgentID       string                         `json:"agent_id"`
+	ProfileID     string                         `json:"profile_id"`
+	WorkDir       string                         `json:"work_dir"`
+}
+
+func (m *natsInvocationMessage) normalize() {
+	if m == nil {
+		return
+	}
+	if m.WorkItemID == 0 {
+		m.WorkItemID = m.LegacyIssueID
+	}
+	if m.LegacyIssueID == 0 {
+		m.LegacyIssueID = m.WorkItemID
+	}
 }
 
 // natsInvocationResult is the payload published to the result subject.
@@ -216,14 +229,15 @@ func (m *NATSSessionManager) StartExecution(ctx context.Context, handle *runtime
 	}
 
 	msg := natsInvocationMessage{
-		InvocationID: invocationID,
-		HandleID:     handle.ID,
-		Text:         text,
-		IssueID:      nh.sessionIn.IssueID,
-		StepID:       nh.sessionIn.StepID,
-		ExecID:       nh.sessionIn.ExecID,
-		AgentID:      agentType,
-		WorkDir:      nh.sessionIn.WorkDir,
+		InvocationID:  invocationID,
+		HandleID:      handle.ID,
+		Text:          text,
+		WorkItemID:    nh.sessionIn.WorkItemID,
+		LegacyIssueID: nh.sessionIn.WorkItemID,
+		StepID:        nh.sessionIn.StepID,
+		ExecID:        nh.sessionIn.ExecID,
+		AgentID:       agentType,
+		WorkDir:       nh.sessionIn.WorkDir,
 	}
 	if nh.sessionIn.Profile != nil {
 		msg.ProfileID = strings.TrimSpace(nh.sessionIn.Profile.ID)
@@ -244,7 +258,7 @@ func (m *NATSSessionManager) StartExecution(ctx context.Context, handle *runtime
 	m.drainWg.Add(1)
 
 	slog.Info("nats session manager: run dispatched",
-		"run_id", msg.ExecID, "agent", agentType, "workitem_id", msg.IssueID)
+		"run_id", msg.ExecID, "agent", agentType, "workitem_id", msg.WorkItemID)
 
 	return invocationID, nil
 }
@@ -421,8 +435,8 @@ func (m *NATSSessionManager) Release(_ context.Context, handle *runtimeapp.Sessi
 	return nil
 }
 
-// CleanupIssue is a no-op in NATS mode — executor workers manage their own sessions.
-func (m *NATSSessionManager) CleanupIssue(_ int64) {}
+// CleanupWorkItem is a no-op in NATS mode — executor workers manage their own sessions.
+func (m *NATSSessionManager) CleanupWorkItem(_ int64) {}
 
 // DrainActive blocks until all in-flight executions complete.
 func (m *NATSSessionManager) DrainActive(ctx context.Context) error {

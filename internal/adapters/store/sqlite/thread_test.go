@@ -213,6 +213,36 @@ func TestThreadMessageCRUD(t *testing.T) {
 	}
 }
 
+func TestDeleteThreadMessagesByThread(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	threadID, err := s.CreateThread(ctx, &core.Thread{Title: "delete-msgs"})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	if _, err := s.CreateThreadMessage(ctx, &core.ThreadMessage{
+		ThreadID: threadID,
+		SenderID: "user-1",
+		Role:     "human",
+		Content:  "hello",
+	}); err != nil {
+		t.Fatalf("create thread message: %v", err)
+	}
+
+	if err := s.DeleteThreadMessagesByThread(ctx, threadID); err != nil {
+		t.Fatalf("delete thread messages: %v", err)
+	}
+
+	msgs, err := s.ListThreadMessages(ctx, threadID, 10, 0)
+	if err != nil {
+		t.Fatalf("list thread messages: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("expected 0 messages after cleanup, got %d", len(msgs))
+	}
+}
+
 func TestThreadWorkItemLinkCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
@@ -580,5 +610,43 @@ func TestThreadMemberCRUD(t *testing.T) {
 	// Remove non-existent.
 	if err := s.RemoveThreadMemberByUser(ctx, threadID, "nobody"); err != core.ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDeleteThreadMembersByThread(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	threadID, err := s.CreateThread(ctx, &core.Thread{Title: "delete-members"})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	if _, err := s.AddThreadMember(ctx, &core.ThreadMember{
+		ThreadID: threadID,
+		Kind:     core.ThreadMemberKindHuman,
+		UserID:   "user-1",
+		Role:     "owner",
+	}); err != nil {
+		t.Fatalf("add first member: %v", err)
+	}
+	if _, err := s.AddThreadMember(ctx, &core.ThreadMember{
+		ThreadID: threadID,
+		Kind:     core.ThreadMemberKindHuman,
+		UserID:   "user-2",
+		Role:     "member",
+	}); err != nil {
+		t.Fatalf("add second member: %v", err)
+	}
+
+	if err := s.DeleteThreadMembersByThread(ctx, threadID); err != nil {
+		t.Fatalf("delete thread members: %v", err)
+	}
+
+	members, err := s.ListThreadMembers(ctx, threadID)
+	if err != nil {
+		t.Fatalf("list thread members: %v", err)
+	}
+	if len(members) != 0 {
+		t.Fatalf("expected 0 members after cleanup, got %d", len(members))
 	}
 }

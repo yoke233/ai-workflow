@@ -119,10 +119,10 @@ func NewExecutorWorker(cfg ExecutorWorkerConfig) (*ExecutorWorker, error) {
 	}
 
 	return &ExecutorWorker{
-		cfg:              cfg,
-		js:               js,
-		prefix:           prefix,
-		pool:             pool,
+		cfg:        cfg,
+		js:         js,
+		prefix:     prefix,
+		pool:       pool,
 		activeRuns: make(map[int64]*activeRunProbeTarget),
 	}, nil
 }
@@ -217,9 +217,10 @@ func (w *ExecutorWorker) handleMessage(ctx context.Context, msg jetstream.Msg) {
 		_ = msg.Nak()
 		return
 	}
+	invocation.normalize()
 
 	slog.Info("executor worker: executing run",
-		"run_id", invocation.ExecID, "agent", invocation.AgentID, "workitem_id", invocation.IssueID)
+		"run_id", invocation.ExecID, "agent", invocation.AgentID, "workitem_id", invocation.WorkItemID)
 
 	// Create event forwarder that publishes to NATS.
 	eventSeq := int64(0)
@@ -293,7 +294,7 @@ func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocat
 	sandboxedLaunch, err := sb.Prepare(ctx, v2sandbox.PrepareInput{
 		Profile: profile,
 		Launch:  launchCfg,
-		Scope:   fmt.Sprintf("workitem-%d-run-%d", invocation.IssueID, invocation.ExecID),
+		Scope:   fmt.Sprintf("workitem-%d-run-%d", invocation.WorkItemID, invocation.ExecID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("prepare sandbox: %w", err)
@@ -311,7 +312,7 @@ func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocat
 		Launch:     sandboxedLaunch,
 		Caps:       acpCaps,
 		WorkDir:    workDir,
-		WorkItemID: invocation.IssueID,
+		WorkItemID: invocation.WorkItemID,
 		ActionID:   invocation.StepID,
 		RunID:      invocation.ExecID,
 	}

@@ -28,7 +28,7 @@ type GitProvider struct {
 	DataDir string
 }
 
-func (p *GitProvider) Prepare(_ context.Context, _ *core.Project, bindings []*core.ResourceBinding, issueID int64) (*core.Workspace, error) {
+func (p *GitProvider) Prepare(_ context.Context, _ *core.Project, bindings []*core.ResourceBinding, workItemID int64) (*core.Workspace, error) {
 	var gitBindings []*core.ResourceBinding
 	for _, b := range bindings {
 		if b == nil || b.Kind != core.ResourceKindGit {
@@ -98,11 +98,11 @@ func (p *GitProvider) Prepare(_ context.Context, _ *core.Project, bindings []*co
 	// If even the local base branch doesn't exist, startPoint stays "" and
 	// WorktreeAdd will create the branch from the current HEAD.
 
-	branchName := fmt.Sprintf("ai-flow/issue-%d", issueID)
-	worktreePath := filepath.Join(repoPath, ".worktrees", fmt.Sprintf("issue-%d", issueID))
+	branchName := fmt.Sprintf("ai-flow/workitem-%d", workItemID)
+	worktreePath := filepath.Join(repoPath, ".worktrees", fmt.Sprintf("workitem-%d", workItemID))
 
 	if err := runner.WorktreeAdd(worktreePath, branchName, startPoint); err != nil {
-		return nil, fmt.Errorf("create worktree for issue %d: %w", issueID, err)
+		return nil, fmt.Errorf("create worktree for work item %d: %w", workItemID, err)
 	}
 
 	metadata := map[string]any{
