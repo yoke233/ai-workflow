@@ -35,52 +35,53 @@ func (e *threadMessageAPIError) Error() string {
 	return e.Message
 }
 
-func (h *Handler) ensureThreadParticipant(ctx context.Context, threadID int64, userID string, role string) (*core.ThreadParticipant, error) {
+func (h *Handler) ensureThreadParticipant(ctx context.Context, threadID int64, userID string, role string) (*core.ThreadMember, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return nil, nil
 	}
 
-	participants, err := h.store.ListThreadParticipants(ctx, threadID)
+	members, err := h.store.ListThreadMembers(ctx, threadID)
 	if err != nil {
 		return nil, err
 	}
-	for _, participant := range participants {
-		if participant != nil && participant.UserID == userID {
-			return participant, nil
+	for _, m := range members {
+		if m != nil && m.UserID == userID {
+			return m, nil
 		}
 	}
 
-	participant := &core.ThreadParticipant{
+	member := &core.ThreadMember{
 		ThreadID: threadID,
+		Kind:     core.ThreadMemberKindHuman,
 		UserID:   userID,
 		Role:     strings.TrimSpace(role),
 	}
-	if participant.Role == "" {
-		participant.Role = "member"
+	if member.Role == "" {
+		member.Role = "member"
 	}
 
-	id, err := h.store.AddThreadParticipant(ctx, participant)
+	id, err := h.store.AddThreadMember(ctx, member)
 	if err != nil {
 		return nil, err
 	}
-	participant.ID = id
-	return participant, nil
+	member.ID = id
+	return member, nil
 }
 
 func (h *Handler) activeThreadAgentParticipantIDs(ctx context.Context, threadID int64) (map[string]bool, error) {
-	participants, err := h.store.ListThreadParticipants(ctx, threadID)
+	members, err := h.store.ListThreadMembers(ctx, threadID)
 	if err != nil {
 		return nil, err
 	}
 
 	active := make(map[string]bool)
-	for _, participant := range participants {
-		if participant == nil {
+	for _, m := range members {
+		if m == nil {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(participant.Role), "agent") {
-			active[participant.UserID] = true
+		if m.Kind == core.ThreadMemberKindAgent || strings.EqualFold(strings.TrimSpace(m.Role), core.ThreadMemberKindAgent) {
+			active[m.UserID] = true
 		}
 	}
 	return active, nil
@@ -346,13 +347,14 @@ func cloneAnyMap(in map[string]any) map[string]any {
 	return out
 }
 
-func buildThreadParticipants(ownerID string, memberIDs []string) []*core.ThreadParticipant {
-	participants := make([]*core.ThreadParticipant, 0, len(memberIDs)+1)
+func buildThreadParticipants(ownerID string, memberIDs []string) []*core.ThreadMember {
+	participants := make([]*core.ThreadMember, 0, len(memberIDs)+1)
 	seen := make(map[string]bool)
 
 	ownerID = strings.TrimSpace(ownerID)
 	if ownerID != "" {
-		participants = append(participants, &core.ThreadParticipant{
+		participants = append(participants, &core.ThreadMember{
+			Kind:   core.ThreadMemberKindHuman,
 			UserID: ownerID,
 			Role:   "owner",
 		})
@@ -364,7 +366,8 @@ func buildThreadParticipants(ownerID string, memberIDs []string) []*core.ThreadP
 		if participantID == "" || seen[participantID] {
 			continue
 		}
-		participants = append(participants, &core.ThreadParticipant{
+		participants = append(participants, &core.ThreadMember{
+			Kind:   core.ThreadMemberKindHuman,
 			UserID: participantID,
 			Role:   "member",
 		})

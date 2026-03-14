@@ -82,10 +82,17 @@ func IsTransientAgentEvent(ev Event) bool {
 	return false
 }
 
+// Event category constants.
+const (
+	EventCategoryDomain    = "domain"
+	EventCategoryToolAudit = "tool_audit"
+)
+
 // Event is a domain event emitted during WorkItem execution.
 type Event struct {
 	ID         int64          `json:"id"`
 	Type       EventType      `json:"type"`
+	Category   string         `json:"category,omitempty"`
 	WorkItemID int64          `json:"work_item_id,omitempty"`
 	ActionID   int64          `json:"action_id,omitempty"`
 	RunID      int64          `json:"run_id,omitempty"`

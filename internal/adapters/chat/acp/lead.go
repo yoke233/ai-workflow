@@ -594,7 +594,7 @@ func (l *LeadAgent) getOrCreateSession(ctx context.Context, req chatapp.Request,
 func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID int64, projectName, profileID, driverID string) (*leadSession, string, error) {
 	scope := fmt.Sprintf("lead-chat-%d", time.Now().UnixNano())
 
-	client, handler, bridge, events, profile, driver, err := l.launchClient(ctx, workDir, scope, "", profileID, driverID)
+	client, handler, bridge, events, profile, err := l.launchClient(ctx, workDir, scope, "", profileID, driverID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -655,7 +655,7 @@ func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID
 	record.ProjectName = strings.TrimSpace(projectName)
 	record.ProfileID = profile.ID
 	record.ProfileName = strings.TrimSpace(profile.Name)
-	record.DriverID = strings.TrimSpace(driver.ID)
+	record.DriverID = ""
 	record.AvailableCommands = nil
 	record.ConfigOptions = initialConfigOpts
 	record.Modes = initialModes
@@ -666,7 +666,7 @@ func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID
 		l.captureSessionState(publicID, update)
 	})
 
-	slog.Info("runtime lead session created", "session_id", publicID, "profile", profile.ID, "driver", driver.ID)
+	slog.Info("runtime lead session created", "session_id", publicID, "profile", profile.ID)
 	return sess, publicID, nil
 }
 
@@ -688,7 +688,7 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 		}
 	}
 
-	client, handler, bridge, events, _, _, err := l.launchClient(ctx, workDir, record.Scope, record.SessionID, record.ProfileID, record.DriverID)
+	client, handler, bridge, events, _, err := l.launchClient(ctx, workDir, record.Scope, record.SessionID, record.ProfileID, record.DriverID)
 	if err != nil {
 		return nil, err
 	}
@@ -752,36 +752,25 @@ func (l *LeadAgent) loadSession(ctx context.Context, record *persistedLeadSessio
 	return sess, nil
 }
 
-func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSessionID, requestedProfileID, requestedDriverID string) (ChatACPClient, *leadChatHandler, *eventbridge.EventBridge, *suppressibleEventHandler, *core.AgentProfile, *core.AgentDriver, error) {
+func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSessionID, requestedProfileID, requestedDriverID string) (ChatACPClient, *leadChatHandler, *eventbridge.EventBridge, *suppressibleEventHandler, *core.AgentProfile, error) {
 	if l.cfg.Registry == nil {
-		return nil, nil, nil, nil, nil, nil, errors.New("agent registry is not configured")
+		return nil, nil, nil, nil, nil, errors.New("agent registry is not configured")
 	}
 
 	profileID := strings.TrimSpace(requestedProfileID)
 	if profileID == "" {
 		profileID = l.cfg.ProfileID
 	}
-	profile, driver, err := l.cfg.Registry.ResolveByID(ctx, profileID)
+	profile, err := l.cfg.Registry.ResolveByID(ctx, profileID)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("resolve lead profile %q: %w", profileID, err)
-	}
-	driverID := strings.TrimSpace(requestedDriverID)
-	if driverID != "" && !strings.EqualFold(driver.ID, driverID) {
-		overrideDriver, driverErr := l.cfg.Registry.GetDriver(ctx, driverID)
-		if driverErr != nil {
-			return nil, nil, nil, nil, nil, nil, fmt.Errorf("resolve lead driver %q: %w", driverID, driverErr)
-		}
-		clonedProfile := *profile
-		clonedProfile.DriverID = overrideDriver.ID
-		profile = &clonedProfile
-		driver = overrideDriver
+		return nil, nil, nil, nil, nil, fmt.Errorf("resolve lead profile %q: %w", profileID, err)
 	}
 
 	launchCfg := acpclient.LaunchConfig{
-		Command: driver.LaunchCommand,
-		Args:    driver.LaunchArgs,
+		Command: profile.Driver.LaunchCommand,
+		Args:    profile.Driver.LaunchArgs,
 		WorkDir: workDir,
-		Env:     cloneEnv(driver.Env),
+		Env:     cloneEnv(profile.Driver.Env),
 	}
 
 	bridge := eventbridge.New(l.cfg.Bus, core.EventChatOutput, eventbridge.Scope{
@@ -795,19 +784,18 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 	}
 	sandboxedLaunch, sbErr := sb.Prepare(ctx, v2sandbox.PrepareInput{
 		Profile: profile,
-		Driver:  driver,
 		Launch:  launchCfg,
 		Scope:   scope,
 	})
 	if sbErr != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("prepare sandbox: %w", sbErr)
+		return nil, nil, nil, nil, nil, fmt.Errorf("prepare sandbox: %w", sbErr)
 	}
 	launchCfg = sandboxedLaunch
 
 	handler := newLeadChatHandler(workDir, l.cfg.Bus, l.broker)
 	client, err := l.cfg.NewClient(launchCfg, handler, acpclient.WithEventHandler(events))
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("launch lead agent: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("launch lead agent: %w", err)
 	}
 
 	caps := profile.EffectiveCapabilities()
@@ -822,10 +810,10 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 
 	if err := client.Initialize(initCtx, initCaps); err != nil {
 		_ = client.Close(context.Background())
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("initialize lead agent: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("initialize lead agent: %w", err)
 	}
 
-	return client, handler, bridge, events, profile, driver, nil
+	return client, handler, bridge, events, profile, nil
 }
 
 func (l *LeadAgent) removeSession(sessionID string) {
