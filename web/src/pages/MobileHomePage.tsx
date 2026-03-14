@@ -28,6 +28,7 @@ import {
   normalizeDriverKey,
   driverLabelForId,
 } from "@/components/chat/chatUtils";
+import type { RuntimeConfigReloadedPayload } from "@/types/ws";
 
 /** Status indicator dot color */
 function sessionStatusColor(status: string): string {
@@ -145,28 +146,37 @@ export function MobileHomePage() {
   }, [apiClient, t]);
 
   // Load drivers/profiles
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [profiles, driverList] = await Promise.all([
-          apiClient.listProfiles(),
-          apiClient.listDrivers(),
-        ]);
-        if (cancelled) return;
-        const leads = profiles.filter((p) => p.role === "lead");
-        setDrivers(driverList);
-        setLeadProfiles(leads);
-        setDraftDriverId((cur) => {
-          if (cur && driverList.some((d) => d.id === cur)) return cur;
-          return driverList[0]?.id ?? "";
-        });
-      } catch (e) {
-        if (!cancelled) setError(getErrorMessage(e));
-      }
-    })();
-    return () => { cancelled = true; };
+  const loadAgentCatalog = useCallback(async () => {
+    try {
+      const [profiles, driverList] = await Promise.all([
+        apiClient.listProfiles(),
+        apiClient.listDrivers(),
+      ]);
+      const leads = profiles.filter((p) => p.role === "lead");
+      setDrivers(driverList);
+      setLeadProfiles(leads);
+      setDraftDriverId((cur) => {
+        if (cur && driverList.some((d) => d.id === cur)) return cur;
+        return driverList[0]?.id ?? "";
+      });
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
   }, [apiClient]);
+
+  useEffect(() => {
+    void loadAgentCatalog();
+  }, [loadAgentCatalog]);
+
+  useEffect(() => {
+    const unsubscribe = wsClient.subscribe<RuntimeConfigReloadedPayload>(
+      "runtime.config_reloaded",
+      () => {
+        void loadAgentCatalog();
+      },
+    );
+    return unsubscribe;
+  }, [loadAgentCatalog, wsClient]);
 
   // Computed
   const leadDriverOptions = useMemo<LeadDriverOption[]>(() => {

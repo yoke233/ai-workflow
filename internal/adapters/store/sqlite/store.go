@@ -22,7 +22,7 @@ type Store struct {
 
 const startupDBTimeout = 6 * time.Second
 
-// New opens (or creates) a SQLite database at path and runs migrations.
+// New opens (or creates) a SQLite database at path and ensures schema exists via GORM AutoMigrate.
 func New(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", path+"?_busy_timeout=5000")
 	if err != nil {
@@ -47,11 +47,6 @@ func New(path string) (*Store, error) {
 			return nil, startupDBError(path, fmt.Sprintf("exec %s", pragma), err)
 		}
 	}
-	if err := runMigrations(ctx, db); err != nil {
-		db.Close()
-		return nil, startupDBError(path, "run migrations", err)
-	}
-
 	orm, err := gorm.Open(gormsqlite.Dialector{
 		DriverName: "sqlite",
 		Conn:       db,
@@ -61,6 +56,10 @@ func New(path string) (*Store, error) {
 	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("open gorm sqlite %s: %w", path, err)
+	}
+	if err := autoMigrate(ctx, orm); err != nil {
+		db.Close()
+		return nil, startupDBError(path, "auto migrate", err)
 	}
 
 	return &Store{db: db, orm: orm}, nil

@@ -35,6 +35,7 @@ type Handler struct {
 	threadPool          ThreadAgentRuntime
 	inspectionEngine    *inspectionapp.Engine
 	dataDir             string
+	drivers             DriverConfigService
 }
 
 // NewHandler creates the workflow API handler.
@@ -130,6 +131,11 @@ func WithDataDir(dir string) HandlerOption {
 	return func(h *Handler) { h.dataDir = dir }
 }
 
+// WithDriverConfigService sets the runtime-backed driver config service.
+func WithDriverConfigService(service DriverConfigService) HandlerOption {
+	return func(h *Handler) { h.drivers = service }
+}
+
 // Register mounts all workflow routes onto the given chi router.
 // Caller is responsible for mounting this under a prefix like /api.
 func (h *Handler) Register(r chi.Router) {
@@ -223,7 +229,7 @@ func (h *Handler) Register(r chi.Router) {
 	r.Get("/ws", h.wsEvents)
 
 	// Agents (drivers + profiles)
-	registerAgentRoutes(r, h.registry)
+	registerAgentRoutes(r, h.registry, h.drivers)
 
 	// Feature Manifest (per-project feature checklist)
 	r.Get("/projects/{projectID}/manifest", h.getManifest)
@@ -272,6 +278,7 @@ func (h *Handler) Register(r chi.Router) {
 func (h *Handler) registerWorkItemRoutes(r chi.Router, basePath string) {
 	r.Post(basePath, h.createWorkItem)
 	r.Get(basePath, h.listWorkItems)
+	r.Get(basePath+"/cron", h.listCronWorkItems)
 	r.Get(basePath+"/{issueID}", h.getWorkItem)
 	r.Put(basePath+"/{issueID}", h.updateWorkItem)
 	r.Delete(basePath+"/{issueID}", h.deleteWorkItem)

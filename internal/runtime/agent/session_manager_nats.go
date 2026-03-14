@@ -211,8 +211,8 @@ func (m *NATSSessionManager) StartExecution(ctx context.Context, handle *runtime
 	m.mu.Unlock()
 
 	agentType := "default"
-	if nh.sessionIn.Driver != nil {
-		agentType = nh.sessionIn.Driver.ID
+	if nh.sessionIn.Profile != nil && strings.TrimSpace(nh.sessionIn.Profile.ID) != "" {
+		agentType = strings.TrimSpace(nh.sessionIn.Profile.ID)
 	}
 
 	msg := natsInvocationMessage{

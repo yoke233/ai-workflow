@@ -55,6 +55,7 @@ import {
   DialogBody,
   DialogFooter,
 } from "@/components/ui/dialog";
+import type { RuntimeConfigReloadedPayload } from "@/types/ws";
 
 const FEED_PAGE_SIZE = 100;
 const CRYSTALLIZE_SUMMARY_MESSAGE_LIMIT = 6;
@@ -205,6 +206,32 @@ export function ChatPage() {
     syncSessionEvents(sessionId, events);
   };
 
+  const loadAgentCatalog = useCallback(async () => {
+    try {
+      const [profiles, driverList] = await Promise.all([
+        apiClient.listProfiles(),
+        apiClient.listDrivers(),
+      ]);
+      const leads = profiles.filter((profile) => profile.role === "lead");
+      setDrivers(driverList);
+      setLeadProfiles(leads);
+      setDraftProfileId((current) => {
+        if (current && leads.some((profile) => profile.id === current)) {
+          return current;
+        }
+        return leads[0]?.id ?? "";
+      });
+      setDraftDriverId((current) => {
+        if (current && driverList.some((driver) => driver.id === current)) {
+          return current;
+        }
+        return driverList[0]?.id ?? "";
+      });
+    } catch (loadError) {
+      setError(getErrorMessage(loadError));
+    }
+  }, [apiClient]);
+
   const refreshSessions = async (preferredSessionId?: string | null) => {
     setLoadingSessions(true);
     try {
@@ -242,41 +269,8 @@ export function ChatPage() {
   }, [activeSession]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [profiles, driverList] = await Promise.all([
-          apiClient.listProfiles(),
-          apiClient.listDrivers(),
-        ]);
-        if (cancelled) {
-          return;
-        }
-        const leads = profiles.filter((profile) => profile.role === "lead");
-        setDrivers(driverList);
-        setLeadProfiles(leads);
-        setDraftProfileId((current) => {
-          if (current && leads.some((profile) => profile.id === current)) {
-            return current;
-          }
-          return leads[0]?.id ?? "";
-        });
-        setDraftDriverId((current) => {
-          if (current && driverList.some((driver) => driver.id === current)) {
-            return current;
-          }
-          return driverList[0]?.id ?? "";
-        });
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(getErrorMessage(loadError));
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [apiClient]);
+    void loadAgentCatalog();
+  }, [loadAgentCatalog]);
 
   const flushBufferedChunks = () => {
     if (chunkFlushFrameRef.current != null) {
@@ -715,6 +709,12 @@ export function ChatPage() {
         }
       },
     );
+    const unsubscribeRuntimeConfigReloaded = wsClient.subscribe<RuntimeConfigReloadedPayload>(
+      "runtime.config_reloaded",
+      () => {
+        void loadAgentCatalog();
+      },
+    );
     return () => {
       if (chunkFlushFrameRef.current != null) {
         cancelAnimationFrame(chunkFlushFrameRef.current);
@@ -729,8 +729,9 @@ export function ChatPage() {
       unsubscribeModeUpdate();
       unsubscribePermissionRequest();
       unsubscribePermissionResolved();
+      unsubscribeRuntimeConfigReloaded();
     };
-  }, [wsClient]);
+  }, [wsClient, loadAgentCatalog, t]);
 
   useEffect(() => {
     if (!activeSession || loadedSessions[activeSession]) {

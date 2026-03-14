@@ -101,7 +101,6 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 	}
 	sandboxedLaunch, err := sb.Prepare(ctx, v2sandbox.PrepareInput{
 		Profile:         in.Profile,
-		Driver:          in.Driver,
 		Launch:          in.Launch,
 		Scope:           scope,
 		ExtraSkills:     in.ExtraSkills,
@@ -129,7 +128,6 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 	if in.Reuse && m.pool != nil {
 		sess, ac, err := m.pool.Acquire(ctx, acpSessionAcquireInput{
 			Profile:    in.Profile,
-			Driver:     in.Driver,
 			Launch:     sandboxedLaunch,
 			Caps:       in.Caps,
 			WorkDir:    in.WorkDir,
@@ -157,11 +155,11 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 		client, err := acpclient.New(sandboxedLaunch, handler,
 			acpclient.WithEventHandler(switcher))
 		if err != nil {
-			return nil, fmt.Errorf("launch ACP agent %q: %w", in.Driver.ID, err)
+			return nil, fmt.Errorf("launch ACP agent %q: %w", localProfileID(in.Profile), err)
 		}
 		if err := client.Initialize(ctx, in.Caps); err != nil {
 			_ = client.Close(context.Background())
-			return nil, fmt.Errorf("initialize ACP agent %q: %w", in.Driver.ID, err)
+			return nil, fmt.Errorf("initialize ACP agent %q: %w", localProfileID(in.Profile), err)
 		}
 
 		var mcpServers []acpproto.McpServer
@@ -333,6 +331,13 @@ func (m *LocalSessionManager) executeRun(ctx context.Context, lh *localHandle, t
 		out.AgentContextID = &id
 	}
 	return out, nil
+}
+
+func localProfileID(profile *core.AgentProfile) string {
+	if profile == nil || strings.TrimSpace(profile.ID) == "" {
+		return "unknown"
+	}
+	return profile.ID
 }
 
 // WatchExecution returns the result of a completed execution (local mode completes synchronously).

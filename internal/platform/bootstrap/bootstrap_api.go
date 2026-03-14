@@ -1,6 +1,8 @@
 package bootstrap
 
 import (
+	"context"
+
 	"github.com/go-chi/chi/v5"
 	chatacp "github.com/yoke233/ai-workflow/internal/adapters/chat/acp"
 	api "github.com/yoke233/ai-workflow/internal/adapters/http"
@@ -8,6 +10,7 @@ import (
 	inspectionapp "github.com/yoke233/ai-workflow/internal/application/inspection"
 	planningapp "github.com/yoke233/ai-workflow/internal/application/planning"
 	probeapp "github.com/yoke233/ai-workflow/internal/application/probe"
+	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 	agentruntime "github.com/yoke233/ai-workflow/internal/runtime/agent"
 )
@@ -29,8 +32,15 @@ func buildAPIStack(
 	if flow.llmClient != nil {
 		llmCompleter = flow.llmClient
 	}
+	var driverResolver chatacp.DriverResolver
+	if base.runtimeManager != nil {
+		driverResolver = func(_ context.Context, driverID string) (*core.DriverConfig, error) {
+			return base.runtimeManager.ResolveDriverConfig(driverID)
+		}
+	}
 	leadAgent := chatacp.NewLeadAgent(chatacp.LeadAgentConfig{
 		Registry:             base.registry,
+		DriverResolver:       driverResolver,
 		Bus:                  base.bus,
 		ResourceBindingStore: base.store,
 		LLM:                  llmCompleter,
@@ -56,6 +66,9 @@ func buildAPIStack(
 	apiOpts := buildAPIOptions(bootstrapCfg, base.runtimeManager, leadAgent, flow.scheduler, base.registry, dagGen)
 	apiOpts = append(apiOpts, api.WithRunProbeService(probeSvc))
 	apiOpts = append(apiOpts, api.WithThreadAgentRuntime(threadPool))
+	if base.runtimeManager != nil {
+		apiOpts = append(apiOpts, api.WithDriverConfigService(base.runtimeManager))
+	}
 	if base.dataDir != "" {
 		apiOpts = append(apiOpts, api.WithDataDir(base.dataDir))
 	}

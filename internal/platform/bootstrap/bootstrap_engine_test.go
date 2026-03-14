@@ -41,7 +41,7 @@ func TestBuildWorkItemEngineAppliesConfiguredAgentConcurrency(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Scheduler.MaxGlobalAgents = 6
 
-	engine := buildWorkItemEngine(store, bus, noopActionExecutor, nil, &cfg, SCMTokens{}, nil)
+	engine := buildWorkItemEngine(store, bus, noopActionExecutor, nil, nil, &cfg, "", SCMTokens{}, nil)
 	if got := engine.MaxConcurrency(); got != 6 {
 		t.Fatalf("engine.MaxConcurrency() = %d, want 6", got)
 	}
@@ -55,7 +55,7 @@ func TestBuildWorkItemEngineUsesDefaultConcurrencyWhenUnset(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Scheduler.MaxGlobalAgents = 0
 
-	engine := buildWorkItemEngine(store, bus, noopActionExecutor, nil, &cfg, SCMTokens{}, nil)
+	engine := buildWorkItemEngine(store, bus, noopActionExecutor, nil, nil, &cfg, "", SCMTokens{}, nil)
 	if got := engine.MaxConcurrency(); got != 4 {
 		t.Fatalf("engine.MaxConcurrency() = %d, want 4", got)
 	}

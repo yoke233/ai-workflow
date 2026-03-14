@@ -39,8 +39,11 @@ type TextCompleter interface {
 	CompleteText(ctx context.Context, prompt string) (string, error)
 }
 
+type DriverResolver func(ctx context.Context, driverID string) (*core.DriverConfig, error)
+
 type LeadAgentConfig struct {
 	Registry             core.AgentRegistry
+	DriverResolver       DriverResolver
 	Bus                  core.EventBus
 	ResourceBindingStore core.ResourceBindingStore
 	LLM                  TextCompleter
@@ -597,6 +600,7 @@ func (l *LeadAgent) getOrCreateSession(ctx context.Context, req chatapp.Request,
 func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID int64, projectName, profileID, driverID string) (*leadSession, string, error) {
 	scope := fmt.Sprintf("lead-chat-%d", time.Now().UnixNano())
 
+	driverID = strings.TrimSpace(driverID)
 	client, handler, bridge, events, profile, err := l.launchClient(ctx, workDir, scope, "", profileID, driverID)
 	if err != nil {
 		return nil, "", err
@@ -658,7 +662,7 @@ func (l *LeadAgent) createSession(ctx context.Context, workDir string, projectID
 	record.ProjectName = strings.TrimSpace(projectName)
 	record.ProfileID = profile.ID
 	record.ProfileName = strings.TrimSpace(profile.Name)
-	record.DriverID = ""
+	record.DriverID = driverID
 	record.AvailableCommands = nil
 	record.ConfigOptions = initialConfigOpts
 	record.Modes = initialModes
@@ -768,6 +772,22 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("resolve lead profile %q: %w", profileID, err)
 	}
+	profile = cloneLeadProfile(profile)
+
+	requestedDriverID = strings.TrimSpace(requestedDriverID)
+	if requestedDriverID != "" {
+		if l.cfg.DriverResolver == nil {
+			return nil, nil, nil, nil, nil, fmt.Errorf("resolve lead driver %q: driver resolver is not configured", requestedDriverID)
+		}
+		driverCfg, err := l.cfg.DriverResolver(ctx, requestedDriverID)
+		if err != nil {
+			return nil, nil, nil, nil, nil, fmt.Errorf("resolve lead driver %q: %w", requestedDriverID, err)
+		}
+		profile.Driver = cloneLeadDriverConfig(driverCfg)
+		if !profile.Driver.CapabilitiesMax.Covers(profile.EffectiveCapabilities()) {
+			return nil, nil, nil, nil, nil, fmt.Errorf("%w: profile %q exceeds selected driver %q capabilities_max", core.ErrCapabilityOverflow, profile.ID, requestedDriverID)
+		}
+	}
 
 	launchCfg := acpclient.LaunchConfig{
 		Command: profile.Driver.LaunchCommand,
@@ -817,6 +837,44 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 	}
 
 	return client, handler, bridge, events, profile, nil
+}
+
+func cloneLeadProfile(profile *core.AgentProfile) *core.AgentProfile {
+	if profile == nil {
+		return nil
+	}
+	cloned := *profile
+	cloned.Driver = cloneLeadDriverConfig(&profile.Driver)
+	if profile.Capabilities != nil {
+		cloned.Capabilities = append([]string(nil), profile.Capabilities...)
+	}
+	if profile.ActionsAllowed != nil {
+		cloned.ActionsAllowed = append([]core.AgentAction(nil), profile.ActionsAllowed...)
+	}
+	if profile.Skills != nil {
+		cloned.Skills = append([]string(nil), profile.Skills...)
+	}
+	if profile.MCP.Tools != nil {
+		cloned.MCP.Tools = append([]string(nil), profile.MCP.Tools...)
+	}
+	return &cloned
+}
+
+func cloneLeadDriverConfig(driver *core.DriverConfig) core.DriverConfig {
+	if driver == nil {
+		return core.DriverConfig{}
+	}
+	cloned := *driver
+	if driver.LaunchArgs != nil {
+		cloned.LaunchArgs = append([]string(nil), driver.LaunchArgs...)
+	}
+	if driver.Env != nil {
+		cloned.Env = make(map[string]string, len(driver.Env))
+		for k, v := range driver.Env {
+			cloned.Env[k] = v
+		}
+	}
+	return cloned
 }
 
 func (l *LeadAgent) removeSession(sessionID string) {
@@ -997,7 +1055,7 @@ func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Requ
 			worktreePath := filepath.Join(repoPath, ".worktrees", "chat-"+slug)
 
 			runner := workspacegit.NewRunner(repoPath)
-			if err := runner.WorktreeAdd(worktreePath, branchName); err != nil {
+			if err := runner.WorktreeAdd(worktreePath, branchName, ""); err != nil {
 				return "", "", "", "", fmt.Errorf("create chat worktree for project %d: %w", req.ProjectID, err)
 			}
 			slog.Info("lead chat: created worktree", "project_id", req.ProjectID, "path", worktreePath, "branch", branchName)

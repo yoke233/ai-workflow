@@ -21,6 +21,9 @@ import (
 )
 
 var ErrInvalidConfig = errors.New("invalid config")
+var ErrDriverNotFound = errors.New("driver not found")
+var ErrDuplicateDriver = errors.New("duplicate driver")
+var ErrDriverInUse = errors.New("driver is still referenced by profiles")
 
 type Snapshot struct {
 	Version              int64
@@ -169,6 +172,109 @@ func (m *Manager) GetRuntime() RuntimeConfig {
 		MCP:     snap.Config.Runtime.MCP,
 		Prompts: snap.Config.Runtime.Prompts,
 	}
+}
+
+func (m *Manager) ResolveDriverConfig(driverID string) (*core.DriverConfig, error) {
+	driverID = strings.TrimSpace(driverID)
+	if driverID == "" {
+		return nil, fmt.Errorf("driver id is required")
+	}
+	snap := m.Current()
+	if snap == nil || snap.Config == nil {
+		return nil, fmt.Errorf("runtime config unavailable")
+	}
+	for _, item := range snap.Config.Runtime.Agents.Drivers {
+		if strings.TrimSpace(item.ID) != driverID {
+			continue
+		}
+		cfg := core.DriverConfig{
+			LaunchCommand: strings.TrimSpace(item.LaunchCommand),
+			LaunchArgs:    append([]string(nil), item.LaunchArgs...),
+			Env:           cloneStringMap(item.Env),
+			CapabilitiesMax: core.DriverCapabilities{
+				FSRead:   item.CapabilitiesMax.FSRead,
+				FSWrite:  item.CapabilitiesMax.FSWrite,
+				Terminal: item.CapabilitiesMax.Terminal,
+			},
+		}
+		return &cfg, nil
+	}
+	return nil, fmt.Errorf("driver %q not found", driverID)
+}
+
+func (m *Manager) ListDriverConfigs() []config.RuntimeDriverConfig {
+	current := m.GetRuntime()
+	items := current.Agents.Drivers
+	if items == nil {
+		return nil
+	}
+	out := append([]config.RuntimeDriverConfig(nil), items...)
+	return out
+}
+
+func (m *Manager) CreateDriverConfig(ctx context.Context, driver config.RuntimeDriverConfig) (*Snapshot, error) {
+	driver.ID = strings.TrimSpace(driver.ID)
+	if driver.ID == "" {
+		return nil, fmt.Errorf("driver id is required")
+	}
+	current := m.GetRuntime()
+	for _, item := range current.Agents.Drivers {
+		if strings.TrimSpace(item.ID) == driver.ID {
+			return nil, fmt.Errorf("%w: %q", ErrDuplicateDriver, driver.ID)
+		}
+	}
+	current.Agents.Drivers = append(current.Agents.Drivers, driver)
+	return m.UpdateRuntime(ctx, current)
+}
+
+func (m *Manager) UpdateDriverConfig(ctx context.Context, driverID string, driver config.RuntimeDriverConfig) (*Snapshot, error) {
+	driverID = strings.TrimSpace(driverID)
+	if driverID == "" {
+		return nil, fmt.Errorf("driver id is required")
+	}
+	current := m.GetRuntime()
+	found := false
+	for idx := range current.Agents.Drivers {
+		if strings.TrimSpace(current.Agents.Drivers[idx].ID) != driverID {
+			continue
+		}
+		driver.ID = driverID
+		current.Agents.Drivers[idx] = driver
+		found = true
+		break
+	}
+	if !found {
+		return nil, fmt.Errorf("%w: %q", ErrDriverNotFound, driverID)
+	}
+	return m.UpdateRuntime(ctx, current)
+}
+
+func (m *Manager) DeleteDriverConfig(ctx context.Context, driverID string) (*Snapshot, error) {
+	driverID = strings.TrimSpace(driverID)
+	if driverID == "" {
+		return nil, fmt.Errorf("driver id is required")
+	}
+	current := m.GetRuntime()
+	for _, profile := range current.Agents.Profiles {
+		if strings.TrimSpace(profile.Driver) == driverID {
+			return nil, fmt.Errorf("%w: %q", ErrDriverInUse, driverID)
+		}
+	}
+	drivers := current.Agents.Drivers
+	next := make([]config.RuntimeDriverConfig, 0, len(drivers))
+	found := false
+	for _, item := range drivers {
+		if strings.TrimSpace(item.ID) == driverID {
+			found = true
+			continue
+		}
+		next = append(next, item)
+	}
+	if !found {
+		return nil, fmt.Errorf("%w: %q", ErrDriverNotFound, driverID)
+	}
+	current.Agents.Drivers = next
+	return m.UpdateRuntime(ctx, current)
 }
 
 func (m *Manager) CurrentConfig() (config.RuntimeAgentsConfig, config.RuntimeMCPConfig, bool) {

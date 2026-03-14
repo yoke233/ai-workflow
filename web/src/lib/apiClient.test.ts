@@ -340,52 +340,27 @@ describe("apiClient", () => {
     expect(JSON.parse(String(init.body))).toEqual({ title: "demo", project_id: 7 });
   });
 
-  it("listDrivers 会从 /agents/profiles 派生 driver 列表", async () => {
+  it("listDrivers 会命中 /agents/drivers", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([
         {
-          id: "lead-openai",
-          role: "lead",
-          driver_id: "codex-cli",
-          driver: {
-            id: "codex-cli",
-            launch_command: "codex",
-            launch_args: ["run"],
-            capabilities_max: {
-              fs_read: true,
-              fs_write: true,
-              terminal: true,
-            },
+          id: "codex-cli",
+          launch_command: "codex",
+          launch_args: ["run"],
+          capabilities_max: {
+            fs_read: true,
+            fs_write: true,
+            terminal: true,
           },
         },
         {
-          id: "worker-openai",
-          role: "worker",
-          driver_id: "codex-cli",
-          driver: {
-            id: "codex-cli",
-            launch_command: "codex",
-            launch_args: ["run"],
-            capabilities_max: {
-              fs_read: true,
-              fs_write: true,
-              terminal: true,
-            },
-          },
-        },
-        {
-          id: "support-anthropic",
-          role: "support",
-          driver_id: "claude-code",
-          driver: {
-            id: "claude-code",
-            launch_command: "claude",
-            launch_args: [],
-            capabilities_max: {
-              fs_read: true,
-              fs_write: false,
-              terminal: true,
-            },
+          id: "claude-code",
+          launch_command: "claude",
+          launch_args: [],
+          capabilities_max: {
+            fs_read: true,
+            fs_write: false,
+            terminal: true,
           },
         },
       ]), {
@@ -399,7 +374,7 @@ describe("apiClient", () => {
     const drivers = await client.listDrivers();
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/agents/profiles");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/agents/drivers");
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.method).toBe("GET");
     expect(drivers).toEqual([

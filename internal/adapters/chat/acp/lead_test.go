@@ -17,6 +17,30 @@ type fakeLeadRegistry struct {
 	lastResolveID string
 }
 
+type fakeLeadDriverResolver struct {
+	drivers      map[string]*core.DriverConfig
+	lastDriverID string
+}
+
+func (f *fakeLeadDriverResolver) Resolve(_ context.Context, driverID string) (*core.DriverConfig, error) {
+	f.lastDriverID = driverID
+	driver, ok := f.drivers[driverID]
+	if !ok {
+		return nil, core.ErrProfileNotFound
+	}
+	cloned := *driver
+	if driver.LaunchArgs != nil {
+		cloned.LaunchArgs = append([]string(nil), driver.LaunchArgs...)
+	}
+	if driver.Env != nil {
+		cloned.Env = make(map[string]string, len(driver.Env))
+		for k, v := range driver.Env {
+			cloned.Env[k] = v
+		}
+	}
+	return &cloned, nil
+}
+
 func (f *fakeLeadRegistry) GetProfile(context.Context, string) (*core.AgentProfile, error) {
 	return nil, core.ErrProfileNotFound
 }
@@ -215,6 +239,101 @@ func TestLeadAgentPersistsProjectAndProfileSelection(t *testing.T) {
 	}
 	if detail.ProfileID != "lead-alt" || detail.ProfileName != "Claude Lead" {
 		t.Fatalf("unexpected profile info: %+v", detail.SessionSummary)
+	}
+}
+
+func TestLeadAgentUsesSelectedDriverForCreateAndReload(t *testing.T) {
+	registry := &fakeLeadRegistry{
+		profile: &core.AgentProfile{
+			ID:   "lead-alt",
+			Name: "Claude Lead",
+			Role: core.RoleLead,
+			Driver: core.DriverConfig{
+				LaunchCommand: "default-driver",
+			},
+		},
+	}
+	driverResolver := &fakeLeadDriverResolver{
+		drivers: map[string]*core.DriverConfig{
+			"codex-cli": {
+				LaunchCommand: "codex",
+				LaunchArgs:    []string{"chat"},
+				CapabilitiesMax: core.DriverCapabilities{
+					FSRead:   true,
+					FSWrite:  true,
+					Terminal: true,
+				},
+			},
+		},
+	}
+
+	firstClient := &fakeChatACPClient{
+		newSessionID: "acp-driver-1",
+		promptReply:  "first reply",
+	}
+	secondClient := &fakeChatACPClient{
+		loadSessionID: "acp-driver-1",
+		promptReply:   "second reply",
+	}
+	clients := []ChatACPClient{firstClient, secondClient}
+	launches := make([]acpclient.LaunchConfig, 0, len(clients))
+	newClient := func(cfg acpclient.LaunchConfig, _ acpproto.Client, _opts ...acpclient.Option) (ChatACPClient, error) {
+		launches = append(launches, cfg)
+		client := clients[0]
+		clients = clients[1:]
+		return client, nil
+	}
+
+	cfg := LeadAgentConfig{
+		Registry:       registry,
+		DriverResolver: driverResolver.Resolve,
+		Bus:            membus.NewBus(),
+		Sandbox:        v2sandbox.NoopSandbox{},
+		DataDir:        t.TempDir(),
+		NewClient:      newClient,
+	}
+
+	agent := NewLeadAgent(cfg)
+	resp, err := agent.Chat(context.Background(), chatapp.Request{
+		Message:   "hello",
+		ProfileID: "lead-alt",
+		DriverID:  "codex-cli",
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if registry.lastResolveID != "lead-alt" {
+		t.Fatalf("resolved profile = %q, want lead-alt", registry.lastResolveID)
+	}
+	if driverResolver.lastDriverID != "codex-cli" {
+		t.Fatalf("resolved driver = %q, want codex-cli", driverResolver.lastDriverID)
+	}
+	if len(launches) != 1 || launches[0].Command != "codex" {
+		t.Fatalf("launch command = %+v, want codex", launches)
+	}
+
+	detail, err := agent.GetSession(context.Background(), resp.SessionID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if detail.DriverID != "codex-cli" {
+		t.Fatalf("driver_id = %q, want codex-cli", detail.DriverID)
+	}
+	agent.Shutdown()
+
+	reloaded := NewLeadAgent(cfg)
+	_, err = reloaded.Chat(context.Background(), chatapp.Request{
+		SessionID: resp.SessionID,
+		Message:   "continue",
+	})
+	if err != nil {
+		t.Fatalf("reload chat: %v", err)
+	}
+	if len(launches) != 2 || launches[1].Command != "codex" {
+		t.Fatalf("reload launch command = %+v, want codex", launches)
+	}
+	if secondClient.loadCalls != 1 {
+		t.Fatalf("load calls = %d, want 1", secondClient.loadCalls)
 	}
 }
 

@@ -5,13 +5,15 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/yoke233/ai-workflow/internal/adapters/store/sqlite"
+	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/platform/appdata"
 	"github.com/yoke233/ai-workflow/internal/platform/configruntime"
 )
 
-func buildRuntimeManager(store *sqlite.Store, runtimeDBPath string) *configruntime.Manager {
+func buildRuntimeManager(store *sqlite.Store, runtimeDBPath string, bus core.EventBus) *configruntime.Manager {
 	dataDir, err := appdata.ResolveDataDir()
 	if err != nil {
 		return nil
@@ -26,7 +28,22 @@ func buildRuntimeManager(store *sqlite.Store, runtimeDBPath string) *configrunti
 		DBPath: runtimeDBPath,
 	}
 	runtimeManager, err := configruntime.NewManager(cfgPath, secretsPath, mcpEnv, slog.Default(), func(ctx context.Context, snap *configruntime.Snapshot) error {
-		return configruntime.SyncRegistry(ctx, store, snap)
+		if err := configruntime.SyncRegistry(ctx, store, snap); err != nil {
+			return err
+		}
+		if bus != nil && snap != nil && snap.Config != nil && snap.Version > 1 {
+			bus.Publish(context.Background(), core.Event{
+				Type: core.EventRuntimeConfigReloaded,
+				Data: map[string]any{
+					"version":       snap.Version,
+					"loaded_at":     snap.LoadedAt.Format(time.RFC3339),
+					"driver_count":  len(snap.Config.Runtime.Agents.Drivers),
+					"profile_count": len(snap.Config.Runtime.Agents.Profiles),
+				},
+				Timestamp: time.Now().UTC(),
+			})
+		}
+		return nil
 	})
 	if err != nil {
 		slog.Warn("bootstrap: config runtime disabled", "error", err)

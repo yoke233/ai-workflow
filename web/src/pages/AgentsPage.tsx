@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, Cpu, Loader2, Plus, RefreshCw, Save, Settings2, Shield, Trash2 } from "lucide-react";
+import { Bot, Cpu, Loader2, Pencil, Plus, RefreshCw, Save, Settings2, Shield, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,11 +9,20 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage } from "@/lib/v2Workbench";
 import { CreateProfileDialog } from "@/components/agents/CreateProfileDialog";
+import { CreateDriverDialog } from "@/components/agents/CreateDriverDialog";
 import type { AgentDriver, AgentProfile } from "@/types/apiV2";
 import type { LLMConfigItem, LLMConfigResponse, SandboxSupportResponse } from "@/types/system";
+import type { RuntimeConfigReloadedPayload } from "@/types/ws";
 
 const roleBadgeVariant: Record<string, "info" | "warning" | "default" | "secondary"> = {
   worker: "info",
@@ -52,7 +61,7 @@ const serializeConfig = (value: LLMConfigResponse): string => JSON.stringify({
 
 export function AgentsPage() {
   const { t } = useTranslation();
-  const { apiClient } = useWorkbench();
+  const { apiClient, wsClient } = useWorkbench();
   const [drivers, setDrivers] = useState<AgentDriver[]>([]);
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
   const [llmData, setLLMData] = useState<LLMConfigResponse | null>(null);
@@ -66,6 +75,10 @@ export function AgentsPage() {
   const [llmError, setLLMError] = useState<string | null>(null);
   const [sandboxError, setSandboxError] = useState<string | null>(null);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [driverDialogOpen, setDriverDialogOpen] = useState(false);
+  const [editingDriver, setEditingDriver] = useState<AgentDriver | null>(null);
+  const [pendingDeleteDriver, setPendingDeleteDriver] = useState<AgentDriver | null>(null);
+  const [deletingDriverId, setDeletingDriverId] = useState<string | null>(null);
 
   const hydrateLLM = (next: LLMConfigResponse) => {
     setLLMData(next);
@@ -73,7 +86,7 @@ export function AgentsPage() {
     setConfigs(next.configs ?? []);
   };
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -90,9 +103,9 @@ export function AgentsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiClient]);
 
-  const loadSandboxSupport = async () => {
+  const loadSandboxSupport = useCallback(async () => {
     setSandboxLoading(true);
     setSandboxError(null);
     try {
@@ -102,11 +115,22 @@ export function AgentsPage() {
     } finally {
       setSandboxLoading(false);
     }
-  };
+  }, [apiClient]);
 
   useEffect(() => {
     void Promise.all([load(), loadSandboxSupport()]);
-  }, []);
+  }, [load, loadSandboxSupport]);
+
+  useEffect(() => {
+    const unsubscribe = wsClient.subscribe<RuntimeConfigReloadedPayload>(
+      "runtime.config_reloaded",
+      () => {
+        void load();
+        void loadSandboxSupport();
+      },
+    );
+    return unsubscribe;
+  }, [load, loadSandboxSupport, wsClient]);
 
   const payload = useMemo<LLMConfigResponse>(() => ({
     default_config_id: defaultConfigID,
@@ -166,6 +190,19 @@ export function AgentsPage() {
       setLLMError(getErrorMessage(e));
     } finally {
       setSavingLLM(false);
+    }
+  };
+
+  const handleDeleteDriver = async (driverId: string) => {
+    setDeletingDriverId(driverId);
+    setError(null);
+    try {
+      await apiClient.deleteDriver(driverId);
+      await load();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setDeletingDriverId((current) => (current === driverId ? null : current));
     }
   };
 
@@ -321,6 +358,10 @@ export function AgentsPage() {
                   <CardDescription>{t("agents.driversDesc")}</CardDescription>
                 </div>
                 <div className="flex gap-2">
+                  <Button size="sm" onClick={() => setDriverDialogOpen(true)}>
+                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    {t("agents.newDriver")}
+                  </Button>
                   <Button variant="outline" size="sm" onClick={() => void loadSandboxSupport()} disabled={sandboxLoading}>
                     <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${sandboxLoading ? "animate-spin" : ""}`} />
                     {t("common.refresh")}
@@ -354,12 +395,13 @@ export function AgentsPage() {
                     <TableHead className="h-10 px-3 text-[11px] uppercase tracking-[0.16em]">{t("agents.driverName")}</TableHead>
                     <TableHead className="h-10 px-3 text-[11px] uppercase tracking-[0.16em]">{t("agents.launchCommand")}</TableHead>
                     <TableHead className="h-10 px-3 text-[11px] uppercase tracking-[0.16em]">{t("agents.maxCapabilities")}</TableHead>
+                    <TableHead className="h-10 px-3 text-right text-[11px] uppercase tracking-[0.16em]">{t("common.operations")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {drivers.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={3} className="px-3 py-10 text-center text-muted-foreground">{t("agents.noDrivers")}</TableCell>
+                      <TableCell colSpan={4} className="px-3 py-10 text-center text-muted-foreground">{t("agents.noDrivers")}</TableCell>
                     </TableRow>
                   ) : (
                     drivers.map((driver) => (
@@ -380,6 +422,29 @@ export function AgentsPage() {
                             {ALL_CAPS.filter((cap) => driver.capabilities_max[cap]).map((cap) => (
                               <Badge key={cap} variant="outline" className="text-[10px] tracking-normal">{cap}</Badge>
                             ))}
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-3 py-3 text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setEditingDriver(driver)}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={deletingDriverId === driver.id}
+                              onClick={() => setPendingDeleteDriver(driver)}
+                            >
+                              {deletingDriverId === driver.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -533,6 +598,62 @@ export function AgentsPage() {
           await load();
         }}
       />
+      <CreateDriverDialog
+        open={driverDialogOpen || editingDriver != null}
+        driver={editingDriver}
+        onClose={() => {
+          setDriverDialogOpen(false);
+          setEditingDriver(null);
+        }}
+        onSubmit={async (payload) => {
+          if (editingDriver) {
+            await apiClient.updateDriver(editingDriver.id, payload);
+          } else {
+            await apiClient.createDriver(payload);
+          }
+          await load();
+          setDriverDialogOpen(false);
+          setEditingDriver(null);
+        }}
+      />
+      <Dialog
+        open={pendingDeleteDriver != null}
+        onClose={() => {
+          if (deletingDriverId == null) {
+            setPendingDeleteDriver(null);
+          }
+        }}
+        className="max-w-md"
+      >
+        <DialogHeader>
+          <DialogTitle>{t("common.confirm")}</DialogTitle>
+          <DialogDescription>
+            确定要删除 driver <strong>{pendingDeleteDriver?.id}</strong> 吗？此操作不可撤销。
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setPendingDeleteDriver(null)}
+            disabled={deletingDriverId != null}
+          >
+            {t("common.cancel")}
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={pendingDeleteDriver == null || deletingDriverId != null}
+            onClick={() => {
+              if (!pendingDeleteDriver) return;
+              void handleDeleteDriver(pendingDeleteDriver.id).then(() => {
+                setPendingDeleteDriver(null);
+              });
+            }}
+          >
+            {deletingDriverId != null ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+            删除
+          </Button>
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }

@@ -107,6 +107,13 @@ export type SystemEventName =
   | "restart_countdown"
   | "restart";
 
+export interface RuntimeConfigReloadedPayload {
+  version?: number;
+  loaded_at?: string;
+  driver_count?: number;
+  profile_count?: number;
+}
+
 export interface SystemEventPayload {
   event: SystemEventName;
   timestamp: string;

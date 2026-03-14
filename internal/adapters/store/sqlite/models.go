@@ -349,8 +349,8 @@ func threadMemberModelFromCore(m *core.ThreadMember) *ThreadMemberModel {
 // ThreadWorkItemLinkModel persists thread-workitem links.
 type ThreadWorkItemLinkModel struct {
 	ID           int64     `gorm:"column:id;primaryKey;autoIncrement"`
-	ThreadID     int64     `gorm:"column:thread_id;not null"`
-	WorkItemID   int64     `gorm:"column:work_item_id;not null"`
+	ThreadID     int64     `gorm:"column:thread_id;not null;uniqueIndex:idx_thread_work_item_links_unique"`
+	WorkItemID   int64     `gorm:"column:work_item_id;not null;uniqueIndex:idx_thread_work_item_links_unique"`
 	RelationType string    `gorm:"column:relation_type;not null;default:related"`
 	IsPrimary    bool      `gorm:"column:is_primary;not null;default:false"`
 	CreatedAt    time.Time `gorm:"column:created_at"`
@@ -375,8 +375,8 @@ func (m *ThreadWorkItemLinkModel) toCore() *core.ThreadWorkItemLink {
 // FeatureEntryModel is the GORM model for feature_entries table.
 type FeatureEntryModel struct {
 	ID          int64                     `gorm:"column:id;primaryKey;autoIncrement"`
-	ProjectID   int64                     `gorm:"column:project_id;not null"`
-	Key         string                    `gorm:"column:key;not null"`
+	ProjectID   int64                     `gorm:"column:project_id;not null;uniqueIndex:idx_feature_entries_project_key"`
+	Key         string                    `gorm:"column:key;not null;uniqueIndex:idx_feature_entries_project_key"`
 	Description string                    `gorm:"column:description;not null"`
 	Status      string                    `gorm:"column:status;not null"`
 	IssueID     *int64                    `gorm:"column:issue_id"`

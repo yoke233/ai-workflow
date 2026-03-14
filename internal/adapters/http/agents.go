@@ -1,31 +1,51 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/platform/config"
+	"github.com/yoke233/ai-workflow/internal/platform/configruntime"
 	skillset "github.com/yoke233/ai-workflow/internal/skills"
 )
 
-func registerAgentRoutes(r chi.Router, registry core.AgentRegistry) {
-	if registry == nil {
+type DriverConfigService interface {
+	ListDriverConfigs() []config.RuntimeDriverConfig
+	CreateDriverConfig(ctx context.Context, driver config.RuntimeDriverConfig) (*configruntime.Snapshot, error)
+	UpdateDriverConfig(ctx context.Context, driverID string, driver config.RuntimeDriverConfig) (*configruntime.Snapshot, error)
+	DeleteDriverConfig(ctx context.Context, driverID string) (*configruntime.Snapshot, error)
+}
+
+func registerAgentRoutes(r chi.Router, registry core.AgentRegistry, drivers DriverConfigService) {
+	if registry == nil && drivers == nil {
 		return
 	}
-	a := &agentsHandler{registry: registry}
+	a := &agentsHandler{registry: registry, drivers: drivers}
 
 	// Profiles
-	r.Post("/agents/profiles", a.createProfile)
-	r.Get("/agents/profiles", a.listProfiles)
-	r.Get("/agents/profiles/{profileID}", a.getProfile)
-	r.Put("/agents/profiles/{profileID}", a.updateProfile)
-	r.Delete("/agents/profiles/{profileID}", a.deleteProfile)
+	if registry != nil {
+		r.Post("/agents/profiles", a.createProfile)
+		r.Get("/agents/profiles", a.listProfiles)
+		r.Get("/agents/profiles/{profileID}", a.getProfile)
+		r.Put("/agents/profiles/{profileID}", a.updateProfile)
+		r.Delete("/agents/profiles/{profileID}", a.deleteProfile)
+	}
+	if drivers != nil {
+		r.Get("/agents/drivers", a.listDrivers)
+		r.Post("/agents/drivers", a.createDriver)
+		r.Put("/agents/drivers/{driverID}", a.updateDriver)
+		r.Delete("/agents/drivers/{driverID}", a.deleteDriver)
+	}
 }
 
 type agentsHandler struct {
 	registry core.AgentRegistry
+	drivers  DriverConfigService
 }
 
 // --- Profiles ---
@@ -95,6 +115,54 @@ func (a *agentsHandler) deleteProfile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// --- Drivers ---
+
+func (a *agentsHandler) listDrivers(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, a.drivers.ListDriverConfigs())
+}
+
+func (a *agentsHandler) createDriver(w http.ResponseWriter, r *http.Request) {
+	var driver config.RuntimeDriverConfig
+	if err := json.NewDecoder(r.Body).Decode(&driver); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	driver.ID = strings.TrimSpace(driver.ID)
+	if driver.ID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+	if _, err := a.drivers.CreateDriverConfig(r.Context(), driver); err != nil {
+		writeDriverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, driver)
+}
+
+func (a *agentsHandler) updateDriver(w http.ResponseWriter, r *http.Request) {
+	driverID := strings.TrimSpace(chi.URLParam(r, "driverID"))
+	var driver config.RuntimeDriverConfig
+	if err := json.NewDecoder(r.Body).Decode(&driver); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, err := a.drivers.UpdateDriverConfig(r.Context(), driverID, driver); err != nil {
+		writeDriverError(w, err)
+		return
+	}
+	driver.ID = driverID
+	writeJSON(w, http.StatusOK, driver)
+}
+
+func (a *agentsHandler) deleteDriver(w http.ResponseWriter, r *http.Request) {
+	driverID := strings.TrimSpace(chi.URLParam(r, "driverID"))
+	if _, err := a.drivers.DeleteDriverConfig(r.Context(), driverID); err != nil {
+		writeDriverError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // writeRegistryError maps registry errors to HTTP status codes.
 func writeRegistryError(w http.ResponseWriter, err error) {
 	msg := err.Error()
@@ -117,6 +185,20 @@ func writeRegistryError(w http.ResponseWriter, err error) {
 		http.Error(w, msg, http.StatusUnprocessableEntity)
 	default:
 		http.Error(w, msg, http.StatusInternalServerError)
+	}
+}
+
+func writeDriverError(w http.ResponseWriter, err error) {
+	msg := err.Error()
+	switch {
+	case isErrorType(err, configruntime.ErrDriverNotFound):
+		http.Error(w, msg, http.StatusNotFound)
+	case isErrorType(err, configruntime.ErrDuplicateDriver):
+		http.Error(w, msg, http.StatusConflict)
+	case isErrorType(err, configruntime.ErrDriverInUse):
+		http.Error(w, msg, http.StatusConflict)
+	default:
+		http.Error(w, msg, http.StatusBadRequest)
 	}
 }
 

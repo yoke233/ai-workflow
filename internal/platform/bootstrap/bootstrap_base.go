@@ -49,7 +49,7 @@ func initBootstrapBase(storePath string, roleResolver *acpclient.RoleResolver, b
 	fmt.Println("[startup] init base: seed registry")
 	seedRegistry(context.Background(), store, bootstrapCfg, roleResolver)
 	fmt.Println("[startup] init base: build runtime manager")
-	runtimeManager := buildRuntimeManager(store, runtimeDBPath)
+	runtimeManager := buildRuntimeManager(store, runtimeDBPath, bus)
 
 	fmt.Println("[startup] init base: resolve data dir")
 	dataDir := ""

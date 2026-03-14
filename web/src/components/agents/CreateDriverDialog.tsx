@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import type { AgentDriver } from "@/types/apiV2";
 
 const ALL_CAPS = ["fs_read", "fs_write", "terminal"] as const;
 type Cap = (typeof ALL_CAPS)[number];
@@ -25,16 +26,28 @@ interface DriverPayload {
 interface Props {
   open: boolean;
   onClose: () => void;
-  onCreate: (payload: DriverPayload) => Promise<void>;
+  driver?: AgentDriver | null;
+  onSubmit: (payload: DriverPayload) => Promise<void>;
 }
 
-export function CreateDriverDialog({ open, onClose, onCreate }: Props) {
+export function CreateDriverDialog({ open, onClose, driver, onSubmit }: Props) {
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [cmd, setCmd] = useState("");
   const [args, setArgs] = useState("");
   const [caps, setCaps] = useState<Cap[]>(["fs_read", "fs_write", "terminal"]);
   const [submitting, setSubmitting] = useState(false);
+  const isEditing = Boolean(driver);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setName(driver?.id ?? "");
+    setCmd(driver?.launch_command ?? "");
+    setArgs((driver?.launch_args ?? []).join(" "));
+    setCaps(ALL_CAPS.filter((cap) => driver?.capabilities_max?.[cap] ?? true));
+  }, [driver, open]);
 
   const handleClose = () => {
     setName("");
@@ -51,7 +64,7 @@ export function CreateDriverDialog({ open, onClose, onCreate }: Props) {
   const handleCreate = async () => {
     setSubmitting(true);
     try {
-      await onCreate({
+      await onSubmit({
         id: name.trim(),
         launch_command: cmd.trim(),
         launch_args: args.split(" ").map((s) => s.trim()).filter(Boolean),
@@ -70,13 +83,13 @@ export function CreateDriverDialog({ open, onClose, onCreate }: Props) {
   return (
     <Dialog open={open} onClose={handleClose} className="max-w-md">
       <DialogHeader>
-        <DialogTitle>{t("agents.newDriver")}</DialogTitle>
+        <DialogTitle>{isEditing ? t("common.edit") : t("agents.newDriver")}</DialogTitle>
         <DialogDescription>{t("agents.createDriverDesc")}</DialogDescription>
       </DialogHeader>
       <DialogBody>
         <div className="space-y-1.5">
           <label className="text-sm font-medium">{t("agents.driverId")}</label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
+          <Input value={name} onChange={(e) => setName(e.target.value)} disabled={isEditing} />
         </div>
         <div className="space-y-1.5">
           <label className="text-sm font-medium">{t("agents.launchCommand")}</label>
@@ -110,7 +123,7 @@ export function CreateDriverDialog({ open, onClose, onCreate }: Props) {
       <DialogFooter>
         <Button variant="outline" onClick={handleClose}>{t("common.cancel")}</Button>
         <Button onClick={() => void handleCreate()} disabled={!name.trim() || !cmd.trim() || submitting}>
-          {t("agents.createDriver")}
+          {isEditing ? t("common.save") : t("agents.createDriver")}
         </Button>
       </DialogFooter>
     </Dialog>

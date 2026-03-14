@@ -202,41 +202,6 @@ const normalizeCronStatus = (value: unknown): CronStatus | null => {
   };
 };
 
-const deriveDriverID = (profile: AgentProfile): string => {
-  const explicitID = profile.driver_id?.trim();
-  if (explicitID) {
-    return explicitID;
-  }
-  const launchCommand = profile.driver?.launch_command?.trim();
-  if (launchCommand) {
-    return launchCommand;
-  }
-  return profile.id;
-};
-
-const deriveDriversFromProfiles = (profiles: AgentProfile[]): AgentDriver[] => {
-  const byID = new Map<string, AgentDriver>();
-
-  for (const profile of profiles) {
-    if (!profile.driver) {
-      continue;
-    }
-    const id = deriveDriverID(profile);
-    if (!id || byID.has(id)) {
-      continue;
-    }
-    byID.set(id, {
-      id,
-      launch_command: profile.driver.launch_command,
-      launch_args: profile.driver.launch_args,
-      env: profile.driver.env,
-      capabilities_max: profile.driver.capabilities_max,
-    });
-  }
-
-  return Array.from(byID.values());
-};
-
 export interface ApiClient {
   request<TResponse, TBody = unknown>(
     options: RequestOptions<TBody>,
@@ -357,6 +322,9 @@ export interface ApiClient {
   listProfiles(): Promise<AgentProfile[]>;
   createProfile(body: AgentProfile): Promise<AgentProfile>;
   listDrivers(): Promise<AgentDriver[]>;
+  createDriver(body: AgentDriver): Promise<AgentDriver>;
+  updateDriver(driverId: string, body: AgentDriver): Promise<AgentDriver>;
+  deleteDriver(driverId: string): Promise<void>;
   listSkills(): Promise<SkillInfo[]>;
   getSkill(name: string): Promise<SkillDetail>;
   createSkill(body: CreateSkillRequest): Promise<SkillInfo>;
@@ -978,9 +946,26 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: "/agents/profiles",
       }).then((items) => (Array.isArray(items) ? items : [])),
     listDrivers: () =>
-      request<AgentProfile[]>({
-        path: "/agents/profiles",
-      }).then((items) => deriveDriversFromProfiles(Array.isArray(items) ? items : [])),
+      request<AgentDriver[]>({
+        path: "/agents/drivers",
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    createDriver: (body) =>
+      request<AgentDriver, AgentDriver>({
+        path: "/agents/drivers",
+        method: "POST",
+        body,
+      }),
+    updateDriver: (driverId, body) =>
+      request<AgentDriver, AgentDriver>({
+        path: `/agents/drivers/${encodeURIComponent(driverId)}`,
+        method: "PUT",
+        body,
+      }),
+    deleteDriver: (driverId) =>
+      request<void>({
+        path: `/agents/drivers/${encodeURIComponent(driverId)}`,
+        method: "DELETE",
+      }),
     createProfile: (body) =>
       request<AgentProfile, AgentProfile>({
         path: "/agents/profiles",

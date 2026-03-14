@@ -2,6 +2,7 @@ package configruntime
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -232,6 +233,106 @@ func TestManager_UpdateRuntimeWritesLLMConfig(t *testing.T) {
 	}
 	if (*layer.Runtime.LLM.Configs)[1].Model != "gpt-4.1-mini" {
 		t.Fatalf("openai response model missing in raw layer: %+v", (*layer.Runtime.LLM.Configs)[1])
+	}
+}
+
+func TestManager_DriverCRUD(t *testing.T) {
+	manager, _ := newManagerForTest(t)
+	initialCount := len(manager.ListDriverConfigs())
+
+	if _, err := manager.CreateDriverConfig(context.Background(), config.RuntimeDriverConfig{
+		ID:            "codex-cli",
+		LaunchCommand: "codex",
+		LaunchArgs:    []string{"run"},
+		CapabilitiesMax: config.CapabilitiesConfig{
+			FSRead:   true,
+			FSWrite:  true,
+			Terminal: true,
+		},
+	}); err != nil {
+		t.Fatalf("CreateDriverConfig() error = %v", err)
+	}
+
+	items := manager.ListDriverConfigs()
+	if len(items) != initialCount+1 {
+		t.Fatalf("unexpected drivers after create: %+v", items)
+	}
+	found := false
+	for _, item := range items {
+		if item.ID == "codex-cli" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("created driver codex-cli not found: %+v", items)
+	}
+
+	if _, err := manager.UpdateDriverConfig(context.Background(), "codex-cli", config.RuntimeDriverConfig{
+		LaunchCommand: "codex-updated",
+		LaunchArgs:    []string{"chat"},
+		CapabilitiesMax: config.CapabilitiesConfig{
+			FSRead:   true,
+			FSWrite:  false,
+			Terminal: true,
+		},
+	}); err != nil {
+		t.Fatalf("UpdateDriverConfig() error = %v", err)
+	}
+
+	items = manager.ListDriverConfigs()
+	found = false
+	for _, item := range items {
+		if item.ID == "codex-cli" && item.LaunchCommand == "codex-updated" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("unexpected drivers after update: %+v", items)
+	}
+
+	if _, err := manager.DeleteDriverConfig(context.Background(), "codex-cli"); err != nil {
+		t.Fatalf("DeleteDriverConfig() error = %v", err)
+	}
+
+	if got := manager.ListDriverConfigs(); len(got) != initialCount {
+		t.Fatalf("unexpected drivers after delete, got %+v", got)
+	} else {
+		for _, item := range got {
+			if item.ID == "codex-cli" {
+				t.Fatalf("deleted driver codex-cli still present: %+v", got)
+			}
+		}
+	}
+}
+
+func TestManager_DeleteDriverConfigRejectsInUseDriver(t *testing.T) {
+	manager, _ := newManagerForTest(t)
+
+	current := manager.GetRuntime()
+	current.Agents.Drivers = []config.RuntimeDriverConfig{{
+		ID:            "codex-cli",
+		LaunchCommand: "codex",
+		CapabilitiesMax: config.CapabilitiesConfig{
+			FSRead:   true,
+			FSWrite:  true,
+			Terminal: true,
+		},
+	}}
+	current.Agents.Profiles = []config.RuntimeProfileConfig{{
+		ID:             "worker-a",
+		Name:           "Worker A",
+		Driver:         "codex-cli",
+		Role:           "worker",
+		PromptTemplate: "worker",
+	}}
+	if _, err := manager.UpdateRuntime(context.Background(), current); err != nil {
+		t.Fatalf("UpdateRuntime() error = %v", err)
+	}
+
+	if _, err := manager.DeleteDriverConfig(context.Background(), "codex-cli"); err == nil || !errors.Is(err, ErrDriverInUse) {
+		t.Fatalf("expected ErrDriverInUse, got %v", err)
 	}
 }
 
