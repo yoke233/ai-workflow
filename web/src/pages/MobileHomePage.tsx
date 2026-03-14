@@ -4,18 +4,15 @@ import { useNavigate } from "react-router-dom";
 import {
   GitBranch,
   Search,
-  Settings,
   Filter,
   Send,
   Paperclip,
   X,
   Loader2,
-  ChevronDown,
 } from "lucide-react";
 import type {
   AgentDriver,
   AgentProfile,
-  ChatSessionSummary,
 } from "@/types/apiV2";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage } from "@/lib/v2Workbench";
@@ -514,7 +511,7 @@ export function MobileHomePage() {
   );
 }
 
-/** Individual session list item — shows title, status, branch, file changes */
+/** Individual session list item — shows title, status, branch, file changes, PR */
 function SessionListItem({
   session,
   onClick,
@@ -524,8 +521,9 @@ function SessionListItem({
 }) {
   const { t } = useTranslation();
 
-  // Derive stats from session title/branch (these would come from API in real data)
   const hasGit = Boolean(session.branch);
+  const git = session.git;
+  const hasDiffStats = git && (git.additions > 0 || git.deletions > 0);
 
   return (
     <button
@@ -544,15 +542,23 @@ function SessionListItem({
           <span className="line-clamp-1 text-sm font-medium text-foreground">
             {session.title ?? t("chat.newSession")}
           </span>
-          {session.message_count > 0 && (
+
+          {/* Diff stats — like "+992 -581" in the screenshot */}
+          {hasDiffStats ? (
+            <span className="shrink-0 whitespace-nowrap text-[11px] tabular-nums">
+              <span className="text-emerald-600">+{git.additions}</span>
+              {" "}
+              <span className="text-rose-500">-{git.deletions}</span>
+            </span>
+          ) : session.message_count > 0 ? (
             <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
               {session.message_count} {t("chat.turns")}
             </span>
-          )}
+          ) : null}
         </div>
 
-        {/* Meta row: project + branch + time */}
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+        {/* Meta row: project + branch + PR + time */}
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
           {session.project_name && (
             <span className="inline-flex items-center rounded bg-secondary px-1.5 py-0.5 font-medium">
               {session.project_name}
@@ -564,6 +570,26 @@ function SessionListItem({
               {session.branch}
             </span>
           )}
+          {git?.pr_state && (
+            <span
+              className={cn(
+                "inline-flex items-center rounded px-1.5 py-0.5 font-medium",
+                git.pr_state === "open"
+                  ? "bg-emerald-50 text-emerald-700"
+                  : git.pr_state === "merged"
+                    ? "bg-purple-50 text-purple-700"
+                    : "bg-muted text-muted-foreground",
+              )}
+            >
+              PR {git.pr_state === "open" ? "Open" : git.pr_state === "merged" ? "Merged" : git.pr_state}
+              {git.pr_number ? ` #${git.pr_number}` : ""}
+            </span>
+          )}
+          {git?.files_changed ? (
+            <span className="text-muted-foreground">
+              {git.files_changed} {git.files_changed === 1 ? "file" : "files"}
+            </span>
+          ) : null}
           <span>
             {new Date(session.updated_at).toLocaleTimeString("zh-CN", {
               hour: "2-digit",

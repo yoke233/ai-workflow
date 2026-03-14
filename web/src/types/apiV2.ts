@@ -383,6 +383,15 @@ export interface ChatMessage {
   time: string;
 }
 
+export interface GitStats {
+  additions: number;
+  deletions: number;
+  files_changed: number;
+  pr_url?: string;
+  pr_number?: number;
+  pr_state?: string;
+}
+
 export interface ChatSessionSummary {
   session_id: string;
   title?: string;
@@ -398,6 +407,7 @@ export interface ChatSessionSummary {
   updated_at: string;
   status: "running" | "alive" | "closed" | string;
   message_count: number;
+  git?: GitStats;
 }
 
 export interface ChatSessionDetail extends ChatSessionSummary {

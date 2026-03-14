@@ -8,9 +8,11 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1211,7 +1213,7 @@ func buildSessionSummary(record *persistedLeadSession, live, running bool) chata
 	} else if live {
 		status = "alive"
 	}
-	return chatapp.SessionSummary{
+	summary := chatapp.SessionSummary{
 		SessionID:    record.SessionID,
 		Title:        record.Title,
 		WorkDir:      record.WorkDir,
@@ -1227,6 +1229,65 @@ func buildSessionSummary(record *persistedLeadSession, live, running bool) chata
 		Status:       status,
 		MessageCount: len(record.Messages),
 	}
+
+	// Best-effort git diff stats for the session's working directory.
+	if record.WorkDir != "" && record.Branch != "" {
+		if stats := computeGitStats(record.WorkDir); stats != nil {
+			summary.Git = stats
+		}
+	}
+
+	return summary
+}
+
+// computeGitStats runs `git diff --shortstat` in the given directory to
+// obtain lightweight diff statistics (additions, deletions, files changed).
+// Returns nil on any error — callers should treat this as optional data.
+func computeGitStats(workDir string) *chatapp.GitStats {
+	if _, err := os.Stat(workDir); err != nil {
+		return nil
+	}
+
+	// git diff --shortstat HEAD produces output like:
+	//   3 files changed, 120 insertions(+), 45 deletions(-)
+	cmd := exec.Command("git", "diff", "--shortstat", "HEAD")
+	cmd.Dir = workDir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	line := strings.TrimSpace(string(out))
+	if line == "" {
+		return nil
+	}
+
+	stats := &chatapp.GitStats{}
+	// Parse " 3 files changed, 120 insertions(+), 45 deletions(-)"
+	for _, part := range strings.Split(line, ",") {
+		part = strings.TrimSpace(part)
+		fields := strings.Fields(part)
+		if len(fields) < 2 {
+			continue
+		}
+		n, err := strconv.Atoi(fields[0])
+		if err != nil {
+			continue
+		}
+		switch {
+		case strings.Contains(fields[1], "file"):
+			stats.FilesChanged = n
+		case strings.Contains(fields[1], "insertion"):
+			stats.Additions = n
+		case strings.Contains(fields[1], "deletion"):
+			stats.Deletions = n
+		}
+	}
+
+	if stats.FilesChanged == 0 && stats.Additions == 0 && stats.Deletions == 0 {
+		return nil
+	}
+	return stats
 }
 
 func (l *LeadAgent) captureSessionState(sessionID string, update acpclient.SessionUpdate) {
