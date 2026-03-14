@@ -3,14 +3,17 @@ package acp
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1199,7 +1202,7 @@ func buildSessionSummary(record *persistedLeadSession, live, running bool) chata
 	} else if live {
 		status = "alive"
 	}
-	return chatapp.SessionSummary{
+	summary := chatapp.SessionSummary{
 		SessionID:    record.SessionID,
 		Title:        record.Title,
 		WorkDir:      record.WorkDir,
@@ -1215,6 +1218,75 @@ func buildSessionSummary(record *persistedLeadSession, live, running bool) chata
 		Status:       status,
 		MessageCount: len(record.Messages),
 	}
+
+	// Best-effort git diff stats for the session's working directory.
+	if record.WorkDir != "" && record.Branch != "" {
+		if stats := computeGitStats(record.WorkDir); stats != nil {
+			summary.Git = stats
+		}
+	}
+
+	// Overlay PR metadata captured from the event stream.
+	if record.PrURL != "" {
+		if summary.Git == nil {
+			summary.Git = &chatapp.GitStats{}
+		}
+		summary.Git.PrURL = record.PrURL
+		summary.Git.PrNumber = record.PrNumber
+		summary.Git.PrState = record.PrState
+	}
+
+	return summary
+}
+
+// computeGitStats runs `git diff --shortstat` in the given directory to
+// obtain lightweight diff statistics (additions, deletions, files changed).
+// Returns nil on any error — callers should treat this as optional data.
+func computeGitStats(workDir string) *chatapp.GitStats {
+	if _, err := os.Stat(workDir); err != nil {
+		return nil
+	}
+
+	// git diff --shortstat HEAD produces output like:
+	//   3 files changed, 120 insertions(+), 45 deletions(-)
+	cmd := exec.Command("git", "diff", "--shortstat", "HEAD")
+	cmd.Dir = workDir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	line := strings.TrimSpace(string(out))
+	if line == "" {
+		return nil
+	}
+
+	stats := &chatapp.GitStats{}
+	// Parse " 3 files changed, 120 insertions(+), 45 deletions(-)"
+	for _, part := range strings.Split(line, ",") {
+		part = strings.TrimSpace(part)
+		fields := strings.Fields(part)
+		if len(fields) < 2 {
+			continue
+		}
+		n, err := strconv.Atoi(fields[0])
+		if err != nil {
+			continue
+		}
+		switch {
+		case strings.Contains(fields[1], "file"):
+			stats.FilesChanged = n
+		case strings.Contains(fields[1], "insertion"):
+			stats.Additions = n
+		case strings.Contains(fields[1], "deletion"):
+			stats.Deletions = n
+		}
+	}
+
+	if stats.FilesChanged == 0 && stats.Additions == 0 && stats.Deletions == 0 {
+		return nil
+	}
+	return stats
 }
 
 func (l *LeadAgent) captureSessionState(sessionID string, update acpclient.SessionUpdate) {
@@ -1247,12 +1319,69 @@ func (l *LeadAgent) captureSessionState(sessionID string, update acpclient.Sessi
 			record.Modes.CurrentModeId = modeId
 			changed = true
 		}
+	case "tool_call_completed":
+		if capturePRFromToolResult(record, update.RawJSON) {
+			changed = true
+		}
+	case "agent_message":
+		if record.PrURL == "" && capturePRFromText(record, update.Text) {
+			changed = true
+		}
 	}
 	if !changed {
 		return
 	}
 	record.UpdatedAt = time.Now().UTC()
 	_ = l.saveCatalogLocked()
+}
+
+// prURLPattern matches GitHub/GitLab/Codeup PR/MR URLs.
+var prURLPattern = regexp.MustCompile(`https?://[^\s)]+/pull/(\d+)|https?://[^\s)]+/merge_requests/(\d+)`)
+
+// capturePRFromToolResult extracts PR metadata from a tool_call_completed
+// RawJSON payload (the stdout of a tool that created a PR).
+func capturePRFromToolResult(record *persistedLeadSession, raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var parsed struct {
+		RawOutput struct {
+			Stdout string `json:"stdout"`
+		} `json:"rawOutput"`
+	}
+	if json.Unmarshal(raw, &parsed) != nil {
+		return false
+	}
+	return capturePRFromText(record, parsed.RawOutput.Stdout)
+}
+
+// capturePRFromText scans text for a PR/MR URL and extracts the PR number.
+func capturePRFromText(record *persistedLeadSession, text string) bool {
+	if text == "" {
+		return false
+	}
+	matches := prURLPattern.FindStringSubmatch(text)
+	if matches == nil {
+		return false
+	}
+
+	url := matches[0]
+	// Extract PR number from the first non-empty capture group.
+	numStr := matches[1]
+	if numStr == "" {
+		numStr = matches[2]
+	}
+	prNum := 0
+	if numStr != "" {
+		prNum, _ = strconv.Atoi(numStr)
+	}
+
+	record.PrURL = url
+	record.PrNumber = prNum
+	if record.PrState == "" {
+		record.PrState = "open"
+	}
+	return true
 }
 
 func toChatModeState(state *acpproto.SessionModeState) *chatapp.SessionModeState {
