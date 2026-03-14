@@ -12,10 +12,13 @@
 - **现状**: 接口已注册，但处理函数直接返回 `501 Not Implemented`
 - **影响**: 前端 `ImportGitHubDialog` 组件已就绪，但调用会失败
 
-### 2. Planning 模块 — 仅有契约定义
-- **位置**: `internal/application/planning/contracts.go`
-- **现状**: 只定义了接口/契约，没有实际业务逻辑实现
-- **影响**: DAG 生成、智能规划等高级功能不可用
+### 2. Planning 模块 — 实现完整但依赖 LLM 配置
+- **契约**: `internal/application/planning/contracts.go`
+- **实现**: `internal/adapters/planning/llm/dag_generator.go`（含测试）
+- **接线**: `internal/platform/bootstrap/bootstrap_api.go:38-40`
+- **现状**: 功能完整，但需要配置 LLM client；未配置时 HTTP 返回 503
+- **注意**: `application/planning/` 目录仅有数据结构定义，业务逻辑在 adapter 层实现，
+  这偏离了分层架构约定（应用层逻辑不应下沉到 adapter 层）
 
 ### 3. Chat 应用层 — 仅有契约定义
 - **位置**: `internal/application/chat/contracts.go`
@@ -146,7 +149,7 @@
 | **P1** | 健康检查增强 | 运维 | 添加 /readyz、/livez，检查 DB/NATS 连接 |
 | **P1** | Prometheus metrics | 运维 | 启用 OTEL metrics exporter 或添加 /metrics |
 | **P2** | GitHub Skill 导入实现 | 功能 | 完成 501 存根的实际实现 |
-| **P2** | Planning 模块实现 | 功能 | 补充 DAG 智能规划的业务逻辑 |
+| **P3** | Planning 模块分层重构 | 架构 | 将 adapter 层业务逻辑上移到 application 层 |
 | **P2** | docker-compose.yml | 基础设施 | 编排 app + nats + volume |
 | **P2** | 后端测试覆盖 | 质量 | 优先补 llm/mcp/chat 包的测试 |
 | **P2** | 前端测试覆盖 | 质量 | 优先补 Dashboard/Login/Projects 页面测试 |
