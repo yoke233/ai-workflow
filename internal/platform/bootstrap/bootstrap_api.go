@@ -5,6 +5,7 @@ import (
 	chatacp "github.com/yoke233/ai-workflow/internal/adapters/chat/acp"
 	api "github.com/yoke233/ai-workflow/internal/adapters/http"
 	llmplanning "github.com/yoke233/ai-workflow/internal/adapters/planning/llm"
+	inspectionapp "github.com/yoke233/ai-workflow/internal/application/inspection"
 	planningapp "github.com/yoke233/ai-workflow/internal/application/planning"
 	probeapp "github.com/yoke233/ai-workflow/internal/application/probe"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
@@ -12,9 +13,10 @@ import (
 )
 
 type apiStack struct {
-	leadAgent *chatacp.LeadAgent
-	probeSvc  *probeapp.RunProbeService
-	registrar func(chi.Router)
+	leadAgent        *chatacp.LeadAgent
+	probeSvc         *probeapp.RunProbeService
+	inspectionEngine *inspectionapp.Engine
+	registrar        func(chi.Router)
 }
 
 func buildAPIStack(
@@ -60,11 +62,17 @@ func buildAPIStack(
 	if flow.llmClient != nil {
 		apiOpts = append(apiOpts, api.WithTextCompleter(flow.llmClient))
 	}
+
+	// Inspection engine for self-evolving system inspections.
+	inspEngine := inspectionapp.New(base.store, base.bus)
+	apiOpts = append(apiOpts, api.WithInspectionEngine(inspEngine))
+
 	handler := api.NewHandler(base.store, base.bus, flow.engine, apiOpts...)
 
 	return &apiStack{
-		leadAgent: leadAgent,
-		probeSvc:  probeSvc,
-		registrar: func(r chi.Router) { handler.Register(r) },
+		leadAgent:        leadAgent,
+		probeSvc:         probeSvc,
+		inspectionEngine: inspEngine,
+		registrar:        func(r chi.Router) { handler.Register(r) },
 	}
 }
