@@ -115,7 +115,6 @@ export interface Run {
   agent_id?: string;
   agent_context_id?: number | null;
   briefing_snapshot?: string;
-  deliverable_id?: number | null;
   input?: Record<string, unknown>;
   output?: Record<string, unknown>;
   error_message?: string;
@@ -124,6 +123,9 @@ export interface Run {
   started_at?: string | null;
   finished_at?: string | null;
   created_at: string;
+  result_markdown?: string;
+  result_metadata?: Record<string, unknown>;
+  result_assets?: DeliverableAsset[];
 }
 
 export type EventType =
@@ -248,13 +250,15 @@ export interface DriverCapabilities {
   terminal: boolean;
 }
 
-export interface AgentDriver {
-  id: string;
+export interface DriverConfig {
   launch_command: string;
   launch_args?: string[];
   env?: Record<string, string>;
   capabilities_max: DriverCapabilities;
 }
+
+/** @deprecated Use DriverConfig instead. */
+export type AgentDriver = DriverConfig & { id: string };
 
 export interface AgentProfileSession {
   reuse?: boolean;
@@ -270,7 +274,7 @@ export interface AgentProfileMCP {
 export interface AgentProfile {
   id: string;
   name?: string;
-  driver_id: string;
+  driver?: DriverConfig;
   role: "lead" | "worker" | "gate" | "support" | string;
   capabilities?: string[];
   actions_allowed?: string[];
@@ -383,6 +387,15 @@ export interface ChatMessage {
   time: string;
 }
 
+export interface GitStats {
+  additions: number;
+  deletions: number;
+  files_changed: number;
+  pr_url?: string;
+  pr_number?: number;
+  pr_state?: string;
+}
+
 export interface ChatSessionSummary {
   session_id: string;
   title?: string;
@@ -398,6 +411,7 @@ export interface ChatSessionSummary {
   updated_at: string;
   status: "running" | "alive" | "closed" | string;
   message_count: number;
+  git?: GitStats;
 }
 
 export interface ChatSessionDetail extends ChatSessionSummary {
@@ -435,16 +449,13 @@ export interface DeliverableAsset {
   media_type?: string;
 }
 
-export interface Deliverable {
-  id: number;
+// Deliverable is a backward-compat view over Run result fields.
+export type Deliverable = Pick<Run, "id" | "action_id" | "work_item_id" | "created_at"> & {
   run_id: number;
-  action_id: number;
-  work_item_id: number;
   result_markdown: string;
   metadata?: Record<string, unknown>;
   assets?: DeliverableAsset[];
-  created_at: string;
-}
+};
 
 export interface StatsResponse {
   total_work_items: number;
@@ -786,13 +797,36 @@ export interface CreateThreadMessageRequest {
   metadata?: Record<string, unknown>;
 }
 
-export interface ThreadParticipant {
+// ---------------------------------------------------------------------------
+// Thread Members (unified human + agent)
+// ---------------------------------------------------------------------------
+
+export type ThreadAgentSessionStatus =
+  | "joining"
+  | "booting"
+  | "active"
+  | "paused"
+  | "left"
+  | "failed"
+  | string;
+
+export interface ThreadMember {
   id: number;
   thread_id: number;
-  user_id: string;
+  kind: "human" | "agent" | string;
+  user_id?: string;
+  agent_profile_id?: string;
   role: string;
+  status?: ThreadAgentSessionStatus;
+  agent_data?: Record<string, unknown>;
   joined_at: string;
+  last_active_at: string;
 }
+
+/** Backward-compatibility alias. */
+export type ThreadParticipant = ThreadMember;
+/** Backward-compatibility alias. */
+export type ThreadAgentSession = ThreadMember;
 
 export interface AddThreadParticipantRequest {
   user_id: string;
@@ -819,52 +853,14 @@ export interface CreateThreadWorkItemLinkRequest {
 }
 
 // ---------------------------------------------------------------------------
-// Thread Agent Sessions
-// ---------------------------------------------------------------------------
-
-export type ThreadAgentSessionStatus =
-  | "joining"
-  | "booting"
-  | "active"
-  | "paused"
-  | "left"
-  | "failed"
-  | string;
-
-export interface ThreadAgentSession {
-  id: number;
-  thread_id: number;
-  agent_profile_id: string;
-  acp_session_id: string;
-  status: ThreadAgentSessionStatus;
-  turn_count: number;
-  total_input_tokens: number;
-  total_output_tokens: number;
-  progress_summary?: string;
-  metadata?: Record<string, unknown>;
-  joined_at: string;
-  last_active_at: string;
-}
-
-// ---------------------------------------------------------------------------
 // Feature Manifest
 // ---------------------------------------------------------------------------
 
 export type FeatureStatus = "pending" | "pass" | "fail" | "skipped";
 
-export interface FeatureManifest {
-  id: number;
-  project_id: number;
-  version: number;
-  summary?: string;
-  metadata?: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface FeatureEntry {
   id: number;
-  manifest_id: number;
+  project_id: number;
   key: string;
   description: string;
   status: FeatureStatus;
@@ -877,8 +873,7 @@ export interface FeatureEntry {
 }
 
 export interface FeatureManifestSummary {
-  manifest_id: number;
-  version: number;
+  project_id: number;
   pass: number;
   fail: number;
   pending: number;
@@ -887,7 +882,7 @@ export interface FeatureManifestSummary {
 }
 
 export interface FeatureManifestSnapshot {
-  manifest: FeatureManifest;
+  project_id: number;
   entries: FeatureEntry[];
 }
 
@@ -897,7 +892,7 @@ export interface FeatureManifestSnapshot {
 
 export interface WorkItemAttachment {
   id: number;
-  issue_id: number;
+  work_item_id: number;
   file_name: string;
   mime_type: string;
   size: number;

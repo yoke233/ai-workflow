@@ -1,5 +1,4 @@
 import type {
-  FeatureManifest,
   FeatureEntry,
   FeatureManifestSummary,
   FeatureManifestSnapshot,
@@ -7,7 +6,6 @@ import type {
   BootstrapPRWorkItemRequest,
   BootstrapPRWorkItemResponse,
   CancelWorkItemResponse,
-  AgentDriver,
   AgentProfile,
   AnalyticsFilter,
   AnalyticsSummary,
@@ -64,11 +62,10 @@ import type {
   UpdateThreadRequest,
   ThreadMessage,
   CreateThreadMessageRequest,
-  ThreadParticipant,
+  ThreadMember,
   AddThreadParticipantRequest,
   ThreadWorkItemLink,
   CreateThreadWorkItemLinkRequest,
-  ThreadAgentSession,
   Notification,
   CreateNotificationRequest,
   UnreadCountResponse,
@@ -296,8 +293,6 @@ export interface ApiClient {
     params?: { types?: string[]; limit?: number; offset?: number },
   ): Promise<Event[]>;
 
-  listDrivers(): Promise<AgentDriver[]>;
-  createDriver(body: AgentDriver): Promise<AgentDriver>;
   listProfiles(): Promise<AgentProfile[]>;
   createProfile(body: AgentProfile): Promise<AgentProfile>;
   listSkills(): Promise<SkillInfo[]>;
@@ -357,8 +352,8 @@ export interface ApiClient {
   deleteThread(threadId: number): Promise<void>;
   listThreadMessages(threadId: number, params?: { limit?: number; offset?: number }): Promise<ThreadMessage[]>;
   createThreadMessage(threadId: number, body: CreateThreadMessageRequest): Promise<ThreadMessage>;
-  listThreadParticipants(threadId: number): Promise<ThreadParticipant[]>;
-  addThreadParticipant(threadId: number, body: AddThreadParticipantRequest): Promise<ThreadParticipant>;
+  listThreadParticipants(threadId: number): Promise<ThreadMember[]>;
+  addThreadParticipant(threadId: number, body: AddThreadParticipantRequest): Promise<ThreadMember>;
   removeThreadParticipant(threadId: number, userId: string): Promise<void>;
 
   // Thread-WorkItem Links
@@ -369,8 +364,8 @@ export interface ApiClient {
   createWorkItemFromThread(threadId: number, body: { title: string; body?: string; project_id?: number }): Promise<WorkItem>;
 
   // Thread Agent Sessions
-  inviteThreadAgent(threadId: number, body: { agent_profile_id: string }): Promise<ThreadAgentSession>;
-  listThreadAgents(threadId: number): Promise<ThreadAgentSession[]>;
+  inviteThreadAgent(threadId: number, body: { agent_profile_id: string }): Promise<ThreadMember>;
+  listThreadAgents(threadId: number): Promise<ThreadMember[]>;
   removeThreadAgent(threadId: number, agentSessionId: number): Promise<void>;
 
   // Work Item Attachments
@@ -407,8 +402,8 @@ export interface ApiClient {
   detectGitInfo(path: string): Promise<DetectGitInfoResponse>;
 
   // Feature Manifest
-  getOrCreateManifest(projectId: number): Promise<FeatureManifest>;
-  getManifest(projectId: number): Promise<FeatureManifest>;
+  getOrCreateManifest(projectId: number): Promise<FeatureManifestSummary>;
+  getManifest(projectId: number): Promise<FeatureManifestSummary>;
   getManifestSummary(projectId: number): Promise<FeatureManifestSummary>;
   getManifestSnapshot(projectId: number): Promise<FeatureManifestSnapshot>;
   listManifestEntries(
@@ -880,16 +875,6 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     listWorkItemEvents,
     listIssueEvents: listWorkItemEvents,
 
-    listDrivers: () =>
-      request<AgentDriver[]>({
-        path: "/agents/drivers",
-      }).then((items) => (Array.isArray(items) ? items : [])),
-    createDriver: (body) =>
-      request<AgentDriver, AgentDriver>({
-        path: "/agents/drivers",
-        method: "POST",
-        body,
-      }),
     listProfiles: () =>
       request<AgentProfile[]>({
         path: "/agents/profiles",
@@ -1056,11 +1041,11 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
 
     // Thread Participants
     listThreadParticipants: (threadId: number) =>
-      request<ThreadParticipant[]>({
+      request<ThreadMember[]>({
         path: `/threads/${threadId}/participants`,
       }).then((items) => (Array.isArray(items) ? items : [])),
     addThreadParticipant: (threadId: number, body: AddThreadParticipantRequest) =>
-      request<ThreadParticipant, AddThreadParticipantRequest>({
+      request<ThreadMember, AddThreadParticipantRequest>({
         path: `/threads/${threadId}/participants`,
         method: "POST",
         body,
@@ -1096,13 +1081,13 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         body,
       }),
     inviteThreadAgent: (threadId, body) =>
-      request<ThreadAgentSession, { agent_profile_id: string }>({
+      request<ThreadMember, { agent_profile_id: string }>({
         path: `/threads/${threadId}/agents`,
         method: "POST",
         body,
       }),
     listThreadAgents: (threadId) =>
-      request<ThreadAgentSession[]>({
+      request<ThreadMember[]>({
         path: `/threads/${threadId}/agents`,
       }).then((items) => (Array.isArray(items) ? items : [])),
     removeThreadAgent: (threadId, agentSessionId) =>
@@ -1120,22 +1105,10 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       }),
 
     // Feature Manifest
-    getOrCreateManifest: async (projectId: number) => {
-      try {
-        return await request<FeatureManifest>({ path: `/projects/${projectId}/manifest` });
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 404) {
-          return request<FeatureManifest, { summary: string }>({
-            path: `/projects/${projectId}/manifest`,
-            method: "POST",
-            body: { summary: "" },
-          });
-        }
-        throw err;
-      }
-    },
+    getOrCreateManifest: (projectId: number) =>
+      request<FeatureManifestSummary>({ path: `/projects/${projectId}/manifest` }),
     getManifest: (projectId: number) =>
-      request<FeatureManifest>({ path: `/projects/${projectId}/manifest` }),
+      request<FeatureManifestSummary>({ path: `/projects/${projectId}/manifest` }),
     getManifestSummary: (projectId: number) =>
       request<FeatureManifestSummary>({ path: `/projects/${projectId}/manifest/summary` }),
     getManifestSnapshot: (projectId: number) =>

@@ -15,20 +15,20 @@ import (
 // actually called by InputBuilder are overridden.
 type stubInputStore struct {
 	panicStore
-	workItems    map[int64]*core.WorkItem
-	actions      map[int64][]*core.Action      // keyed by WorkItemID
-	deliverables map[int64]*core.Deliverable   // keyed by ActionID (latest)
-	projects     map[int64]*core.Project
-	bindings     map[int64][]*core.ResourceBinding // keyed by ProjectID
+	workItems map[int64]*core.WorkItem
+	actions   map[int64][]*core.Action          // keyed by WorkItemID
+	runs      map[int64]*core.Run               // keyed by ActionID (latest run with result)
+	projects  map[int64]*core.Project
+	bindings  map[int64][]*core.ResourceBinding // keyed by ProjectID
 }
 
 func newStubInputStore() *stubInputStore {
 	return &stubInputStore{
-		workItems:    make(map[int64]*core.WorkItem),
-		actions:      make(map[int64][]*core.Action),
-		deliverables: make(map[int64]*core.Deliverable),
-		projects:     make(map[int64]*core.Project),
-		bindings:     make(map[int64][]*core.ResourceBinding),
+		workItems: make(map[int64]*core.WorkItem),
+		actions:   make(map[int64][]*core.Action),
+		runs:      make(map[int64]*core.Run),
+		projects:  make(map[int64]*core.Project),
+		bindings:  make(map[int64][]*core.ResourceBinding),
 	}
 }
 
@@ -43,15 +43,15 @@ func (s *stubInputStore) ListActionsByWorkItem(_ context.Context, workItemID int
 	return s.actions[workItemID], nil
 }
 
-func (s *stubInputStore) GetLatestDeliverableByAction(_ context.Context, actionID int64) (*core.Deliverable, error) {
-	if deliverable, ok := s.deliverables[actionID]; ok {
-		return deliverable, nil
+func (s *stubInputStore) GetLatestRunWithResult(_ context.Context, actionID int64) (*core.Run, error) {
+	if run, ok := s.runs[actionID]; ok {
+		return run, nil
 	}
 	return nil, core.ErrNotFound
 }
 
-func (s *stubInputStore) GetFeatureManifestByProject(_ context.Context, _ int64) (*core.FeatureManifest, error) {
-	return nil, core.ErrNotFound
+func (s *stubInputStore) ListFeatureEntries(_ context.Context, _ core.FeatureEntryFilter) ([]*core.FeatureEntry, error) {
+	return nil, nil
 }
 
 func (s *stubInputStore) GetProject(_ context.Context, id int64) (*core.Project, error) {
@@ -147,35 +147,10 @@ func (panicStore) UpdateRun(context.Context, *core.Run) error {
 	panic("not implemented")
 }
 
-func (panicStore) CreateDeliverable(context.Context, *core.Deliverable) (int64, error) {
-	panic("not implemented")
-}
-func (panicStore) GetDeliverable(context.Context, int64) (*core.Deliverable, error) {
-	panic("not implemented")
-}
-func (panicStore) GetLatestDeliverableByAction(context.Context, int64) (*core.Deliverable, error) {
-	panic("not implemented")
-}
-func (panicStore) ListDeliverablesByRun(context.Context, int64) ([]*core.Deliverable, error) {
-	panic("not implemented")
-}
-func (panicStore) UpdateDeliverable(context.Context, *core.Deliverable) error {
+func (panicStore) GetLatestRunWithResult(context.Context, int64) (*core.Run, error) {
 	panic("not implemented")
 }
 
-func (panicStore) CreateFeatureManifest(context.Context, *core.FeatureManifest) (int64, error) {
-	panic("not implemented")
-}
-func (panicStore) GetFeatureManifest(context.Context, int64) (*core.FeatureManifest, error) {
-	panic("not implemented")
-}
-func (panicStore) GetFeatureManifestByProject(context.Context, int64) (*core.FeatureManifest, error) {
-	panic("not implemented")
-}
-func (panicStore) UpdateFeatureManifest(context.Context, *core.FeatureManifest) error {
-	panic("not implemented")
-}
-func (panicStore) DeleteFeatureManifest(context.Context, int64) error { panic("not implemented") }
 func (panicStore) CreateFeatureEntry(context.Context, *core.FeatureEntry) (int64, error) {
 	panic("not implemented")
 }
@@ -297,7 +272,7 @@ func TestInputBuilder_ImmediatePredecessorGetsFullContent(t *testing.T) {
 		{ID: 100, WorkItemID: 1, Position: 0, Status: core.ActionDone},
 		{ID: 101, WorkItemID: 1, Position: 1, Status: core.ActionReady},
 	}
-	store.deliverables[100] = &core.Deliverable{
+	store.runs[100] = &core.Run{
 		ID:             1,
 		ActionID:       100,
 		ResultMarkdown: fullMarkdown,
@@ -328,13 +303,13 @@ func TestInputBuilder_DistantPredecessorGetsSummary(t *testing.T) {
 		{ID: 102, WorkItemID: 1, Position: 2, Status: core.ActionReady},
 	}
 	// Action 100 is distant (position 0), action 101 is immediate (position 1).
-	store.deliverables[100] = &core.Deliverable{
+	store.runs[100] = &core.Run{
 		ID:             1,
 		ActionID:       100,
 		ResultMarkdown: strings.Repeat("A very detailed output. ", 100),
-		Metadata:       map[string]any{"summary": "Completed initial setup."},
+		ResultMetadata: map[string]any{"summary": "Completed initial setup."},
 	}
-	store.deliverables[101] = &core.Deliverable{
+	store.runs[101] = &core.Run{
 		ID:             2,
 		ActionID:       101,
 		ResultMarkdown: "Direct predecessor output.",
@@ -365,13 +340,13 @@ func TestInputBuilder_DistantPredecessorFallsBackToTruncatedMarkdown(t *testing.
 		{ID: 101, WorkItemID: 1, Position: 1, Status: core.ActionDone},
 		{ID: 102, WorkItemID: 1, Position: 2, Status: core.ActionReady},
 	}
-	// Distant deliverable with no Metadata summary — should fallback to truncated markdown.
-	store.deliverables[100] = &core.Deliverable{
+	// Distant run with no ResultMetadata summary — should fallback to truncated markdown.
+	store.runs[100] = &core.Run{
 		ID:             1,
 		ActionID:       100,
 		ResultMarkdown: longMarkdown,
 	}
-	store.deliverables[101] = &core.Deliverable{
+	store.runs[101] = &core.Run{
 		ID:             2,
 		ActionID:       101,
 		ResultMarkdown: "ok",
@@ -397,7 +372,7 @@ func TestInputBuilder_ContextRefPriorityOrder(t *testing.T) {
 		{ID: 100, WorkItemID: 1, Position: 0, Status: core.ActionDone},
 		{ID: 101, WorkItemID: 1, Position: 1, Status: core.ActionReady},
 	}
-	store.deliverables[100] = &core.Deliverable{
+	store.runs[100] = &core.Run{
 		ID: 1, ActionID: 100, ResultMarkdown: "output",
 	}
 
@@ -418,22 +393,22 @@ func TestInputBuilder_ContextRefPriorityOrder(t *testing.T) {
 	}
 }
 
-func TestExtractDeliverableSummary_PrefersMetadata(t *testing.T) {
-	deliverable := &core.Deliverable{
+func TestExtractRunResultSummary_PrefersMetadata(t *testing.T) {
+	run := &core.Run{
 		ResultMarkdown: strings.Repeat("long content ", 100),
-		Metadata:       map[string]any{"summary": "Short summary from collector."},
+		ResultMetadata: map[string]any{"summary": "Short summary from collector."},
 	}
-	got := extractDeliverableSummary(deliverable)
+	got := extractRunResultSummary(run)
 	if got != "Short summary from collector." {
 		t.Errorf("expected metadata summary, got: %q", got)
 	}
 }
 
-func TestExtractDeliverableSummary_FallbackTruncation(t *testing.T) {
-	deliverable := &core.Deliverable{
+func TestExtractRunResultSummary_FallbackTruncation(t *testing.T) {
+	run := &core.Run{
 		ResultMarkdown: strings.Repeat("x", 500),
 	}
-	got := extractDeliverableSummary(deliverable)
+	got := extractRunResultSummary(run)
 	if !strings.HasSuffix(got, "[...]") {
 		t.Error("expected [...] suffix for truncated fallback")
 	}
@@ -442,21 +417,21 @@ func TestExtractDeliverableSummary_FallbackTruncation(t *testing.T) {
 	}
 }
 
-func TestExtractDeliverableSummary_ShortMarkdownNotTruncated(t *testing.T) {
-	deliverable := &core.Deliverable{
+func TestExtractRunResultSummary_ShortMarkdownNotTruncated(t *testing.T) {
+	run := &core.Run{
 		ResultMarkdown: "Short output.",
 	}
-	got := extractDeliverableSummary(deliverable)
+	got := extractRunResultSummary(run)
 	if got != "Short output." {
 		t.Errorf("expected exact short markdown, got: %q", got)
 	}
 }
 
-func TestExtractDeliverableSummary_EmptyDeliverable(t *testing.T) {
-	deliverable := &core.Deliverable{}
-	got := extractDeliverableSummary(deliverable)
+func TestExtractRunResultSummary_EmptyRun(t *testing.T) {
+	run := &core.Run{}
+	got := extractRunResultSummary(run)
 	if got != "" {
-		t.Errorf("expected empty string for empty deliverable, got: %q", got)
+		t.Errorf("expected empty string for empty run, got: %q", got)
 	}
 }
 
@@ -602,19 +577,6 @@ type stubRegistry struct {
 	profiles []*core.AgentProfile
 }
 
-func (r *stubRegistry) GetDriver(_ context.Context, _ string) (*core.AgentDriver, error) {
-	return nil, core.ErrDriverNotFound
-}
-func (r *stubRegistry) ListDrivers(_ context.Context) ([]*core.AgentDriver, error) {
-	return nil, nil
-}
-func (r *stubRegistry) CreateDriver(_ context.Context, _ *core.AgentDriver) error {
-	return nil
-}
-func (r *stubRegistry) UpdateDriver(_ context.Context, _ *core.AgentDriver) error {
-	return nil
-}
-func (r *stubRegistry) DeleteDriver(_ context.Context, _ string) error { return nil }
 func (r *stubRegistry) GetProfile(_ context.Context, id string) (*core.AgentProfile, error) {
 	for _, p := range r.profiles {
 		if p.ID == id {
@@ -629,22 +591,22 @@ func (r *stubRegistry) ListProfiles(_ context.Context) ([]*core.AgentProfile, er
 func (r *stubRegistry) CreateProfile(_ context.Context, _ *core.AgentProfile) error { return nil }
 func (r *stubRegistry) UpdateProfile(_ context.Context, _ *core.AgentProfile) error { return nil }
 func (r *stubRegistry) DeleteProfile(_ context.Context, _ string) error              { return nil }
-func (r *stubRegistry) ResolveForAction(_ context.Context, action *core.Action) (*core.AgentProfile, *core.AgentDriver, error) {
+func (r *stubRegistry) ResolveForAction(_ context.Context, action *core.Action) (*core.AgentProfile, error) {
 	role := strings.TrimSpace(action.AgentRole)
 	for _, p := range r.profiles {
 		if string(p.Role) == role && p.MatchesRequirements(action.RequiredCapabilities) {
-			return p, &core.AgentDriver{ID: p.DriverID}, nil
+			return p, nil
 		}
 	}
-	return nil, nil, core.ErrProfileNotFound
+	return nil, core.ErrProfileNotFound
 }
-func (r *stubRegistry) ResolveByID(_ context.Context, id string) (*core.AgentProfile, *core.AgentDriver, error) {
+func (r *stubRegistry) ResolveByID(_ context.Context, id string) (*core.AgentProfile, error) {
 	for _, p := range r.profiles {
 		if p.ID == id {
-			return p, &core.AgentDriver{ID: p.DriverID}, nil
+			return p, nil
 		}
 	}
-	return nil, nil, core.ErrProfileNotFound
+	return nil, core.ErrProfileNotFound
 }
 
 // createTestSkillDir creates a temp skill directory with a valid SKILL.md.
@@ -674,7 +636,7 @@ func TestInputBuilder_InjectsSkillsSummary(t *testing.T) {
 
 	registry := &stubRegistry{
 		profiles: []*core.AgentProfile{
-			{ID: "worker-1", Role: core.RoleWorker, DriverID: "d1", Skills: []string{"code-review", "testing"}},
+			{ID: "worker-1", Role: core.RoleWorker, Driver: core.DriverConfig{LaunchCommand: "echo"}, Skills: []string{"code-review", "testing"}},
 		},
 	}
 
@@ -723,7 +685,7 @@ func TestInputBuilder_SkipsSkillsWhenNoRole(t *testing.T) {
 
 	registry := &stubRegistry{
 		profiles: []*core.AgentProfile{
-			{ID: "worker-1", Role: core.RoleWorker, DriverID: "d1", Skills: []string{"code-review"}},
+			{ID: "worker-1", Role: core.RoleWorker, Driver: core.DriverConfig{LaunchCommand: "echo"}, Skills: []string{"code-review"}},
 		},
 	}
 
@@ -749,7 +711,7 @@ func TestInputBuilder_SkipsSkillsWithTODODescription(t *testing.T) {
 
 	registry := &stubRegistry{
 		profiles: []*core.AgentProfile{
-			{ID: "worker-1", Role: core.RoleWorker, DriverID: "d1", Skills: []string{"wip-skill"}},
+			{ID: "worker-1", Role: core.RoleWorker, Driver: core.DriverConfig{LaunchCommand: "echo"}, Skills: []string{"wip-skill"}},
 		},
 	}
 

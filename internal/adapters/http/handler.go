@@ -213,9 +213,7 @@ func (h *Handler) Register(r chi.Router) {
 	registerAgentRoutes(r, h.registry)
 
 	// Feature Manifest (per-project feature checklist)
-	r.Post("/projects/{projectID}/manifest", h.createManifest)
 	r.Get("/projects/{projectID}/manifest", h.getManifest)
-	r.Put("/projects/{projectID}/manifest", h.updateManifest)
 	r.Get("/projects/{projectID}/manifest/entries", h.listManifestEntries)
 	r.Post("/projects/{projectID}/manifest/entries", h.createManifestEntry)
 	r.Get("/projects/{projectID}/manifest/summary", h.getManifestSummary)
@@ -246,7 +244,6 @@ func (h *Handler) Register(r chi.Router) {
 		r.Get("/executions/{execID}/probes", h.listExecutionProbes)
 		r.Get("/executions/{execID}/probe/latest", h.getLatestRunProbe)
 		r.Post("/admin/system-event", h.sendSystemEvent)
-		r.Delete("/projects/{projectID}/manifest", h.deleteManifest)
 		r.Delete("/manifest/entries/{entryID}", h.deleteManifestEntry)
 		registerSkillRoutes(r, h.skillsRoot, h.registry, h.skillGitHubImporter)
 	})
