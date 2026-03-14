@@ -54,6 +54,12 @@ function readTargetAgentID(metadata: Record<string, unknown> | undefined): strin
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function readAutoRoutedTo(metadata: Record<string, unknown> | undefined): string[] {
+  const value = metadata?.auto_routed_to;
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === "string" && v.trim().length > 0).map((v) => v.trim());
+}
+
 function parseMentionTarget(message: string, activeAgentProfileIDs: string[]): { targetAgentID: string | null; error: string | null } {
   const trimmed = message.trim();
   const match = trimmed.match(/^@([A-Za-z0-9._:-]+)\s+(.+)$/s);
@@ -322,6 +328,14 @@ export function ThreadDetailPage() {
         ? payload.role.trim()
         : roleFallback;
 
+      const msgMetadata: Record<string, unknown> = {};
+      if (payload.target_agent_id) {
+        msgMetadata.target_agent_id = payload.target_agent_id;
+      }
+      if (Array.isArray(payload.auto_routed_to) && payload.auto_routed_to.length > 0) {
+        msgMetadata.auto_routed_to = payload.auto_routed_to;
+      }
+
       setMessages((prev) => [
         ...prev,
         {
@@ -330,9 +344,7 @@ export function ThreadDetailPage() {
           sender_id: senderID,
           role,
           content,
-          metadata: payload.target_agent_id
-            ? { target_agent_id: payload.target_agent_id }
-            : undefined,
+          metadata: Object.keys(msgMetadata).length > 0 ? msgMetadata : undefined,
           created_at: new Date().toISOString(),
         },
       ]);
@@ -861,6 +873,7 @@ export function ThreadDetailPage() {
                 {messages.map((msg) => {
                   const isAgent = msg.role === "agent";
                   const targetAgent = readTargetAgentID(msg.metadata);
+                  const autoRoutedTo = readAutoRoutedTo(msg.metadata);
                   const profile = isAgent ? profileByID.get(msg.sender_id) : undefined;
                   return (
                     <div key={msg.id} className={cn("flex gap-3", !isAgent && "flex-row-reverse")}>
@@ -901,6 +914,30 @@ export function ThreadDetailPage() {
                             {renderMessageContent(msg)}
                           </p>
                         </div>
+                        {/* Auto-routing tag */}
+                        {!isAgent && autoRoutedTo.length > 0 && (
+                          <div className={cn(
+                            "mt-1 flex flex-wrap items-center gap-1 text-[10px]",
+                            !isAgent && "justify-end",
+                          )}>
+                            <span className="text-muted-foreground/60">Auto</span>
+                            <span className="text-muted-foreground/40">→</span>
+                            {autoRoutedTo.map((agentID) => {
+                              const agentProfile = profileByID.get(agentID);
+                              return (
+                                <button
+                                  key={agentID}
+                                  type="button"
+                                  className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700 transition-colors hover:bg-emerald-100"
+                                  onClick={() => focusAgentProfile(agentID)}
+                                >
+                                  <Bot className="h-2.5 w-2.5" />
+                                  {agentProfile?.name ?? agentID}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );

@@ -302,6 +302,19 @@ func (h *Handler) createThreadMessageAndRoute(ctx context.Context, input threadM
 		metadata["target_agent_id"] = targetAgentID
 	}
 
+	// For auto-routing, record which agents were selected so the frontend can show routing tags.
+	isAutoRouted := targetAgentID == "" && len(recipients) > 0 && readThreadAgentRoutingMode(thread) == "auto"
+	if isAutoRouted {
+		if metadata == nil {
+			metadata = map[string]any{}
+		}
+		routedIDs := make([]any, len(recipients))
+		for i, pid := range recipients {
+			routedIDs[i] = pid
+		}
+		metadata["auto_routed_to"] = routedIDs
+	}
+
 	message := &core.ThreadMessage{
 		ThreadID:         input.ThreadID,
 		SenderID:         strings.TrimSpace(input.SenderID),
@@ -329,6 +342,13 @@ func (h *Handler) createThreadMessageAndRoute(ctx context.Context, input threadM
 	}
 	if targetAgentID != "" {
 		eventData["target_agent_id"] = targetAgentID
+	}
+	if isAutoRouted {
+		routedIDs := make([]any, len(recipients))
+		for i, pid := range recipients {
+			routedIDs[i] = pid
+		}
+		eventData["auto_routed_to"] = routedIDs
 	}
 
 	h.bus.Publish(ctx, core.Event{
