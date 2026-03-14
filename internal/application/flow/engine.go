@@ -13,22 +13,34 @@ import (
 // The engine does not know how actions are executed — this is injected.
 type ActionExecutor func(ctx context.Context, action *core.Action, run *core.Run) error
 
+type workflowRuntime struct {
+	store    Store
+	bus      EventPublisher
+	sem      *Semaphore
+	executor ActionExecutor
+}
+
+type preparationService struct {
+	resolver     Resolver
+	inputBuilder InputBuilder
+	collector    Collector
+	expander     CompositeExpander
+	workspace    WorkspaceProvider
+	resources    *ResourceResolver
+}
+
+type gateService struct {
+	scmTokens      SCMTokens
+	prPrompts      PRFlowPromptsProvider
+	crFactory      ChangeRequestProviderFactory
+	gateEvaluators []GateEvaluator
+}
+
 // WorkItemEngine orchestrates WorkItem execution: sequential action scheduling, state transitions, events.
 type WorkItemEngine struct {
-	store          Store
-	bus            EventPublisher
-	sem            *Semaphore
-	executor       ActionExecutor
-	resolver       Resolver              // optional: agent selection
-	inputBuilder   InputBuilder          // optional: input assembly
-	collector      Collector             // optional: metadata extraction
-	expander       CompositeExpander     // optional: composite decomposition
-	wsProvider     WorkspaceProvider     // optional: workspace isolation
-	resResolver    *ResourceResolver     // optional: external resource fetch/deposit
-	scmTokens      SCMTokens             // optional: SCM automation tokens (push/PR/merge)
-	prPrompts      PRFlowPromptsProvider // optional: configurable PR flow prompts
-	crFactory      ChangeRequestProviderFactory
-	gateEvaluators []GateEvaluator // optional: custom gate evaluation chain (defaults to signal→manifest→deliverable)
+	workflow    workflowRuntime
+	preparation preparationService
+	gates       gateService
 }
 
 // Option configures the WorkItemEngine.
@@ -37,18 +49,18 @@ type Option func(*WorkItemEngine)
 // WithConcurrency sets the max concurrent action executions.
 func WithConcurrency(n int) Option {
 	return func(e *WorkItemEngine) {
-		e.sem = NewSemaphore(n)
+		e.workflow.sem = NewSemaphore(n)
 	}
 }
 
 // WithResolver sets the agent resolver for the prepare phase.
 func WithResolver(r Resolver) Option {
-	return func(e *WorkItemEngine) { e.resolver = r }
+	return func(e *WorkItemEngine) { e.preparation.resolver = r }
 }
 
 // WithInputBuilder sets the input builder for the prepare phase.
 func WithInputBuilder(b InputBuilder) Option {
-	return func(e *WorkItemEngine) { e.inputBuilder = b }
+	return func(e *WorkItemEngine) { e.preparation.inputBuilder = b }
 }
 
 // WithBriefingBuilder is an alias for WithInputBuilder for backward compatibility.
@@ -58,27 +70,27 @@ func WithBriefingBuilder(b InputBuilder) Option {
 
 // WithCollector sets the metadata collector for the finalize phase.
 func WithCollector(c Collector) Option {
-	return func(e *WorkItemEngine) { e.collector = c }
+	return func(e *WorkItemEngine) { e.preparation.collector = c }
 }
 
 // WithExpander sets the composite action expander.
 func WithExpander(x CompositeExpander) Option {
-	return func(e *WorkItemEngine) { e.expander = x }
+	return func(e *WorkItemEngine) { e.preparation.expander = x }
 }
 
 // WithWorkspaceProvider sets the workspace provider for work item execution.
 func WithWorkspaceProvider(p WorkspaceProvider) Option {
-	return func(e *WorkItemEngine) { e.wsProvider = p }
+	return func(e *WorkItemEngine) { e.preparation.workspace = p }
 }
 
 // WithSCMTokens sets optional GitHub tokens used by builtin PR automation (push/open PR/merge).
 func WithSCMTokens(t SCMTokens) Option {
-	return func(e *WorkItemEngine) { e.scmTokens = t }
+	return func(e *WorkItemEngine) { e.gates.scmTokens = t }
 }
 
 // WithPRFlowPromptsProvider sets a provider for configurable PR flow prompts.
 func WithPRFlowPromptsProvider(provider PRFlowPromptsProvider) Option {
-	return func(e *WorkItemEngine) { e.prPrompts = provider }
+	return func(e *WorkItemEngine) { e.gates.prPrompts = provider }
 }
 
 // ChangeRequestProviderFactory resolves provider implementations for PR/MR automation.
@@ -86,27 +98,29 @@ type ChangeRequestProviderFactory func(token string) []ChangeRequestProvider
 
 // WithChangeRequestProviders sets the provider factory used by gate auto-merge flow.
 func WithChangeRequestProviders(factory ChangeRequestProviderFactory) Option {
-	return func(e *WorkItemEngine) { e.crFactory = factory }
+	return func(e *WorkItemEngine) { e.gates.crFactory = factory }
 }
 
 // WithGateEvaluators overrides the default gate evaluation chain (signal→manifest→deliverable).
 // Evaluators are tried in order; the first one that returns Decided=true wins.
 func WithGateEvaluators(evaluators ...GateEvaluator) Option {
-	return func(e *WorkItemEngine) { e.gateEvaluators = evaluators }
+	return func(e *WorkItemEngine) { e.gates.gateEvaluators = evaluators }
 }
 
 // WithResourceResolver sets the external resource resolver for input fetch / output deposit.
 func WithResourceResolver(rr *ResourceResolver) Option {
-	return func(e *WorkItemEngine) { e.resResolver = rr }
+	return func(e *WorkItemEngine) { e.preparation.resources = rr }
 }
 
 // New creates a WorkItemEngine.
 func New(store Store, bus EventPublisher, executor ActionExecutor, opts ...Option) *WorkItemEngine {
 	e := &WorkItemEngine{
-		store:    store,
-		bus:      bus,
-		sem:      NewSemaphore(4),
-		executor: executor,
+		workflow: workflowRuntime{
+			store:    store,
+			bus:      bus,
+			sem:      NewSemaphore(4),
+			executor: executor,
+		},
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -115,23 +129,23 @@ func New(store Store, bus EventPublisher, executor ActionExecutor, opts ...Optio
 }
 
 func (e *WorkItemEngine) getPRFlowPrompts() PRFlowPrompts {
-	if e != nil && e.prPrompts != nil {
-		return MergePRFlowPrompts(e.prPrompts())
+	if e != nil && e.gates.prPrompts != nil {
+		return MergePRFlowPrompts(e.gates.prPrompts())
 	}
 	return DefaultPRFlowPrompts()
 }
 
 // MaxConcurrency returns the engine's configured action execution concurrency.
 func (e *WorkItemEngine) MaxConcurrency() int {
-	if e == nil || e.sem == nil {
+	if e == nil || e.workflow.sem == nil {
 		return 0
 	}
-	return e.sem.Capacity()
+	return e.workflow.sem.Capacity()
 }
 
 // Run starts executing a WorkItem. It blocks until the WorkItem completes, fails, or the context is cancelled.
 func (e *WorkItemEngine) Run(ctx context.Context, workItemID int64) error {
-	workItem, err := e.store.GetWorkItem(ctx, workItemID)
+	workItem, err := e.workflow.store.GetWorkItem(ctx, workItemID)
 	if err != nil {
 		return fmt.Errorf("get work item: %w", err)
 	}
@@ -139,7 +153,7 @@ func (e *WorkItemEngine) Run(ctx context.Context, workItemID int64) error {
 		return fmt.Errorf("work item %d is %s, expected open, accepted, or queued", workItemID, workItem.Status)
 	}
 
-	actions, err := e.store.ListActionsByWorkItem(ctx, workItemID)
+	actions, err := e.workflow.store.ListActionsByWorkItem(ctx, workItemID)
 	if err != nil {
 		return fmt.Errorf("list actions: %w", err)
 	}
@@ -153,12 +167,12 @@ func (e *WorkItemEngine) Run(ctx context.Context, workItemID int64) error {
 	}
 
 	// Prepare workspace if project has resource bindings.
-	if workItem.ProjectID != nil && e.wsProvider != nil {
-		project, err := e.store.GetProject(ctx, *workItem.ProjectID)
+	if workItem.ProjectID != nil && e.preparation.workspace != nil {
+		project, err := e.workflow.store.GetProject(ctx, *workItem.ProjectID)
 		if err != nil {
 			return fmt.Errorf("get project %d for workspace: %w", *workItem.ProjectID, err)
 		}
-		bindings, err := e.store.ListResourceBindings(ctx, *workItem.ProjectID)
+		bindings, err := e.workflow.store.ListResourceBindings(ctx, *workItem.ProjectID)
 		if err != nil {
 			return fmt.Errorf("list resource bindings for project %d: %w", *workItem.ProjectID, err)
 		}
@@ -176,17 +190,17 @@ func (e *WorkItemEngine) Run(ctx context.Context, workItemID int64) error {
 			bindings = filtered
 		}
 		if len(bindings) > 0 {
-			ws, err := e.wsProvider.Prepare(ctx, project, bindings, workItemID)
+			ws, err := e.preparation.workspace.Prepare(ctx, project, bindings, workItemID)
 			if err != nil {
 				return fmt.Errorf("prepare workspace for work item %d: %w", workItemID, err)
 			}
-			defer e.wsProvider.Release(ctx, ws)
+			defer e.preparation.workspace.Release(ctx, ws)
 			ctx = ContextWithWorkspace(ctx, ws)
 
 			// Surface workspace preparation warnings to the user via event bus.
 			if ws.Metadata != nil {
 				if warnings, ok := ws.Metadata["warnings"].([]string); ok && len(warnings) > 0 {
-					e.bus.Publish(ctx, core.Event{
+					e.workflow.bus.Publish(ctx, core.Event{
 						Type:       core.EventWorkspaceWarning,
 						WorkItemID: workItemID,
 						Data: map[string]any{
@@ -200,10 +214,10 @@ func (e *WorkItemEngine) Run(ctx context.Context, workItemID int64) error {
 	}
 
 	// Transition work item to running.
-	if err := e.store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemRunning); err != nil {
+	if err := e.workflow.store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemRunning); err != nil {
 		return fmt.Errorf("start work item: %w", err)
 	}
-	e.bus.Publish(ctx, core.Event{
+	e.workflow.bus.Publish(ctx, core.Event{
 		Type:       core.EventWorkItemStarted,
 		WorkItemID: workItemID,
 		Timestamp:  time.Now().UTC(),
@@ -222,8 +236,8 @@ func (e *WorkItemEngine) Run(ctx context.Context, workItemID int64) error {
 
 	// Scheduling loop.
 	if err := e.scheduleLoop(ctx, workItemID); err != nil {
-		_ = e.store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemFailed)
-		e.bus.Publish(ctx, core.Event{
+		_ = e.workflow.store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemFailed)
+		e.workflow.bus.Publish(ctx, core.Event{
 			Type:       core.EventWorkItemFailed,
 			WorkItemID: workItemID,
 			Timestamp:  time.Now().UTC(),
@@ -232,8 +246,8 @@ func (e *WorkItemEngine) Run(ctx context.Context, workItemID int64) error {
 		return err
 	}
 
-	_ = e.store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemDone)
-	e.bus.Publish(ctx, core.Event{
+	_ = e.workflow.store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemDone)
+	e.workflow.bus.Publish(ctx, core.Event{
 		Type:       core.EventWorkItemCompleted,
 		WorkItemID: workItemID,
 		Timestamp:  time.Now().UTC(),
@@ -243,17 +257,17 @@ func (e *WorkItemEngine) Run(ctx context.Context, workItemID int64) error {
 
 // Cancel cancels a running WorkItem.
 func (e *WorkItemEngine) Cancel(ctx context.Context, workItemID int64) error {
-	workItem, err := e.store.GetWorkItem(ctx, workItemID)
+	workItem, err := e.workflow.store.GetWorkItem(ctx, workItemID)
 	if err != nil {
 		return err
 	}
 	if !ValidWorkItemTransition(workItem.Status, core.WorkItemCancelled) {
 		return core.ErrInvalidTransition
 	}
-	if err := e.store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemCancelled); err != nil {
+	if err := e.workflow.store.UpdateWorkItemStatus(ctx, workItemID, core.WorkItemCancelled); err != nil {
 		return err
 	}
-	e.bus.Publish(ctx, core.Event{
+	e.workflow.bus.Publish(ctx, core.Event{
 		Type:       core.EventWorkItemCancelled,
 		WorkItemID: workItemID,
 		Timestamp:  time.Now().UTC(),
@@ -268,7 +282,7 @@ func (e *WorkItemEngine) scheduleLoop(ctx context.Context, workItemID int64) err
 			return err
 		}
 
-		actions, err := e.store.ListActionsByWorkItem(ctx, workItemID)
+		actions, err := e.workflow.store.ListActionsByWorkItem(ctx, workItemID)
 		if err != nil {
 			return fmt.Errorf("list actions in loop: %w", err)
 		}
@@ -302,7 +316,7 @@ func (e *WorkItemEngine) scheduleLoop(ctx context.Context, workItemID int64) err
 		}
 
 		// Re-fetch after promotions to get updated statuses.
-		actions, err = e.store.ListActionsByWorkItem(ctx, workItemID)
+		actions, err = e.workflow.store.ListActionsByWorkItem(ctx, workItemID)
 		if err != nil {
 			return fmt.Errorf("list actions after promote: %w", err)
 		}
@@ -350,10 +364,10 @@ func (e *WorkItemEngine) scheduleLoop(ctx context.Context, workItemID int64) err
 					}
 				}()
 			} else {
-				e.sem.Acquire()
+				e.workflow.sem.Acquire()
 				go func() {
 					defer wg.Done()
-					defer e.sem.Release()
+					defer e.workflow.sem.Release()
 
 					err := e.executeAction(ctx, action)
 					if err != nil {
@@ -395,13 +409,13 @@ func (e *WorkItemEngine) executeAction(ctx context.Context, action *core.Action)
 		BriefingSnapshot: inputSnapshot,
 		Attempt:          action.RetryCount + 1,
 	}
-	runID, err := e.store.CreateRun(ctx, run)
+	runID, err := e.workflow.store.CreateRun(ctx, run)
 	if err != nil {
 		return fmt.Errorf("create run for action %d: %w", action.ID, err)
 	}
 	run.ID = runID
 
-	e.bus.Publish(ctx, core.Event{
+	e.workflow.bus.Publish(ctx, core.Event{
 		Type:       core.EventRunCreated,
 		WorkItemID: action.WorkItemID,
 		ActionID:   action.ID,
@@ -413,9 +427,9 @@ func (e *WorkItemEngine) executeAction(ctx context.Context, action *core.Action)
 	now := time.Now().UTC()
 	run.Status = core.RunRunning
 	run.StartedAt = &now
-	_ = e.store.UpdateRun(ctx, run)
+	_ = e.workflow.store.UpdateRun(ctx, run)
 
-	e.bus.Publish(ctx, core.Event{
+	e.workflow.bus.Publish(ctx, core.Event{
 		Type:       core.EventRunStarted,
 		WorkItemID: action.WorkItemID,
 		ActionID:   action.ID,
@@ -430,7 +444,7 @@ func (e *WorkItemEngine) executeAction(ctx context.Context, action *core.Action)
 		defer cancel()
 	}
 
-	runErr := e.executor(runCtx, action, run)
+	runErr := e.workflow.executor(runCtx, action, run)
 
 	// --- finalize: classify result → retry/block/fail/gate/done ---
 	return e.finalize(ctx, action, run, runErr)
@@ -441,7 +455,7 @@ func (e *WorkItemEngine) transitionAction(ctx context.Context, action *core.Acti
 	if !ValidActionTransition(action.Status, to) {
 		return fmt.Errorf("%w: action %d %s → %s", core.ErrInvalidTransition, action.ID, action.Status, to)
 	}
-	if err := e.store.UpdateActionStatus(ctx, action.ID, to); err != nil {
+	if err := e.workflow.store.UpdateActionStatus(ctx, action.ID, to); err != nil {
 		return fmt.Errorf("update action %d to %s: %w", action.ID, to, err)
 	}
 	action.Status = to
@@ -462,7 +476,7 @@ func (e *WorkItemEngine) transitionAction(ctx context.Context, action *core.Acti
 	default:
 		return nil
 	}
-	e.bus.Publish(ctx, core.Event{
+	e.workflow.bus.Publish(ctx, core.Event{
 		Type:       evType,
 		WorkItemID: action.WorkItemID,
 		ActionID:   action.ID,

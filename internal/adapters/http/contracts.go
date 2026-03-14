@@ -27,6 +27,16 @@ type Store interface {
 	core.JournalStore
 	core.NotificationStore
 	core.InspectionStore
+	DeleteActionResourcesByWorkItem(ctx context.Context, workItemID int64) error
+	DeleteRunsByWorkItem(ctx context.Context, workItemID int64) error
+	DeleteActionSignalsByWorkItem(ctx context.Context, workItemID int64) error
+	DeleteAgentContextsByWorkItem(ctx context.Context, workItemID int64) error
+	DeleteEventsByWorkItem(ctx context.Context, workItemID int64) error
+	DeleteJournalByWorkItem(ctx context.Context, workItemID int64) error
+	DeleteThreadWorkItemLinksByWorkItem(ctx context.Context, workItemID int64) error
+	DeleteResourceBindingsByWorkItem(ctx context.Context, workItemID int64) error
+	DeleteActionsByWorkItem(ctx context.Context, workItemID int64) error
+	DetachFeatureEntriesByWorkItem(ctx context.Context, workItemID int64) error
 	Close() error
 }
 

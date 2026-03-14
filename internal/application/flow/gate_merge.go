@@ -46,16 +46,16 @@ func (e *WorkItemEngine) mergePRIfConfigured(ctx context.Context, action *core.A
 	}
 	originURL = strings.TrimSpace(originURL)
 
-	token := e.scmTokens.EffectivePAT()
+	token := e.gates.scmTokens.EffectivePAT()
 	if strings.TrimSpace(token) == "" {
 		return fmt.Errorf("missing merge PAT")
 	}
 
-	if e.crFactory == nil {
+	if e.gates.crFactory == nil {
 		return fmt.Errorf("change request provider factory is not configured")
 	}
 
-	providers := e.crFactory(token)
+	providers := e.gates.crFactory(token)
 	provider, repo, ok, err := detectChangeRequestProvider(ctx, originURL, providers)
 	if err != nil {
 		return err
@@ -105,7 +105,7 @@ func (e *WorkItemEngine) mergePRIfConfigured(ctx context.Context, action *core.A
 // resolvePRNumber finds the PR number from gate run result or predecessor run results.
 func (e *WorkItemEngine) resolvePRNumber(ctx context.Context, action *core.Action) (int, error) {
 	// Prefer gate run result metadata.
-	run, err := e.store.GetLatestRunWithResult(ctx, action.ID)
+	run, err := e.workflow.store.GetLatestRunWithResult(ctx, action.ID)
 	if err == nil && run != nil && run.ResultMetadata != nil {
 		if n, ok := toInt64(run.ResultMetadata["pr_number"]); ok && n > 0 {
 			return int(n), nil
@@ -115,7 +115,7 @@ func (e *WorkItemEngine) resolvePRNumber(ctx context.Context, action *core.Actio
 	// Fallback: scan predecessor run results.
 	predecessors := e.predecessorIDs(ctx, action)
 	for _, id := range predecessors {
-		r, err := e.store.GetLatestRunWithResult(ctx, id)
+		r, err := e.workflow.store.GetLatestRunWithResult(ctx, id)
 		if err != nil || r == nil || r.ResultMetadata == nil {
 			continue
 		}
@@ -141,7 +141,7 @@ func (e *WorkItemEngine) handleMergeConflictBlock(ctx context.Context, action *c
 	}
 
 	e.recordMergeConflict(ctx, action, reason, metadata)
-	e.bus.Publish(ctx, core.Event{
+	e.workflow.bus.Publish(ctx, core.Event{
 		Type:       core.EventGateAwaitingHuman,
 		WorkItemID: action.WorkItemID,
 		ActionID:   action.ID,
@@ -261,7 +261,7 @@ func (e *WorkItemEngine) recordMergeConflict(ctx context.Context, gateAction *co
 		Actor:      "system",
 		CreatedAt:  time.Now().UTC(),
 	}
-	if _, err := e.store.CreateActionSignal(ctx, sig); err != nil {
+	if _, err := e.workflow.store.CreateActionSignal(ctx, sig); err != nil {
 		slog.Error("failed to record merge conflict signal", "action_id", gateAction.ID, "error", err)
 	}
 }

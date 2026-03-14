@@ -46,28 +46,28 @@ func (f CollectorFunc) Extract(ctx context.Context, actionType core.ActionType, 
 
 // prepare resolves agent, builds input (with external resources), and returns values for the Run record.
 func (e *WorkItemEngine) prepare(ctx context.Context, action *core.Action) (agentID, inputSnapshot string, err error) {
-	if e.resolver != nil {
-		agentID, err = e.resolver.Resolve(ctx, action)
+	if e.preparation.resolver != nil {
+		agentID, err = e.preparation.resolver.Resolve(ctx, action)
 		if err != nil {
 			return "", "", fmt.Errorf("resolve agent for action %d: %w", action.ID, err)
 		}
 	}
 
-	if e.inputBuilder != nil {
-		inputSnapshot, err = e.inputBuilder.Build(ctx, action)
+	if e.preparation.inputBuilder != nil {
+		inputSnapshot, err = e.preparation.inputBuilder.Build(ctx, action)
 		if err != nil {
 			return "", "", fmt.Errorf("build input for action %d: %w", action.ID, err)
 		}
 	}
 
 	// Fetch declared input resources and append their context to the input.
-	if e.resResolver != nil {
+	if e.preparation.resources != nil {
 		ws := WorkspaceFromContext(ctx)
 		destDir := "/tmp/action-resources/" + fmt.Sprintf("%d", action.ID)
 		if ws != nil && ws.Path != "" {
 			destDir = ws.Path + "/.resources"
 		}
-		resolved, fetchErr := e.resResolver.FetchInputs(ctx, action.ID, destDir)
+		resolved, fetchErr := e.preparation.resources.FetchInputs(ctx, action.ID, destDir)
 		if fetchErr != nil {
 			return "", "", fmt.Errorf("fetch input resources for action %d: %w", action.ID, fetchErr)
 		}
@@ -107,9 +107,9 @@ func (e *WorkItemEngine) handleFailure(ctx context.Context, action *core.Action,
 		run.ErrorKind = core.ErrKindTransient
 	}
 
-	_ = e.store.UpdateRun(ctx, run)
+	_ = e.workflow.store.UpdateRun(ctx, run)
 
-	e.bus.Publish(ctx, core.Event{
+	e.workflow.bus.Publish(ctx, core.Event{
 		Type:       core.EventRunFailed,
 		WorkItemID: action.WorkItemID,
 		ActionID:   action.ID,
@@ -134,7 +134,7 @@ func (e *WorkItemEngine) handleFailure(ctx context.Context, action *core.Action,
 	if action.RetryCount < action.MaxRetries {
 		action.RetryCount++
 		action.Status = core.ActionPending
-		if err := e.store.UpdateAction(ctx, action); err != nil {
+		if err := e.workflow.store.UpdateAction(ctx, action); err != nil {
 			return fmt.Errorf("retry action %d: %w", action.ID, err)
 		}
 		return nil
@@ -147,9 +147,9 @@ func (e *WorkItemEngine) handleFailure(ctx context.Context, action *core.Action,
 // handleSuccess processes a successful run: check signals, collect metadata, then gate finalize or action done.
 func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action, run *core.Run) error {
 	run.Status = core.RunSucceeded
-	_ = e.store.UpdateRun(ctx, run)
+	_ = e.workflow.store.UpdateRun(ctx, run)
 
-	e.bus.Publish(ctx, core.Event{
+	e.workflow.bus.Publish(ctx, core.Event{
 		Type:       core.EventRunSucceeded,
 		WorkItemID: action.WorkItemID,
 		ActionID:   action.ID,
@@ -158,10 +158,10 @@ func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action,
 	})
 
 	// 1. Check if agent declared need_help via MCP tool.
-	helpSignal, _ := e.store.GetLatestActionSignal(ctx, action.ID, core.SignalNeedHelp, core.SignalBlocked)
+	helpSignal, _ := e.workflow.store.GetLatestActionSignal(ctx, action.ID, core.SignalNeedHelp, core.SignalBlocked)
 	if helpSignal != nil && helpSignal.RunID == run.ID {
 		_ = e.transitionAction(ctx, action, core.ActionBlocked)
-		e.bus.Publish(ctx, core.Event{
+		e.workflow.bus.Publish(ctx, core.Event{
 			Type:       core.EventActionNeedHelp,
 			WorkItemID: action.WorkItemID,
 			ActionID:   action.ID,
@@ -173,13 +173,13 @@ func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action,
 	}
 
 	// 2. Check if agent provided structured completion signal → skip Collector.
-	completeSignal, _ := e.store.GetLatestActionSignal(ctx, action.ID, core.SignalComplete)
+	completeSignal, _ := e.workflow.store.GetLatestActionSignal(ctx, action.ID, core.SignalComplete)
 	if completeSignal != nil && completeSignal.RunID == run.ID {
 		e.applySignalMetadata(ctx, action, run, completeSignal.Payload)
 	} else {
 		// 3. Fallback: LLM Collector extracts metadata (existing behavior).
 		if err := e.collectMetadata(ctx, action); err != nil {
-			e.bus.Publish(ctx, core.Event{
+			e.workflow.bus.Publish(ctx, core.Event{
 				Type:       core.EventRunFailed,
 				WorkItemID: action.WorkItemID,
 				ActionID:   action.ID,
@@ -190,14 +190,14 @@ func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action,
 	}
 
 	// Deposit declared output resources after successful execution.
-	if e.resResolver != nil {
+	if e.preparation.resources != nil {
 		ws := WorkspaceFromContext(ctx)
 		sourceDir := "/tmp/action-resources/" + fmt.Sprintf("%d", action.ID)
 		if ws != nil && ws.Path != "" {
 			sourceDir = ws.Path
 		}
-		if depositErr := e.resResolver.DepositOutputs(ctx, action.ID, sourceDir); depositErr != nil {
-			e.bus.Publish(ctx, core.Event{
+		if depositErr := e.preparation.resources.DepositOutputs(ctx, action.ID, sourceDir); depositErr != nil {
+			e.workflow.bus.Publish(ctx, core.Event{
 				Type:       core.EventRunFailed,
 				WorkItemID: action.WorkItemID,
 				ActionID:   action.ID,
@@ -221,7 +221,7 @@ func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action,
 // applySignalMetadata writes agent-provided metadata directly to the action's latest run result,
 // bypassing the LLM Collector.
 func (e *WorkItemEngine) applySignalMetadata(ctx context.Context, action *core.Action, run *core.Run, payload map[string]any) {
-	r, err := e.store.GetLatestRunWithResult(ctx, action.ID)
+	r, err := e.workflow.store.GetLatestRunWithResult(ctx, action.ID)
 	if err != nil {
 		return
 	}
@@ -232,15 +232,15 @@ func (e *WorkItemEngine) applySignalMetadata(ctx context.Context, action *core.A
 		r.ResultMetadata[k] = v
 	}
 	r.ResultMetadata["signal_source"] = "agent"
-	_ = e.store.UpdateRun(ctx, r)
+	_ = e.workflow.store.UpdateRun(ctx, r)
 }
 
 // collectMetadata runs the Collector (if set) to extract structured metadata from the action's latest Run result.
 func (e *WorkItemEngine) collectMetadata(ctx context.Context, action *core.Action) error {
-	if e.collector == nil {
+	if e.preparation.collector == nil {
 		return nil
 	}
-	r, err := e.store.GetLatestRunWithResult(ctx, action.ID)
+	r, err := e.workflow.store.GetLatestRunWithResult(ctx, action.ID)
 	if err != nil {
 		return nil // no result to collect from
 	}
@@ -248,7 +248,7 @@ func (e *WorkItemEngine) collectMetadata(ctx context.Context, action *core.Actio
 		return nil
 	}
 
-	metadata, err := e.collector.Extract(ctx, action.Type, r.ResultMarkdown)
+	metadata, err := e.preparation.collector.Extract(ctx, action.Type, r.ResultMarkdown)
 	if err != nil {
 		return fmt.Errorf("collect metadata for action %d: %w", action.ID, err)
 	}
@@ -264,7 +264,7 @@ func (e *WorkItemEngine) collectMetadata(ctx context.Context, action *core.Actio
 		}
 	}
 
-	return e.store.UpdateRun(ctx, r)
+	return e.workflow.store.UpdateRun(ctx, r)
 }
 
 const (

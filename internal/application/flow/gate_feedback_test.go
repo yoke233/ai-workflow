@@ -85,12 +85,14 @@ func TestFormatMergeFailureFeedback_GitHubConflict(t *testing.T) {
 
 func TestFormatMergeFailureFeedback_UsesConfiguredTemplate(t *testing.T) {
 	eng := &WorkItemEngine{
-		prPrompts: func() PRFlowPrompts {
-			return PRFlowPrompts{
-				Global: PRProviderPrompts{
-					MergeReworkFeedback: "PR={{.PRNumber}} STATE={{.MergeableState}} HINT={{.Hint}}",
-				},
-			}
+		gates: gateService{
+			prPrompts: func() PRFlowPrompts {
+				return PRFlowPrompts{
+					Global: PRProviderPrompts{
+						MergeReworkFeedback: "PR={{.PRNumber}} STATE={{.MergeableState}} HINT={{.Hint}}",
+					},
+				}
+			},
 		},
 	}
 	reason, _ := eng.formatMergeFailureFeedback(&core.Action{ID: 1}, &MergeError{

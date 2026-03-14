@@ -20,7 +20,7 @@ func manifestCheckEnabled(action *core.Action) bool {
 // checkManifestEntries evaluates the feature manifest for the gate action's work item/project.
 // Returns (passed, reason, error).
 func (e *WorkItemEngine) checkManifestEntries(ctx context.Context, action *core.Action) (bool, string, error) {
-	workItem, err := e.store.GetWorkItem(ctx, action.WorkItemID)
+	workItem, err := e.workflow.store.GetWorkItem(ctx, action.WorkItemID)
 	if err != nil || workItem == nil || workItem.ProjectID == nil {
 		return true, "", nil // no project → skip check
 	}
@@ -42,7 +42,7 @@ func (e *WorkItemEngine) checkManifestEntries(ctx context.Context, action *core.
 		}
 	}
 
-	entries, err := e.store.ListFeatureEntries(ctx, filter)
+	entries, err := e.workflow.store.ListFeatureEntries(ctx, filter)
 	if err != nil {
 		return true, "", err
 	}
@@ -75,7 +75,7 @@ func (e *WorkItemEngine) checkManifestEntries(ctx context.Context, action *core.
 	}
 
 	// Publish gate-checked event.
-	e.bus.Publish(ctx, core.Event{
+	e.workflow.bus.Publish(ctx, core.Event{
 		Type:       core.EventManifestGateChecked,
 		WorkItemID: action.WorkItemID,
 		ActionID:   action.ID,

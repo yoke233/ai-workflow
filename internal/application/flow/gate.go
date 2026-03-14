@@ -30,7 +30,7 @@ func (e *WorkItemEngine) ProcessGate(ctx context.Context, action *core.Action, r
 		if err := e.transitionAction(ctx, action, core.ActionDone); err != nil {
 			return err
 		}
-		e.bus.Publish(ctx, core.Event{
+		e.workflow.bus.Publish(ctx, core.Event{
 			Type:       core.EventGatePassed,
 			WorkItemID: action.WorkItemID,
 			ActionID:   action.ID,
@@ -50,13 +50,13 @@ func (e *WorkItemEngine) ProcessGate(ctx context.Context, action *core.Action, r
 
 	// Read rework_count from signal count (single source of truth).
 	reworkCount := 0
-	if cnt, err := e.store.CountActionSignals(ctx, action.ID, core.SignalReject); err == nil {
+	if cnt, err := e.workflow.store.CountActionSignals(ctx, action.ID, core.SignalReject); err == nil {
 		reworkCount = cnt
 	}
 
 	if reworkCount >= maxReworkRounds {
 		// Rework limit reached — caller will transition to blocked.
-		e.bus.Publish(ctx, core.Event{
+		e.workflow.bus.Publish(ctx, core.Event{
 			Type:       core.EventGateReworkLimitReached,
 			WorkItemID: action.WorkItemID,
 			ActionID:   action.ID,
@@ -71,7 +71,7 @@ func (e *WorkItemEngine) ProcessGate(ctx context.Context, action *core.Action, r
 	}
 
 	// Record a SignalReject on the gate action — single source of truth for rework_count.
-	if _, err := e.store.CreateActionSignal(ctx, &core.ActionSignal{
+	if _, err := e.workflow.store.CreateActionSignal(ctx, &core.ActionSignal{
 		ActionID:   action.ID,
 		WorkItemID: action.WorkItemID,
 		Type:       core.SignalReject,
@@ -84,7 +84,7 @@ func (e *WorkItemEngine) ProcessGate(ctx context.Context, action *core.Action, r
 		slog.Error("failed to record gate reject signal", "action_id", action.ID, "error", err)
 	}
 
-	e.bus.Publish(ctx, core.Event{
+	e.workflow.bus.Publish(ctx, core.Event{
 		Type:       core.EventGateRejected,
 		WorkItemID: action.WorkItemID,
 		ActionID:   action.ID,
@@ -94,7 +94,7 @@ func (e *WorkItemEngine) ProcessGate(ctx context.Context, action *core.Action, r
 
 	// Reset upstream actions for rework — persist retry_count via UpdateAction.
 	for _, upID := range result.ResetTo {
-		up, err := e.store.GetAction(ctx, upID)
+		up, err := e.workflow.store.GetAction(ctx, upID)
 		if err != nil {
 			return fmt.Errorf("get upstream action %d: %w", upID, err)
 		}
@@ -104,7 +104,7 @@ func (e *WorkItemEngine) ProcessGate(ctx context.Context, action *core.Action, r
 		e.recordGateRework(ctx, up, action.ID, result.Reason, result.Metadata)
 		up.RetryCount++
 		up.Status = core.ActionPending
-		if err := e.store.UpdateAction(ctx, up); err != nil {
+		if err := e.workflow.store.UpdateAction(ctx, up); err != nil {
 			return fmt.Errorf("reset action %d: %w", upID, err)
 		}
 	}
@@ -142,7 +142,7 @@ type GateEvaluator func(ctx context.Context, action *core.Action) (GateVerdict, 
 // It runs the evaluator chain in order; the first evaluator that returns Decided=true wins.
 // Default chain: ActionSignal (MCP/HTTP) → Manifest check → Deliverable metadata.
 func (e *WorkItemEngine) finalizeGate(ctx context.Context, action *core.Action) error {
-	evaluators := e.gateEvaluators
+	evaluators := e.gates.gateEvaluators
 	if len(evaluators) == 0 {
 		evaluators = []GateEvaluator{
 			e.evalSignalVerdict,
@@ -200,7 +200,7 @@ func (e *WorkItemEngine) applyGatePass(ctx context.Context, action *core.Action,
 			data["reason"] = v.Reason
 		}
 	}
-	e.bus.Publish(ctx, core.Event{
+	e.workflow.bus.Publish(ctx, core.Event{
 		Type:       core.EventGatePassed,
 		WorkItemID: action.WorkItemID,
 		ActionID:   action.ID,
@@ -215,7 +215,7 @@ func (e *WorkItemEngine) applyGatePass(ctx context.Context, action *core.Action,
 // evalSignalVerdict checks for an explicit ActionSignal (MCP tool call or human HTTP API).
 // System-sourced signals are skipped — those are internal bookkeeping.
 func (e *WorkItemEngine) evalSignalVerdict(ctx context.Context, action *core.Action) (GateVerdict, error) {
-	signal, _ := e.store.GetLatestActionSignal(ctx, action.ID, core.SignalApprove, core.SignalReject)
+	signal, _ := e.workflow.store.GetLatestActionSignal(ctx, action.ID, core.SignalApprove, core.SignalReject)
 	if signal == nil || signal.Source == core.SignalSourceSystem {
 		return GateVerdict{}, nil
 	}
@@ -270,7 +270,7 @@ func (e *WorkItemEngine) evalManifestCheck(ctx context.Context, action *core.Act
 
 // evalDeliverableMetadata checks the gate action's latest run result for a verdict field.
 func (e *WorkItemEngine) evalDeliverableMetadata(ctx context.Context, action *core.Action) (GateVerdict, error) {
-	run, err := e.store.GetLatestRunWithResult(ctx, action.ID)
+	run, err := e.workflow.store.GetLatestRunWithResult(ctx, action.ID)
 	if err == core.ErrNotFound {
 		return GateVerdict{}, nil // no result → continue to default pass
 	}
@@ -364,7 +364,7 @@ func (e *WorkItemEngine) recordGateRework(ctx context.Context, upstreamAction *c
 		Actor:          "gate",
 		CreatedAt:      time.Now().UTC(),
 	}
-	if _, err := e.store.CreateActionSignal(ctx, sig); err != nil {
+	if _, err := e.workflow.store.CreateActionSignal(ctx, sig); err != nil {
 		slog.Error("failed to record gate rework signal", "action_id", upstreamAction.ID, "error", err)
 	}
 }
@@ -391,7 +391,7 @@ func (e *WorkItemEngine) defaultGateResetTargets(ctx context.Context, action *co
 
 // predecessorIDs returns IDs of all actions with lower Position in the same work item.
 func (e *WorkItemEngine) predecessorIDs(ctx context.Context, action *core.Action) []int64 {
-	actions, err := e.store.ListActionsByWorkItem(ctx, action.WorkItemID)
+	actions, err := e.workflow.store.ListActionsByWorkItem(ctx, action.WorkItemID)
 	if err != nil || len(actions) == 0 {
 		return nil
 	}
@@ -399,7 +399,7 @@ func (e *WorkItemEngine) predecessorIDs(ctx context.Context, action *core.Action
 }
 
 func (e *WorkItemEngine) immediatePredecessorIDs(ctx context.Context, action *core.Action) []int64 {
-	actions, err := e.store.ListActionsByWorkItem(ctx, action.WorkItemID)
+	actions, err := e.workflow.store.ListActionsByWorkItem(ctx, action.WorkItemID)
 	if err != nil || len(actions) == 0 {
 		return nil
 	}

@@ -20,11 +20,11 @@ func (e *WorkItemEngine) ExpandComposite(ctx context.Context, action *core.Actio
 		Status: core.WorkItemOpen,
 	}
 	// Inherit ProjectID from parent work item.
-	parentWorkItem, err := e.store.GetWorkItem(ctx, action.WorkItemID)
+	parentWorkItem, err := e.workflow.store.GetWorkItem(ctx, action.WorkItemID)
 	if err == nil && parentWorkItem.ProjectID != nil {
 		childWorkItem.ProjectID = parentWorkItem.ProjectID
 	}
-	childWorkItemID, err := e.store.CreateWorkItem(ctx, childWorkItem)
+	childWorkItemID, err := e.workflow.store.CreateWorkItem(ctx, childWorkItem)
 	if err != nil {
 		return 0, fmt.Errorf("create child work item: %w", err)
 	}
@@ -33,7 +33,7 @@ func (e *WorkItemEngine) ExpandComposite(ctx context.Context, action *core.Actio
 		ca.WorkItemID = childWorkItemID
 		ca.Status = core.ActionPending
 		ca.Position = i + 1
-		if _, err := e.store.CreateAction(ctx, ca); err != nil {
+		if _, err := e.workflow.store.CreateAction(ctx, ca); err != nil {
 			return 0, fmt.Errorf("create child action %s: %w", ca.Name, err)
 		}
 	}
@@ -43,7 +43,7 @@ func (e *WorkItemEngine) ExpandComposite(ctx context.Context, action *core.Actio
 		action.Config = map[string]any{}
 	}
 	action.Config["child_work_item_id"] = childWorkItemID
-	if err := e.store.UpdateAction(ctx, action); err != nil {
+	if err := e.workflow.store.UpdateAction(ctx, action); err != nil {
 		return 0, fmt.Errorf("persist child work item link for action %d: %w", action.ID, err)
 	}
 
@@ -72,7 +72,7 @@ func (e *WorkItemEngine) executeComposite(ctx context.Context, action *core.Acti
 	// clear it so we create a fresh one.
 	cID := childWorkItemID(action)
 	if cID != nil {
-		ci, err := e.store.GetWorkItem(ctx, *cID)
+		ci, err := e.workflow.store.GetWorkItem(ctx, *cID)
 		if err == nil && (ci.Status == core.WorkItemDone || ci.Status == core.WorkItemFailed || ci.Status == core.WorkItemCancelled) {
 			cID = nil
 			delete(action.Config, "child_work_item_id")
@@ -81,12 +81,12 @@ func (e *WorkItemEngine) executeComposite(ctx context.Context, action *core.Acti
 
 	// If no child work item exists, expand.
 	if cID == nil {
-		if e.expander == nil {
+		if e.preparation.expander == nil {
 			_ = e.transitionAction(ctx, action, core.ActionFailed)
 			return fmt.Errorf("composite action %d: no expander configured and no child work item", action.ID)
 		}
 
-		children, err := e.expander.Expand(ctx, action)
+		children, err := e.preparation.expander.Expand(ctx, action)
 		if err != nil {
 			_ = e.transitionAction(ctx, action, core.ActionFailed)
 			return fmt.Errorf("expand composite action %d: %w", action.ID, err)
@@ -102,7 +102,7 @@ func (e *WorkItemEngine) executeComposite(ctx context.Context, action *core.Acti
 
 	childWIID := *cID
 
-	e.bus.Publish(ctx, core.Event{
+	e.workflow.bus.Publish(ctx, core.Event{
 		Type:       core.EventWorkItemStarted,
 		WorkItemID: childWIID,
 		ActionID:   action.ID,
@@ -117,7 +117,7 @@ func (e *WorkItemEngine) executeComposite(ctx context.Context, action *core.Acti
 			action.RetryCount++
 			action.Status = core.ActionPending
 			delete(action.Config, "child_work_item_id") // clear link so next attempt creates fresh child work item
-			return e.store.UpdateAction(ctx, action)
+			return e.workflow.store.UpdateAction(ctx, action)
 		}
 
 		_ = e.transitionAction(ctx, action, core.ActionFailed)

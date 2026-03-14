@@ -477,9 +477,9 @@ func (m *JournalModel) toCore() *core.JournalEntry {
 		ID:        m.ID,
 		Kind:      core.JournalKind(m.Kind),
 		Source:    core.JournalSource(m.Source),
-		Summary:  m.Summary,
-		Payload:  m.Payload.Data,
-		Actor:    m.Actor,
+		Summary:   m.Summary,
+		Payload:   m.Payload.Data,
+		Actor:     m.Actor,
 		CreatedAt: m.CreatedAt,
 	}
 	if m.WorkItemID != nil {
@@ -641,6 +641,7 @@ func workItemModelFromCore(w *core.WorkItem) *WorkItemModel {
 		Status:            string(w.Status),
 		Priority:          string(w.Priority),
 		Labels:            JSONField[[]string]{Data: w.Labels},
+		DependsOn:         JSONField[[]int64]{Data: w.DependsOn},
 		Metadata:          JSONField[map[string]any]{Data: w.Metadata},
 		ArchivedAt:        w.ArchivedAt,
 		CreatedAt:         w.CreatedAt,
@@ -661,6 +662,7 @@ func (m *WorkItemModel) toCore() *core.WorkItem {
 		Status:            core.WorkItemStatus(m.Status),
 		Priority:          core.WorkItemPriority(m.Priority),
 		Labels:            m.Labels.Data,
+		DependsOn:         m.DependsOn.Data,
 		Metadata:          m.Metadata.Data,
 		ArchivedAt:        m.ArchivedAt,
 		CreatedAt:         m.CreatedAt,

@@ -42,10 +42,11 @@ type WorkItem struct {
 	ResourceBindingID *int64 `json:"resource_binding_id,omitempty"` // which repo/resource to work on
 
 	// Planning fields
-	Title    string           `json:"title"`
-	Body     string           `json:"body"`
-	Priority WorkItemPriority `json:"priority"`
-	Labels   []string         `json:"labels,omitempty"`
+	Title     string           `json:"title"`
+	Body      string           `json:"body"`
+	Priority  WorkItemPriority `json:"priority"`
+	Labels    []string         `json:"labels,omitempty"`
+	DependsOn []int64          `json:"depends_on,omitempty"`
 
 	// Execution fields
 	Status   WorkItemStatus `json:"status"`
