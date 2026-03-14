@@ -3,6 +3,7 @@ package acp
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1237,6 +1238,16 @@ func buildSessionSummary(record *persistedLeadSession, live, running bool) chata
 		}
 	}
 
+	// Overlay PR metadata captured from the event stream.
+	if record.PrURL != "" {
+		if summary.Git == nil {
+			summary.Git = &chatapp.GitStats{}
+		}
+		summary.Git.PrURL = record.PrURL
+		summary.Git.PrNumber = record.PrNumber
+		summary.Git.PrState = record.PrState
+	}
+
 	return summary
 }
 
@@ -1320,12 +1331,69 @@ func (l *LeadAgent) captureSessionState(sessionID string, update acpclient.Sessi
 			record.Modes.CurrentModeId = modeId
 			changed = true
 		}
+	case "tool_call_completed":
+		if capturePRFromToolResult(record, update.RawJSON) {
+			changed = true
+		}
+	case "agent_message":
+		if record.PrURL == "" && capturePRFromText(record, update.Text) {
+			changed = true
+		}
 	}
 	if !changed {
 		return
 	}
 	record.UpdatedAt = time.Now().UTC()
 	_ = l.saveCatalogLocked()
+}
+
+// prURLPattern matches GitHub/GitLab/Codeup PR/MR URLs.
+var prURLPattern = regexp.MustCompile(`https?://[^\s)]+/pull/(\d+)|https?://[^\s)]+/merge_requests/(\d+)`)
+
+// capturePRFromToolResult extracts PR metadata from a tool_call_completed
+// RawJSON payload (the stdout of a tool that created a PR).
+func capturePRFromToolResult(record *persistedLeadSession, raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var parsed struct {
+		RawOutput struct {
+			Stdout string `json:"stdout"`
+		} `json:"rawOutput"`
+	}
+	if json.Unmarshal(raw, &parsed) != nil {
+		return false
+	}
+	return capturePRFromText(record, parsed.RawOutput.Stdout)
+}
+
+// capturePRFromText scans text for a PR/MR URL and extracts the PR number.
+func capturePRFromText(record *persistedLeadSession, text string) bool {
+	if text == "" {
+		return false
+	}
+	matches := prURLPattern.FindStringSubmatch(text)
+	if matches == nil {
+		return false
+	}
+
+	url := matches[0]
+	// Extract PR number from the first non-empty capture group.
+	numStr := matches[1]
+	if numStr == "" {
+		numStr = matches[2]
+	}
+	prNum := 0
+	if numStr != "" {
+		prNum, _ = strconv.Atoi(numStr)
+	}
+
+	record.PrURL = url
+	record.PrNumber = prNum
+	if record.PrState == "" {
+		record.PrState = "open"
+	}
+	return true
 }
 
 func toChatModeState(state *acpproto.SessionModeState) *chatapp.SessionModeState {
