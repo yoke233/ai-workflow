@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/yoke233/ai-workflow/internal/core"
@@ -16,6 +17,7 @@ type ThreadBootInput struct {
 	WorkItems      []*core.WorkItem
 	AgentProfile   *core.AgentProfile
 	PriorSummary   string // progress_summary from a previous session (if resuming)
+	Workspace      *core.ThreadWorkspaceContext
 }
 
 // BuildBootPrompt assembles a Markdown system prompt that orients an agent
@@ -72,6 +74,26 @@ func BuildBootPrompt(in ThreadBootInput) string {
 		b.WriteString("## Linked Work Items\n")
 		for _, wi := range in.WorkItems {
 			fmt.Fprintf(&b, "- #%d: %s [status: %s]\n", wi.ID, wi.Title, wi.Status)
+		}
+		b.WriteString("\n")
+	}
+
+	if in.Workspace != nil {
+		b.WriteString("## Workspace Context\n")
+		fmt.Fprintf(&b, "- Workspace: %s\n", strings.TrimSpace(in.Workspace.Workspace))
+		if strings.TrimSpace(in.Workspace.Archive) != "" {
+			fmt.Fprintf(&b, "- Archive: %s\n", strings.TrimSpace(in.Workspace.Archive))
+		}
+		if len(in.Workspace.Mounts) > 0 {
+			keys := make([]string, 0, len(in.Workspace.Mounts))
+			for key := range in.Workspace.Mounts {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				mount := in.Workspace.Mounts[key]
+				fmt.Fprintf(&b, "- Mount %s => %s [%s]\n", key, mount.Path, mount.Access)
+			}
 		}
 		b.WriteString("\n")
 	}

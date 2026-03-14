@@ -76,6 +76,27 @@ func setupAPI(t *testing.T) (*Handler, *httptest.Server) {
 	return h, ts
 }
 
+func setupAPIWithDataDir(t *testing.T, dataDir string) (*Handler, *httptest.Server) {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := sqlite.New(dbPath)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	t.Cleanup(func() { store.Close() })
+
+	bus := membus.NewBus()
+	executor := func(_ context.Context, step *core.Action, exec *core.Run) error { return nil }
+	eng := flowapp.New(store, bus, executor, flowapp.WithConcurrency(2))
+
+	h := NewHandler(store, bus, eng, WithSandboxInspector(v2sandbox.NewDefaultSupportInspector(false, "")), WithDataDir(dataDir))
+	r := chi.NewRouter()
+	h.Register(r)
+	ts := httptest.NewServer(r)
+	t.Cleanup(ts.Close)
+	return h, ts
+}
+
 func post(ts *httptest.Server, path string, body any) (*http.Response, error) {
 	b, _ := json.Marshal(body)
 	return http.Post(ts.URL+path, "application/json", bytes.NewReader(b))
@@ -88,6 +109,16 @@ func get(ts *httptest.Server, path string) (*http.Response, error) {
 func put(ts *httptest.Server, path string, body any) (*http.Response, error) {
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequest(http.MethodPut, ts.URL+path, bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return http.DefaultClient.Do(req)
+}
+
+func patch(ts *httptest.Server, path string, body any) (*http.Response, error) {
+	b, _ := json.Marshal(body)
+	req, err := http.NewRequest(http.MethodPatch, ts.URL+path, bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}

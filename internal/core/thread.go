@@ -115,6 +115,70 @@ type ThreadWorkItemLink struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// ContextAccess defines a Thread's access level to mounted project resources.
+type ContextAccess string
+
+const (
+	ContextAccessRead  ContextAccess = "read"
+	ContextAccessCheck ContextAccess = "check"
+	ContextAccessWrite ContextAccess = "write"
+)
+
+func (a ContextAccess) Valid() bool {
+	switch a {
+	case ContextAccessRead, ContextAccessCheck, ContextAccessWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+func ParseContextAccess(raw string) (ContextAccess, error) {
+	access := ContextAccess(strings.TrimSpace(raw))
+	if !access.Valid() {
+		return "", fmt.Errorf("invalid context access %q", raw)
+	}
+	return access, nil
+}
+
+func (a ContextAccess) AllowsCheck() bool {
+	return a == ContextAccessCheck || a == ContextAccessWrite
+}
+
+func (a ContextAccess) AllowsWrite() bool {
+	return a == ContextAccessWrite
+}
+
+// ThreadContextRef is a lightweight project context reference attached to a Thread.
+type ThreadContextRef struct {
+	ID        int64         `json:"id"`
+	ThreadID  int64         `json:"thread_id"`
+	ProjectID int64         `json:"project_id"`
+	Access    ContextAccess `json:"access"`
+	Note      string        `json:"note,omitempty"`
+	GrantedBy string        `json:"granted_by,omitempty"`
+	CreatedAt time.Time     `json:"created_at"`
+	ExpiresAt *time.Time    `json:"expires_at,omitempty"`
+}
+
+// ThreadWorkspaceMount describes a virtual project mount exposed to a Thread agent.
+type ThreadWorkspaceMount struct {
+	Path          string        `json:"path"`
+	ProjectID     int64         `json:"project_id"`
+	Access        ContextAccess `json:"access"`
+	CheckCommands []string      `json:"check_commands,omitempty"`
+}
+
+// ThreadWorkspaceContext is the platform-maintained .context.json payload.
+type ThreadWorkspaceContext struct {
+	ThreadID  int64                           `json:"thread_id"`
+	Workspace string                          `json:"workspace"`
+	Mounts    map[string]ThreadWorkspaceMount `json:"mounts,omitempty"`
+	Archive   string                          `json:"archive"`
+	Members   []string                        `json:"members,omitempty"`
+	UpdatedAt time.Time                       `json:"updated_at"`
+}
+
 // ThreadAgentStatus represents the lifecycle status of an agent thread member.
 type ThreadAgentStatus string
 
@@ -195,4 +259,11 @@ type ThreadStore interface {
 	DeleteThreadWorkItemLink(ctx context.Context, threadID, workItemID int64) error
 	DeleteThreadWorkItemLinksByThread(ctx context.Context, threadID int64) error
 	DeleteThreadWorkItemLinksByWorkItem(ctx context.Context, workItemID int64) error
+
+	CreateThreadContextRef(ctx context.Context, ref *ThreadContextRef) (int64, error)
+	GetThreadContextRef(ctx context.Context, id int64) (*ThreadContextRef, error)
+	ListThreadContextRefs(ctx context.Context, threadID int64) ([]*ThreadContextRef, error)
+	UpdateThreadContextRef(ctx context.Context, ref *ThreadContextRef) error
+	DeleteThreadContextRef(ctx context.Context, id int64) error
+	DeleteThreadContextRefsByThread(ctx context.Context, threadID int64) error
 }

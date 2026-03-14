@@ -4,10 +4,15 @@ import "errors"
 
 const (
 	CodeCleanupThreadFailed  = "CLEANUP_THREAD_FAILED"
+	CodeContextRefConflict   = "CONTEXT_REF_CONFLICT"
+	CodeContextRefNotFound   = "CONTEXT_REF_NOT_FOUND"
+	CodeInvalidContextAccess = "INVALID_CONTEXT_ACCESS"
 	CodeLinkNotFound         = "LINK_NOT_FOUND"
+	CodeMissingProjectID     = "MISSING_PROJECT_ID"
 	CodeMissingThreadSummary = "MISSING_THREAD_SUMMARY"
 	CodeMissingTitle         = "MISSING_TITLE"
 	CodeMissingWorkItemID    = "MISSING_WORK_ITEM_ID"
+	CodeProjectNotFound      = "PROJECT_NOT_FOUND"
 	CodeThreadNotFound       = "THREAD_NOT_FOUND"
 	CodeWorkItemNotFound     = "WORK_ITEM_NOT_FOUND"
 )

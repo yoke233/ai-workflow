@@ -29,9 +29,10 @@ func (h *Handler) threadService() *threadapp.Service {
 		tx = threadAppTx{store: txStore}
 	}
 	return threadapp.New(threadapp.Config{
-		Store:   h.store,
-		Tx:      tx,
-		Runtime: threadAppRuntime{handler: h},
+		Store:     h.store,
+		Tx:        tx,
+		Runtime:   threadAppRuntime{handler: h},
+		Workspace: threadWorkspaceManager{store: h.store, dataDir: h.dataDir},
 	})
 }
 
@@ -58,14 +59,24 @@ func writeThreadAppError(w http.ResponseWriter, err error) bool {
 		writeError(w, http.StatusNotFound, "thread not found", threadapp.CodeThreadNotFound)
 	case threadapp.CodeWorkItemNotFound:
 		writeError(w, http.StatusNotFound, "work item not found", threadapp.CodeWorkItemNotFound)
+	case threadapp.CodeProjectNotFound:
+		writeError(w, http.StatusNotFound, "project not found", threadapp.CodeProjectNotFound)
 	case threadapp.CodeLinkNotFound:
 		writeError(w, http.StatusNotFound, "link not found", threadapp.CodeLinkNotFound)
+	case threadapp.CodeContextRefNotFound:
+		writeError(w, http.StatusNotFound, "context ref not found", threadapp.CodeContextRefNotFound)
 	case threadapp.CodeMissingTitle:
 		writeError(w, http.StatusBadRequest, "title is required", threadapp.CodeMissingTitle)
 	case threadapp.CodeMissingWorkItemID:
 		writeError(w, http.StatusBadRequest, "work_item_id is required", threadapp.CodeMissingWorkItemID)
+	case threadapp.CodeMissingProjectID:
+		writeError(w, http.StatusBadRequest, "project_id is required", threadapp.CodeMissingProjectID)
 	case threadapp.CodeMissingThreadSummary:
 		writeError(w, http.StatusBadRequest, "please generate or fill in summary first", threadapp.CodeMissingThreadSummary)
+	case threadapp.CodeInvalidContextAccess:
+		writeError(w, http.StatusBadRequest, err.Error(), threadapp.CodeInvalidContextAccess)
+	case threadapp.CodeContextRefConflict:
+		writeError(w, http.StatusConflict, "context ref already exists for project", threadapp.CodeContextRefConflict)
 	case threadapp.CodeCleanupThreadFailed:
 		writeError(w, http.StatusInternalServerError, err.Error(), threadapp.CodeCleanupThreadFailed)
 	default:

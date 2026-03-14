@@ -650,3 +650,121 @@ func TestDeleteThreadMembersByThread(t *testing.T) {
 		t.Fatalf("expected 0 members after cleanup, got %d", len(members))
 	}
 }
+
+func TestThreadContextRefCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	threadID, err := s.CreateThread(ctx, &core.Thread{Title: "context-ref-thread"})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	projectID, err := s.CreateProject(ctx, &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	ref := &core.ThreadContextRef{
+		ThreadID:  threadID,
+		ProjectID: projectID,
+		Access:    core.ContextAccessCheck,
+		Note:      "review docs",
+		GrantedBy: "user-1",
+	}
+	refID, err := s.CreateThreadContextRef(ctx, ref)
+	if err != nil {
+		t.Fatalf("create context ref: %v", err)
+	}
+	if refID <= 0 {
+		t.Fatal("expected positive context ref id")
+	}
+
+	got, err := s.GetThreadContextRef(ctx, refID)
+	if err != nil {
+		t.Fatalf("get context ref: %v", err)
+	}
+	if got.Access != core.ContextAccessCheck || got.Note != "review docs" {
+		t.Fatalf("unexpected context ref: %+v", got)
+	}
+
+	refs, err := s.ListThreadContextRefs(ctx, threadID)
+	if err != nil {
+		t.Fatalf("list context refs: %v", err)
+	}
+	if len(refs) != 1 || refs[0].ProjectID != projectID {
+		t.Fatalf("unexpected context ref list: %+v", refs)
+	}
+
+	got.Access = core.ContextAccessWrite
+	got.Note = "upgrade"
+	if err := s.UpdateThreadContextRef(ctx, got); err != nil {
+		t.Fatalf("update context ref: %v", err)
+	}
+	updated, err := s.GetThreadContextRef(ctx, refID)
+	if err != nil {
+		t.Fatalf("get updated context ref: %v", err)
+	}
+	if updated.Access != core.ContextAccessWrite || updated.Note != "upgrade" {
+		t.Fatalf("unexpected updated context ref: %+v", updated)
+	}
+
+	if err := s.DeleteThreadContextRef(ctx, refID); err != nil {
+		t.Fatalf("delete context ref: %v", err)
+	}
+	if _, err := s.GetThreadContextRef(ctx, refID); err != core.ErrNotFound {
+		t.Fatalf("expected ErrNotFound after delete, got %v", err)
+	}
+}
+
+func TestThreadContextRefUniqueByThreadAndProject(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	threadID, _ := s.CreateThread(ctx, &core.Thread{Title: "context-ref-unique"})
+	projectID, _ := s.CreateProject(ctx, &core.Project{Name: "Project Beta", Kind: core.ProjectGeneral})
+
+	if _, err := s.CreateThreadContextRef(ctx, &core.ThreadContextRef{
+		ThreadID:  threadID,
+		ProjectID: projectID,
+		Access:    core.ContextAccessRead,
+	}); err != nil {
+		t.Fatalf("create first context ref: %v", err)
+	}
+	if _, err := s.CreateThreadContextRef(ctx, &core.ThreadContextRef{
+		ThreadID:  threadID,
+		ProjectID: projectID,
+		Access:    core.ContextAccessCheck,
+	}); err == nil {
+		t.Fatal("expected duplicate context ref creation to fail")
+	}
+}
+
+func TestDeleteThreadContextRefsByThread(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	threadID, _ := s.CreateThread(ctx, &core.Thread{Title: "context-ref-cleanup"})
+	projectID1, _ := s.CreateProject(ctx, &core.Project{Name: "Project One", Kind: core.ProjectGeneral})
+	projectID2, _ := s.CreateProject(ctx, &core.Project{Name: "Project Two", Kind: core.ProjectGeneral})
+
+	for _, projectID := range []int64{projectID1, projectID2} {
+		if _, err := s.CreateThreadContextRef(ctx, &core.ThreadContextRef{
+			ThreadID:  threadID,
+			ProjectID: projectID,
+			Access:    core.ContextAccessRead,
+		}); err != nil {
+			t.Fatalf("create context ref for project %d: %v", projectID, err)
+		}
+	}
+
+	if err := s.DeleteThreadContextRefsByThread(ctx, threadID); err != nil {
+		t.Fatalf("delete context refs by thread: %v", err)
+	}
+	refs, err := s.ListThreadContextRefs(ctx, threadID)
+	if err != nil {
+		t.Fatalf("list context refs after cleanup: %v", err)
+	}
+	if len(refs) != 0 {
+		t.Fatalf("expected 0 context refs after cleanup, got %d", len(refs))
+	}
+}

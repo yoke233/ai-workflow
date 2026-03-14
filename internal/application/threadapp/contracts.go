@@ -2,6 +2,7 @@ package threadapp
 
 import (
 	"context"
+	"time"
 
 	"github.com/yoke233/ai-workflow/internal/core"
 )
@@ -12,6 +13,10 @@ type ThreadReader interface {
 
 type WorkItemReader interface {
 	GetWorkItem(ctx context.Context, id int64) (*core.WorkItem, error)
+}
+
+type ProjectReader interface {
+	GetProject(ctx context.Context, id int64) (*core.Project, error)
 }
 
 type ThreadWriter interface {
@@ -28,10 +33,23 @@ type ThreadMemberWriter interface {
 	DeleteThreadMembersByThread(ctx context.Context, threadID int64) error
 }
 
+type ThreadMemberReader interface {
+	ListThreadMembers(ctx context.Context, threadID int64) ([]*core.ThreadMember, error)
+}
+
 type ThreadLinkWriter interface {
 	CreateThreadWorkItemLink(ctx context.Context, link *core.ThreadWorkItemLink) (int64, error)
 	DeleteThreadWorkItemLink(ctx context.Context, threadID, workItemID int64) error
 	DeleteThreadWorkItemLinksByThread(ctx context.Context, threadID int64) error
+}
+
+type ThreadContextRefStore interface {
+	CreateThreadContextRef(ctx context.Context, ref *core.ThreadContextRef) (int64, error)
+	GetThreadContextRef(ctx context.Context, id int64) (*core.ThreadContextRef, error)
+	ListThreadContextRefs(ctx context.Context, threadID int64) ([]*core.ThreadContextRef, error)
+	UpdateThreadContextRef(ctx context.Context, ref *core.ThreadContextRef) error
+	DeleteThreadContextRef(ctx context.Context, id int64) error
+	DeleteThreadContextRefsByThread(ctx context.Context, threadID int64) error
 }
 
 type WorkItemWriter interface {
@@ -43,11 +61,15 @@ type WorkItemWriter interface {
 type Store interface {
 	ThreadReader
 	WorkItemReader
+	ProjectReader
 	ThreadWriter
 	ThreadMessageWriter
+	ThreadMemberReader
 	ThreadMemberWriter
 	ThreadLinkWriter
+	ThreadContextRefStore
 	WorkItemWriter
+	core.ResourceBindingStore
 }
 
 type TxStore interface {
@@ -63,6 +85,11 @@ type Runtime interface {
 	CleanupThread(ctx context.Context, threadID int64) error
 }
 
+type WorkspaceManager interface {
+	EnsureThreadWorkspace(ctx context.Context, threadID int64) error
+	SyncThreadWorkspaceContext(ctx context.Context, threadID int64) error
+}
+
 type CreateThreadInput struct {
 	Title              string
 	OwnerID            string
@@ -74,6 +101,24 @@ type CreateThreadInput struct {
 type CreateThreadResult struct {
 	Thread       *core.Thread
 	Participants []*core.ThreadMember
+}
+
+type CreateThreadContextRefInput struct {
+	ThreadID  int64
+	ProjectID int64
+	Access    string
+	Note      string
+	GrantedBy string
+	ExpiresAt *time.Time
+}
+
+type UpdateThreadContextRefInput struct {
+	ThreadID  int64
+	RefID     int64
+	Access    string
+	Note      *string
+	GrantedBy string
+	ExpiresAt *time.Time
 }
 
 type LinkThreadWorkItemInput struct {

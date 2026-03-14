@@ -572,3 +572,118 @@ func (s *Store) DeleteThreadWorkItemLinksByWorkItem(ctx context.Context, workIte
 		Where("work_item_id = ?", workItemID).
 		Delete(&ThreadWorkItemLinkModel{}).Error
 }
+
+// ---------------------------------------------------------------------------
+// ThreadContextRef CRUD
+// ---------------------------------------------------------------------------
+
+func (s *Store) CreateThreadContextRef(ctx context.Context, ref *core.ThreadContextRef) (int64, error) {
+	if s == nil || s.orm == nil {
+		return 0, fmt.Errorf("store is not initialized")
+	}
+	if ref == nil {
+		return 0, fmt.Errorf("context ref is nil")
+	}
+	if !ref.Access.Valid() {
+		return 0, fmt.Errorf("invalid context access %q", ref.Access)
+	}
+
+	now := time.Now().UTC()
+	model := threadContextRefModelFromCore(ref)
+	model.CreatedAt = now
+
+	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
+		return 0, err
+	}
+	ref.ID = model.ID
+	ref.CreatedAt = now
+	return model.ID, nil
+}
+
+func (s *Store) GetThreadContextRef(ctx context.Context, id int64) (*core.ThreadContextRef, error) {
+	if s == nil || s.orm == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+
+	var model ThreadContextRefModel
+	err := s.orm.WithContext(ctx).First(&model, id).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, core.ErrNotFound
+		}
+		return nil, err
+	}
+	return model.toCore(), nil
+}
+
+func (s *Store) ListThreadContextRefs(ctx context.Context, threadID int64) ([]*core.ThreadContextRef, error) {
+	if s == nil || s.orm == nil {
+		return nil, fmt.Errorf("store is not initialized")
+	}
+
+	var models []ThreadContextRefModel
+	if err := s.orm.WithContext(ctx).
+		Where("thread_id = ?", threadID).
+		Order("id ASC").
+		Find(&models).Error; err != nil {
+		return nil, err
+	}
+
+	out := make([]*core.ThreadContextRef, 0, len(models))
+	for i := range models {
+		out = append(out, models[i].toCore())
+	}
+	return out, nil
+}
+
+func (s *Store) UpdateThreadContextRef(ctx context.Context, ref *core.ThreadContextRef) error {
+	if s == nil || s.orm == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+	if ref == nil {
+		return fmt.Errorf("context ref is nil")
+	}
+	if !ref.Access.Valid() {
+		return fmt.Errorf("invalid context access %q", ref.Access)
+	}
+
+	result := s.orm.WithContext(ctx).Model(&ThreadContextRefModel{}).
+		Where("id = ?", ref.ID).
+		Updates(map[string]any{
+			"access":     string(ref.Access),
+			"note":       ref.Note,
+			"granted_by": ref.GrantedBy,
+			"expires_at": ref.ExpiresAt,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return core.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) DeleteThreadContextRef(ctx context.Context, id int64) error {
+	if s == nil || s.orm == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+
+	result := s.orm.WithContext(ctx).Delete(&ThreadContextRefModel{}, id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return core.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) DeleteThreadContextRefsByThread(ctx context.Context, threadID int64) error {
+	if s == nil || s.orm == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+	return s.orm.WithContext(ctx).
+		Where("thread_id = ?", threadID).
+		Delete(&ThreadContextRefModel{}).Error
+}

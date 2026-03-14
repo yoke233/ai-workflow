@@ -47,3 +47,28 @@ func TestCanTransitionThreadAgentStatus(t *testing.T) {
 		t.Fatal("expected left -> active to be rejected")
 	}
 }
+
+func TestParseContextAccess(t *testing.T) {
+	access, err := ParseContextAccess("check")
+	if err != nil {
+		t.Fatalf("parse check: %v", err)
+	}
+	if access != ContextAccessCheck {
+		t.Fatalf("expected check, got %q", access)
+	}
+	if _, err := ParseContextAccess("broken"); err == nil {
+		t.Fatal("expected invalid context access error")
+	}
+}
+
+func TestContextAccessCapabilities(t *testing.T) {
+	if !ContextAccessCheck.AllowsCheck() {
+		t.Fatal("expected check access to allow checks")
+	}
+	if ContextAccessCheck.AllowsWrite() {
+		t.Fatal("expected check access to reject writes")
+	}
+	if !ContextAccessWrite.AllowsWrite() {
+		t.Fatal("expected write access to allow writes")
+	}
+}

@@ -372,6 +372,51 @@ func (m *ThreadWorkItemLinkModel) toCore() *core.ThreadWorkItemLink {
 	}
 }
 
+type ThreadContextRefModel struct {
+	ID        int64      `gorm:"column:id;primaryKey;autoIncrement"`
+	ThreadID  int64      `gorm:"column:thread_id;not null;uniqueIndex:idx_thread_context_refs_thread_project"`
+	ProjectID int64      `gorm:"column:project_id;not null;uniqueIndex:idx_thread_context_refs_thread_project"`
+	Access    string     `gorm:"column:access;not null;default:read"`
+	Note      string     `gorm:"column:note;not null;default:''"`
+	GrantedBy string     `gorm:"column:granted_by;not null;default:''"`
+	CreatedAt time.Time  `gorm:"column:created_at"`
+	ExpiresAt *time.Time `gorm:"column:expires_at"`
+}
+
+func (ThreadContextRefModel) TableName() string { return "thread_context_refs" }
+
+func (m *ThreadContextRefModel) toCore() *core.ThreadContextRef {
+	if m == nil {
+		return nil
+	}
+	return &core.ThreadContextRef{
+		ID:        m.ID,
+		ThreadID:  m.ThreadID,
+		ProjectID: m.ProjectID,
+		Access:    core.ContextAccess(m.Access),
+		Note:      m.Note,
+		GrantedBy: m.GrantedBy,
+		CreatedAt: m.CreatedAt,
+		ExpiresAt: m.ExpiresAt,
+	}
+}
+
+func threadContextRefModelFromCore(ref *core.ThreadContextRef) *ThreadContextRefModel {
+	if ref == nil {
+		return nil
+	}
+	return &ThreadContextRefModel{
+		ID:        ref.ID,
+		ThreadID:  ref.ThreadID,
+		ProjectID: ref.ProjectID,
+		Access:    string(ref.Access),
+		Note:      ref.Note,
+		GrantedBy: ref.GrantedBy,
+		CreatedAt: ref.CreatedAt,
+		ExpiresAt: ref.ExpiresAt,
+	}
+}
+
 // FeatureEntryModel is the GORM model for feature_entries table.
 type FeatureEntryModel struct {
 	ID          int64                     `gorm:"column:id;primaryKey;autoIncrement"`

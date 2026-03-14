@@ -181,3 +181,28 @@ func TestBuildBootPrompt_CustomBootTemplate(t *testing.T) {
 		t.Errorf("output should contain thread title 'Style review'.\nOutput:\n%s", out)
 	}
 }
+
+func TestBuildBootPrompt_WorkspaceContext(t *testing.T) {
+	out := BuildBootPrompt(ThreadBootInput{
+		Thread:       newThread("Workspace thread", core.ThreadActive),
+		AgentProfile: newProfile("agent-1", core.RoleWorker),
+		Workspace: &core.ThreadWorkspaceContext{
+			ThreadID:  1,
+			Workspace: ".",
+			Archive:   "../archive",
+			Mounts: map[string]core.ThreadWorkspaceMount{
+				"project-alpha": {
+					Path:      "../mounts/project-alpha",
+					ProjectID: 42,
+					Access:    core.ContextAccessCheck,
+				},
+			},
+		},
+	})
+
+	for _, want := range []string{"Workspace Context", "Mount project-alpha", "../mounts/project-alpha", "[check]"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output should contain %q.\nOutput:\n%s", want, out)
+		}
+	}
+}

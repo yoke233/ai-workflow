@@ -61,7 +61,7 @@ func buildAPIStack(
 	})
 
 	// Create ThreadSessionPool for real ACP agent sessions in threads.
-	threadPool := agentruntime.NewThreadSessionPool(base.store, base.bus, base.registry)
+	threadPool := agentruntime.NewThreadSessionPool(base.store, base.bus, base.registry, base.dataDir)
 
 	apiOpts := buildAPIOptions(bootstrapCfg, base.runtimeManager, leadAgent, flow.scheduler, base.registry, dagGen)
 	apiOpts = append(apiOpts, api.WithRunProbeService(probeSvc))

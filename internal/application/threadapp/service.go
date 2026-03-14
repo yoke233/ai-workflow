@@ -7,25 +7,29 @@ import (
 	"strings"
 
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/threadctx"
 )
 
 type Config struct {
-	Store   Store
-	Tx      Tx
-	Runtime Runtime
+	Store     Store
+	Tx        Tx
+	Runtime   Runtime
+	Workspace WorkspaceManager
 }
 
 type Service struct {
-	store   Store
-	tx      Tx
-	runtime Runtime
+	store     Store
+	tx        Tx
+	runtime   Runtime
+	workspace WorkspaceManager
 }
 
 func New(cfg Config) *Service {
 	return &Service{
-		store:   cfg.Store,
-		tx:      cfg.Tx,
-		runtime: cfg.Runtime,
+		store:     cfg.Store,
+		tx:        cfg.Tx,
+		runtime:   cfg.Runtime,
+		workspace: cfg.Workspace,
 	}
 }
 
@@ -43,6 +47,10 @@ func (s *Service) CreateThread(ctx context.Context, input CreateThreadInput) (*C
 
 	participants := buildParticipants(thread.OwnerID, input.ParticipantUserIDs)
 	if err := s.createThreadAggregate(ctx, thread, participants); err != nil {
+		return nil, err
+	}
+	if err := s.syncThreadWorkspace(ctx, thread.ID); err != nil {
+		_ = s.deleteThreadAggregate(ctx, thread.ID)
 		return nil, err
 	}
 
@@ -67,6 +75,134 @@ func (s *Service) DeleteThread(ctx context.Context, threadID int64) error {
 	}
 
 	return s.deleteThreadAggregate(ctx, threadID)
+}
+
+func (s *Service) CreateThreadContextRef(ctx context.Context, input CreateThreadContextRefInput) (*core.ThreadContextRef, error) {
+	if _, err := s.store.GetThread(ctx, input.ThreadID); err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			return nil, newError(CodeThreadNotFound, "thread not found", err)
+		}
+		return nil, err
+	}
+	if input.ProjectID <= 0 {
+		return nil, newError(CodeMissingProjectID, "project_id is required", nil)
+	}
+	if _, err := s.store.GetProject(ctx, input.ProjectID); err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			return nil, newError(CodeProjectNotFound, "project not found", err)
+		}
+		return nil, err
+	}
+
+	access, err := core.ParseContextAccess(input.Access)
+	if err != nil {
+		return nil, newError(CodeInvalidContextAccess, err.Error(), err)
+	}
+
+	existing, err := s.store.ListThreadContextRefs(ctx, input.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range existing {
+		if item != nil && item.ProjectID == input.ProjectID {
+			return nil, newError(CodeContextRefConflict, "context ref already exists for project", nil)
+		}
+	}
+
+	ref := &core.ThreadContextRef{
+		ThreadID:  input.ThreadID,
+		ProjectID: input.ProjectID,
+		Access:    access,
+		Note:      strings.TrimSpace(input.Note),
+		GrantedBy: strings.TrimSpace(input.GrantedBy),
+		ExpiresAt: input.ExpiresAt,
+	}
+	if _, err := threadctx.ResolveMount(ctx, s.store, ref); err != nil {
+		return nil, err
+	}
+
+	id, err := s.store.CreateThreadContextRef(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	ref.ID = id
+	if err := s.syncThreadWorkspace(ctx, input.ThreadID); err != nil {
+		_ = s.store.DeleteThreadContextRef(ctx, ref.ID)
+		return nil, err
+	}
+	return ref, nil
+}
+
+func (s *Service) UpdateThreadContextRef(ctx context.Context, input UpdateThreadContextRefInput) (*core.ThreadContextRef, error) {
+	if _, err := s.store.GetThread(ctx, input.ThreadID); err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			return nil, newError(CodeThreadNotFound, "thread not found", err)
+		}
+		return nil, err
+	}
+
+	ref, err := s.store.GetThreadContextRef(ctx, input.RefID)
+	if err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			return nil, newError(CodeContextRefNotFound, "context ref not found", err)
+		}
+		return nil, err
+	}
+	if ref.ThreadID != input.ThreadID {
+		return nil, newError(CodeContextRefNotFound, "context ref not found", core.ErrNotFound)
+	}
+
+	access, err := core.ParseContextAccess(input.Access)
+	if err != nil {
+		return nil, newError(CodeInvalidContextAccess, err.Error(), err)
+	}
+	ref.Access = access
+	if input.Note != nil {
+		ref.Note = strings.TrimSpace(*input.Note)
+	}
+	if strings.TrimSpace(input.GrantedBy) != "" {
+		ref.GrantedBy = strings.TrimSpace(input.GrantedBy)
+	}
+	ref.ExpiresAt = input.ExpiresAt
+	if _, err := threadctx.ResolveMount(ctx, s.store, ref); err != nil {
+		return nil, err
+	}
+	if err := s.store.UpdateThreadContextRef(ctx, ref); err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			return nil, newError(CodeContextRefNotFound, "context ref not found", err)
+		}
+		return nil, err
+	}
+	if err := s.syncThreadWorkspace(ctx, input.ThreadID); err != nil {
+		return nil, err
+	}
+	return ref, nil
+}
+
+func (s *Service) DeleteThreadContextRef(ctx context.Context, threadID, refID int64) error {
+	if _, err := s.store.GetThread(ctx, threadID); err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			return newError(CodeThreadNotFound, "thread not found", err)
+		}
+		return err
+	}
+	ref, err := s.store.GetThreadContextRef(ctx, refID)
+	if err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			return newError(CodeContextRefNotFound, "context ref not found", err)
+		}
+		return err
+	}
+	if ref.ThreadID != threadID {
+		return newError(CodeContextRefNotFound, "context ref not found", core.ErrNotFound)
+	}
+	if err := s.store.DeleteThreadContextRef(ctx, refID); err != nil {
+		if errors.Is(err, core.ErrNotFound) {
+			return newError(CodeContextRefNotFound, "context ref not found", err)
+		}
+		return err
+	}
+	return s.syncThreadWorkspace(ctx, threadID)
 }
 
 func (s *Service) LinkThreadWorkItem(ctx context.Context, input LinkThreadWorkItemInput) (*core.ThreadWorkItemLink, error) {
@@ -190,6 +326,10 @@ func (s *Service) CrystallizeChatSession(ctx context.Context, input CrystallizeC
 	if err := s.createThreadAggregate(ctx, thread, participants); err != nil {
 		return nil, err
 	}
+	if err := s.syncThreadWorkspace(ctx, thread.ID); err != nil {
+		_ = s.deleteThreadAggregate(ctx, thread.ID)
+		return nil, err
+	}
 
 	if input.CreateWorkItem {
 		var err error
@@ -259,6 +399,9 @@ func persistThreadWithParticipants(ctx context.Context, store TxStore, thread *c
 
 func deleteThreadAggregateData(ctx context.Context, store TxStore, threadID int64) error {
 	if err := store.DeleteThreadWorkItemLinksByThread(ctx, threadID); err != nil {
+		return err
+	}
+	if err := store.DeleteThreadContextRefsByThread(ctx, threadID); err != nil {
 		return err
 	}
 	if err := store.DeleteThreadMessagesByThread(ctx, threadID); err != nil {
@@ -378,4 +521,14 @@ func cloneMetadata(in map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+func (s *Service) syncThreadWorkspace(ctx context.Context, threadID int64) error {
+	if s == nil || s.workspace == nil {
+		return nil
+	}
+	if err := s.workspace.EnsureThreadWorkspace(ctx, threadID); err != nil {
+		return err
+	}
+	return s.workspace.SyncThreadWorkspaceContext(ctx, threadID)
 }

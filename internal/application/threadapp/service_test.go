@@ -23,6 +23,22 @@ func (r *runtimeStub) CleanupThread(_ context.Context, threadID int64) error {
 	return r.err
 }
 
+type workspaceStub struct {
+	ensureCalls []int64
+	syncCalls   []int64
+	err         error
+}
+
+func (w *workspaceStub) EnsureThreadWorkspace(_ context.Context, threadID int64) error {
+	w.ensureCalls = append(w.ensureCalls, threadID)
+	return w.err
+}
+
+func (w *workspaceStub) SyncThreadWorkspaceContext(_ context.Context, threadID int64) error {
+	w.syncCalls = append(w.syncCalls, threadID)
+	return w.err
+}
+
 type sqliteTxAdapter struct {
 	base core.TransactionalStore
 	wrap func(core.Store) (TxStore, error)
@@ -97,6 +113,15 @@ func newSQLiteThreadAppService(store Store, tx Tx, runtime Runtime) *Service {
 		Store:   store,
 		Tx:      tx,
 		Runtime: runtime,
+	})
+}
+
+func newSQLiteThreadAppServiceWithWorkspace(store Store, tx Tx, runtime Runtime, workspace WorkspaceManager) *Service {
+	return New(Config{
+		Store:     store,
+		Tx:        tx,
+		Runtime:   runtime,
+		Workspace: workspace,
 	})
 }
 
@@ -516,5 +541,135 @@ func TestServiceCrystallizeChatSessionRollsBackWhenLinkCreationFails(t *testing.
 	}
 	if len(items) != 0 {
 		t.Fatalf("expected 0 work items after rollback, got %d", len(items))
+	}
+}
+
+func TestServiceCreateThreadSyncsWorkspace(t *testing.T) {
+	store := newThreadAppTestStore(t)
+	workspace := &workspaceStub{}
+	svc := newSQLiteThreadAppServiceWithWorkspace(store, newSQLiteTxAdapter(store, nil), nil, workspace)
+
+	result, err := svc.CreateThread(context.Background(), CreateThreadInput{
+		Title:   "workspace-thread",
+		OwnerID: "owner-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateThread: %v", err)
+	}
+	if result.Thread == nil || result.Thread.ID == 0 {
+		t.Fatalf("expected created thread, got %+v", result.Thread)
+	}
+	if len(workspace.ensureCalls) != 1 || workspace.ensureCalls[0] != result.Thread.ID {
+		t.Fatalf("unexpected workspace ensure calls: %+v", workspace.ensureCalls)
+	}
+	if len(workspace.syncCalls) != 1 || workspace.syncCalls[0] != result.Thread.ID {
+		t.Fatalf("unexpected workspace sync calls: %+v", workspace.syncCalls)
+	}
+}
+
+func TestServiceCreateThreadContextRef(t *testing.T) {
+	store := newThreadAppTestStore(t)
+	workspace := &workspaceStub{}
+	svc := newSQLiteThreadAppServiceWithWorkspace(store, newSQLiteTxAdapter(store, nil), nil, workspace)
+	ctx := context.Background()
+
+	threadID, err := store.CreateThread(ctx, &core.Thread{Title: "context-thread"})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	projectID, err := store.CreateProject(ctx, &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+		ProjectID: projectID,
+		Kind:      core.ResourceKindLocalFS,
+		URI:       t.TempDir(),
+		Label:     "workspace",
+	}); err != nil {
+		t.Fatalf("create resource binding: %v", err)
+	}
+
+	ref, err := svc.CreateThreadContextRef(ctx, CreateThreadContextRefInput{
+		ThreadID:  threadID,
+		ProjectID: projectID,
+		Access:    "check",
+		Note:      "run checks",
+		GrantedBy: "user-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateThreadContextRef: %v", err)
+	}
+	if ref.Access != core.ContextAccessCheck || ref.ProjectID != projectID {
+		t.Fatalf("unexpected context ref: %+v", ref)
+	}
+	if len(workspace.syncCalls) != 1 || workspace.syncCalls[0] != threadID {
+		t.Fatalf("expected workspace sync for thread %d, got %+v", threadID, workspace.syncCalls)
+	}
+}
+
+func TestServiceCreateThreadContextRefRejectsDuplicate(t *testing.T) {
+	store := newThreadAppTestStore(t)
+	svc := newSQLiteThreadAppService(store, newSQLiteTxAdapter(store, nil), nil)
+	ctx := context.Background()
+
+	threadID, _ := store.CreateThread(ctx, &core.Thread{Title: "context-thread"})
+	projectID, _ := store.CreateProject(ctx, &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
+	if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+		ProjectID: projectID,
+		Kind:      core.ResourceKindLocalFS,
+		URI:       t.TempDir(),
+		Label:     "workspace",
+	}); err != nil {
+		t.Fatalf("create resource binding: %v", err)
+	}
+	if _, err := svc.CreateThreadContextRef(ctx, CreateThreadContextRefInput{
+		ThreadID:  threadID,
+		ProjectID: projectID,
+		Access:    "read",
+	}); err != nil {
+		t.Fatalf("create first context ref: %v", err)
+	}
+	_, err := svc.CreateThreadContextRef(ctx, CreateThreadContextRefInput{
+		ThreadID:  threadID,
+		ProjectID: projectID,
+		Access:    "check",
+	})
+	if CodeOf(err) != CodeContextRefConflict {
+		t.Fatalf("expected %s, got %v", CodeContextRefConflict, err)
+	}
+}
+
+func TestServiceUpdateThreadContextRefRejectsInvalidAccess(t *testing.T) {
+	store := newThreadAppTestStore(t)
+	svc := newSQLiteThreadAppService(store, newSQLiteTxAdapter(store, nil), nil)
+	ctx := context.Background()
+
+	threadID, _ := store.CreateThread(ctx, &core.Thread{Title: "context-thread"})
+	projectID, _ := store.CreateProject(ctx, &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral})
+	if _, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
+		ProjectID: projectID,
+		Kind:      core.ResourceKindLocalFS,
+		URI:       t.TempDir(),
+		Label:     "workspace",
+	}); err != nil {
+		t.Fatalf("create resource binding: %v", err)
+	}
+	refID, err := store.CreateThreadContextRef(ctx, &core.ThreadContextRef{
+		ThreadID:  threadID,
+		ProjectID: projectID,
+		Access:    core.ContextAccessRead,
+	})
+	if err != nil {
+		t.Fatalf("create context ref: %v", err)
+	}
+
+	_, err = svc.UpdateThreadContextRef(ctx, UpdateThreadContextRefInput{
+		ThreadID: threadID,
+		RefID:    refID,
+		Access:   "broken",
+	})
+	if CodeOf(err) != CodeInvalidContextAccess {
+		t.Fatalf("expected %s, got %v", CodeInvalidContextAccess, err)
 	}
 }

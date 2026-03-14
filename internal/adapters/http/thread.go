@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	httpx "github.com/yoke233/ai-workflow/internal/adapters/http/server"
 	threadapp "github.com/yoke233/ai-workflow/internal/application/threadapp"
 	"github.com/yoke233/ai-workflow/internal/core"
 )
@@ -56,6 +57,17 @@ type createThreadWorkItemLinkRequest struct {
 	IsPrimary    bool   `json:"is_primary,omitempty"`
 }
 
+type createThreadContextRefRequest struct {
+	ProjectID int64  `json:"project_id"`
+	Access    string `json:"access"`
+	Note      string `json:"note,omitempty"`
+}
+
+type updateThreadContextRefRequest struct {
+	Access string  `json:"access"`
+	Note   *string `json:"note,omitempty"`
+}
+
 // registerThreadRoutes mounts thread endpoints onto the given router.
 func registerThreadRoutes(r chi.Router, h *Handler) {
 	r.Post("/threads", h.createThread)
@@ -81,6 +93,10 @@ func registerThreadRoutes(r chi.Router, h *Handler) {
 	r.Post("/threads/{threadID}/links/work-items", h.createThreadWorkItemLink)
 	r.Get("/threads/{threadID}/work-items", h.listWorkItemsByThread)
 	r.Delete("/threads/{threadID}/links/work-items/{workItemID}", h.deleteThreadWorkItemLink)
+	r.Post("/threads/{threadID}/context-refs", h.createThreadContextRef)
+	r.Get("/threads/{threadID}/context-refs", h.listThreadContextRefs)
+	r.Patch("/threads/{threadID}/context-refs/{refID}", h.updateThreadContextRef)
+	r.Delete("/threads/{threadID}/context-refs/{refID}", h.deleteThreadContextRef)
 
 	r.Get("/work-items/{issueID}/threads", h.listThreadsByWorkItem)
 }
@@ -488,6 +504,100 @@ func (h *Handler) listThreadsByWorkItem(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, links)
 }
 
+func (h *Handler) createThreadContextRef(w http.ResponseWriter, r *http.Request) {
+	threadID, ok := urlParamInt64(r, "threadID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid thread ID", "BAD_ID")
+		return
+	}
+
+	var req createThreadContextRefRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
+		return
+	}
+
+	ref, err := h.threadService().CreateThreadContextRef(r.Context(), threadapp.CreateThreadContextRefInput{
+		ThreadID:  threadID,
+		ProjectID: req.ProjectID,
+		Access:    req.Access,
+		Note:      req.Note,
+		GrantedBy: threadGrantedBy(r),
+	})
+	if err != nil {
+		writeThreadAppFailure(w, err, "CREATE_THREAD_CONTEXT_REF_FAILED")
+		return
+	}
+	writeJSON(w, http.StatusCreated, ref)
+}
+
+func (h *Handler) listThreadContextRefs(w http.ResponseWriter, r *http.Request) {
+	threadID, ok := urlParamInt64(r, "threadID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid thread ID", "BAD_ID")
+		return
+	}
+	refs, err := h.store.ListThreadContextRefs(r.Context(), threadID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
+		return
+	}
+	if refs == nil {
+		refs = []*core.ThreadContextRef{}
+	}
+	writeJSON(w, http.StatusOK, refs)
+}
+
+func (h *Handler) updateThreadContextRef(w http.ResponseWriter, r *http.Request) {
+	threadID, ok := urlParamInt64(r, "threadID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid thread ID", "BAD_ID")
+		return
+	}
+	refID, ok := urlParamInt64(r, "refID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid context ref ID", "BAD_ID")
+		return
+	}
+
+	var req updateThreadContextRefRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
+		return
+	}
+
+	ref, err := h.threadService().UpdateThreadContextRef(r.Context(), threadapp.UpdateThreadContextRefInput{
+		ThreadID:  threadID,
+		RefID:     refID,
+		Access:    req.Access,
+		Note:      req.Note,
+		GrantedBy: threadGrantedBy(r),
+	})
+	if err != nil {
+		writeThreadAppFailure(w, err, "UPDATE_THREAD_CONTEXT_REF_FAILED")
+		return
+	}
+	writeJSON(w, http.StatusOK, ref)
+}
+
+func (h *Handler) deleteThreadContextRef(w http.ResponseWriter, r *http.Request) {
+	threadID, ok := urlParamInt64(r, "threadID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid thread ID", "BAD_ID")
+		return
+	}
+	refID, ok := urlParamInt64(r, "refID")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid context ref ID", "BAD_ID")
+		return
+	}
+	if err := h.threadService().DeleteThreadContextRef(r.Context(), threadID, refID); err != nil {
+		writeThreadAppFailure(w, err, "DELETE_THREAD_CONTEXT_REF_FAILED")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 // ---------------------------------------------------------------------------
 // Create WorkItem from Thread (convenience endpoint)
 // ---------------------------------------------------------------------------
@@ -524,6 +634,18 @@ func (h *Handler) createWorkItemFromThread(w http.ResponseWriter, r *http.Reques
 	}
 
 	writeJSON(w, http.StatusCreated, result.WorkItem)
+}
+
+func threadGrantedBy(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	if info, ok := httpx.AuthFromContext(r.Context()); ok {
+		if submitter := strings.TrimSpace(info.Submitter); submitter != "" {
+			return submitter
+		}
+	}
+	return strings.TrimSpace(r.Header.Get("X-User-ID"))
 }
 
 // ---------------------------------------------------------------------------

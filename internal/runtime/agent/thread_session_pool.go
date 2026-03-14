@@ -13,6 +13,7 @@ import (
 	"github.com/yoke233/ai-workflow/internal/adapters/agent/acpclient"
 	eventbridge "github.com/yoke233/ai-workflow/internal/adapters/events/bridge"
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/threadctx"
 )
 
 type threadSessionKey struct {
@@ -44,17 +45,19 @@ type ThreadSessionPool struct {
 	store    core.Store
 	bus      core.EventBus
 	registry core.AgentRegistry
+	dataDir  string
 
 	mu       sync.Mutex
 	sessions map[threadSessionKey]*threadPooledSession
 }
 
 // NewThreadSessionPool creates a pool for managing Thread agent ACP sessions.
-func NewThreadSessionPool(store core.Store, bus core.EventBus, registry core.AgentRegistry) *ThreadSessionPool {
+func NewThreadSessionPool(store core.Store, bus core.EventBus, registry core.AgentRegistry, dataDir string) *ThreadSessionPool {
 	return &ThreadSessionPool{
 		store:    store,
 		bus:      bus,
 		registry: registry,
+		dataDir:  strings.TrimSpace(dataDir),
 		sessions: make(map[threadSessionKey]*threadPooledSession),
 	}
 }
@@ -174,6 +177,12 @@ func (p *ThreadSessionPool) InviteAgent(ctx context.Context, threadID int64, pro
 
 func (p *ThreadSessionPool) bootSession(ctx context.Context, member *core.ThreadMember, profile *core.AgentProfile, priorSummary string) (*core.ThreadMember, error) {
 	key := threadSessionKey{threadID: member.ThreadID, agentID: profile.ID}
+	workspaceDir, scopeCfg, err := p.prepareThreadWorkspace(ctx, member.ThreadID)
+	if err != nil {
+		_ = updateThreadAgentStatus(member, core.ThreadAgentFailed)
+		_ = p.store.UpdateThreadMember(ctx, member)
+		return member, fmt.Errorf("prepare thread workspace: %w", err)
+	}
 
 	// Launch ACP process.
 	launchCfg := acpclient.LaunchConfig{
@@ -188,7 +197,8 @@ func (p *ThreadSessionPool) bootSession(ctx context.Context, member *core.Thread
 	switcher := &switchingEventHandler{}
 	switcher.Set(bridge)
 
-	handler := acphandler.NewACPHandler("", "", nil)
+	handler := acphandler.NewACPHandler(workspaceDir, "", nil)
+	handler.SetThreadWorkspace(scopeCfg)
 	handler.SetSuppressEvents(true)
 	client, err := acpclient.New(launchCfg, handler, acpclient.WithEventHandler(switcher))
 	if err != nil {
@@ -287,6 +297,7 @@ func (p *ThreadSessionPool) buildBootPrompt(ctx context.Context, threadID int64,
 			workItems = append(workItems, wi)
 		}
 	}
+	workspaceCtx, _ := threadctx.LoadContextFile(p.dataDir, threadID)
 
 	return BuildBootPrompt(ThreadBootInput{
 		Thread:         thread,
@@ -295,6 +306,7 @@ func (p *ThreadSessionPool) buildBootPrompt(ctx context.Context, threadID int64,
 		WorkItems:      workItems,
 		AgentProfile:   profile,
 		PriorSummary:   priorSummary,
+		Workspace:      workspaceCtx,
 	}), nil
 }
 
@@ -620,4 +632,40 @@ func cloneStringMap(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+func (p *ThreadSessionPool) prepareThreadWorkspace(ctx context.Context, threadID int64) (string, acphandler.ThreadWorkspaceConfig, error) {
+	if strings.TrimSpace(p.dataDir) == "" {
+		return "", acphandler.ThreadWorkspaceConfig{}, fmt.Errorf("thread data dir is not configured")
+	}
+	paths, err := threadctx.EnsureLayout(p.dataDir, threadID)
+	if err != nil {
+		return "", acphandler.ThreadWorkspaceConfig{}, err
+	}
+	workspaceCtx, err := threadctx.SyncContextFile(ctx, p.store, p.dataDir, threadID)
+	if err != nil {
+		return "", acphandler.ThreadWorkspaceConfig{}, err
+	}
+
+	cfg := acphandler.ThreadWorkspaceConfig{
+		ThreadID:     threadID,
+		WorkspaceDir: paths.WorkspaceDir,
+		ArchiveDir:   paths.ArchiveDir,
+	}
+	if workspaceCtx != nil {
+		refs, _ := p.store.ListThreadContextRefs(ctx, threadID)
+		for _, ref := range refs {
+			mount, err := threadctx.ResolveMount(ctx, p.store, ref)
+			if err != nil || mount == nil {
+				continue
+			}
+			cfg.Mounts = append(cfg.Mounts, acphandler.ThreadMount{
+				Alias:         mount.Slug,
+				TargetPath:    mount.TargetPath,
+				Access:        string(mount.Access),
+				CheckCommands: append([]string(nil), mount.CheckCommands...),
+			})
+		}
+	}
+	return paths.WorkspaceDir, cfg, nil
 }

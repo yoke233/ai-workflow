@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -873,5 +876,128 @@ func TestThreadMessageHTTPBroadcastsToWebSocketSubscribers(t *testing.T) {
 	}
 	if ev.Data["message"] != "hello via http" {
 		t.Fatalf("unexpected event payload: %+v", ev.Data)
+	}
+}
+
+func TestThreadContextRefCRUDAndWorkspaceContextFile(t *testing.T) {
+	dataDir := t.TempDir()
+	h, ts := setupAPIWithDataDir(t, dataDir)
+
+	resp, _ := post(ts, "/threads", map[string]any{"title": "context-thread", "owner_id": "owner-1"})
+	var thread core.Thread
+	if err := decodeJSON(resp, &thread); err != nil {
+		t.Fatalf("decode thread: %v", err)
+	}
+
+	projectResp, _ := post(ts, "/projects", map[string]any{"name": "Project Alpha", "kind": "general"})
+	var project core.Project
+	if err := decodeJSON(projectResp, &project); err != nil {
+		t.Fatalf("decode project: %v", err)
+	}
+
+	projectDir := t.TempDir()
+	resourceResp, _ := post(ts, fmt.Sprintf("/projects/%d/resources", project.ID), map[string]any{
+		"kind":  "local_fs",
+		"uri":   projectDir,
+		"label": "workspace",
+		"config": map[string]any{
+			"check_commands": []string{"go test ./..."},
+		},
+	})
+	if resourceResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating resource, got %d", resourceResp.StatusCode)
+	}
+	resourceResp.Body.Close()
+
+	contextFile := filepath.Join(dataDir, "threads", fmt.Sprintf("%d", thread.ID), "workspace", ".context.json")
+	if _, err := os.Stat(contextFile); err != nil {
+		t.Fatalf("expected context file to exist after thread create: %v", err)
+	}
+
+	resp, err := post(ts, fmt.Sprintf("/threads/%d/context-refs", thread.ID), map[string]any{
+		"project_id": project.ID,
+		"access":     "check",
+		"note":       "审核项目",
+	})
+	if err != nil {
+		t.Fatalf("create context ref: %v", err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var ref core.ThreadContextRef
+	if err := decodeJSON(resp, &ref); err != nil {
+		t.Fatalf("decode context ref: %v", err)
+	}
+
+	resp, _ = get(ts, fmt.Sprintf("/threads/%d/context-refs", thread.ID))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 listing context refs, got %d", resp.StatusCode)
+	}
+	var refs []core.ThreadContextRef
+	if err := decodeJSON(resp, &refs); err != nil {
+		t.Fatalf("decode context refs: %v", err)
+	}
+	if len(refs) != 1 || refs[0].ProjectID != project.ID {
+		t.Fatalf("unexpected context refs: %+v", refs)
+	}
+
+	raw, err := os.ReadFile(contextFile)
+	if err != nil {
+		t.Fatalf("read context file: %v", err)
+	}
+	var ctxPayload core.ThreadWorkspaceContext
+	if err := json.Unmarshal(raw, &ctxPayload); err != nil {
+		t.Fatalf("decode context file: %v", err)
+	}
+	mount, ok := ctxPayload.Mounts["project-alpha"]
+	if !ok {
+		t.Fatalf("expected project-alpha mount in context file, got %+v", ctxPayload.Mounts)
+	}
+	if mount.Access != core.ContextAccessCheck {
+		t.Fatalf("expected check access in context file, got %q", mount.Access)
+	}
+	if len(mount.CheckCommands) != 1 || mount.CheckCommands[0] != "go test ./..." {
+		t.Fatalf("unexpected check commands: %+v", mount.CheckCommands)
+	}
+
+	resp, _ = patch(ts, fmt.Sprintf("/threads/%d/context-refs/%d", thread.ID, ref.ID), map[string]any{
+		"access": "write",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 updating context ref, got %d", resp.StatusCode)
+	}
+
+	raw, err = os.ReadFile(contextFile)
+	if err != nil {
+		t.Fatalf("read context file after update: %v", err)
+	}
+	ctxPayload = core.ThreadWorkspaceContext{}
+	if err := json.Unmarshal(raw, &ctxPayload); err != nil {
+		t.Fatalf("decode context file after update: %v", err)
+	}
+	if ctxPayload.Mounts["project-alpha"].Access != core.ContextAccessWrite {
+		t.Fatalf("expected write access after update, got %q", ctxPayload.Mounts["project-alpha"].Access)
+	}
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+fmt.Sprintf("/threads/%d/context-refs/%d", thread.ID, ref.ID), nil)
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 deleting context ref, got %d", resp.StatusCode)
+	}
+
+	raw, err = os.ReadFile(contextFile)
+	if err != nil {
+		t.Fatalf("read context file after delete: %v", err)
+	}
+	ctxPayload = core.ThreadWorkspaceContext{}
+	if err := json.Unmarshal(raw, &ctxPayload); err != nil {
+		t.Fatalf("decode context file after delete: %v", err)
+	}
+	if len(ctxPayload.Mounts) != 0 {
+		t.Fatalf("expected no mounts after delete, got %+v", ctxPayload.Mounts)
+	}
+	if _, err := h.store.ListThreadContextRefs(context.Background(), thread.ID); err != nil {
+		t.Fatalf("store list context refs: %v", err)
 	}
 }

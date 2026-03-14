@@ -36,6 +36,20 @@ type ACPHandlerSessionContext struct {
 	ChangedFiles []string
 }
 
+type ThreadMount struct {
+	Alias         string
+	TargetPath    string
+	Access        string
+	CheckCommands []string
+}
+
+type ThreadWorkspaceConfig struct {
+	ThreadID     int64
+	WorkspaceDir string
+	ArchiveDir   string
+	Mounts       []ThreadMount
+}
+
 type ACPHandler struct {
 	acpclient.NopHandler
 
@@ -52,6 +66,7 @@ type ACPHandler struct {
 	changedList    []string
 	suppressEvents bool
 	stateCallback  SessionStateCallback
+	threadScope    *ThreadWorkspaceConfig
 
 	runEventMu        sync.Mutex
 	pendingChunkEvent *pendingChatRunChunkEvent
@@ -145,6 +160,29 @@ func (h *ACPHandler) SetSessionStateCallback(cb SessionStateCallback) {
 	h.stateCallback = cb
 }
 
+func (h *ACPHandler) SetThreadWorkspace(cfg ThreadWorkspaceConfig) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	copied := ThreadWorkspaceConfig{
+		ThreadID:     cfg.ThreadID,
+		WorkspaceDir: strings.TrimSpace(cfg.WorkspaceDir),
+		ArchiveDir:   strings.TrimSpace(cfg.ArchiveDir),
+		Mounts:       make([]ThreadMount, 0, len(cfg.Mounts)),
+	}
+	for _, mount := range cfg.Mounts {
+		copied.Mounts = append(copied.Mounts, ThreadMount{
+			Alias:         strings.TrimSpace(mount.Alias),
+			TargetPath:    strings.TrimSpace(mount.TargetPath),
+			Access:        strings.TrimSpace(mount.Access),
+			CheckCommands: append([]string(nil), mount.CheckCommands...),
+		})
+	}
+	h.threadScope = &copied
+}
+
 func (h *ACPHandler) SetSessionID(sessionID string) {
 	if h == nil {
 		return
@@ -194,11 +232,11 @@ func (h *ACPHandler) ReadTextFile(_ context.Context, req acpproto.ReadTextFileRe
 		return acpproto.ReadTextFileResponse{}, errors.New("acp handler is nil")
 	}
 
-	targetPath, _, err := h.normalizePathInScope(req.Path)
+	resolved, err := h.resolvePath(req.Path, accessRead)
 	if err != nil {
 		return acpproto.ReadTextFileResponse{}, err
 	}
-	raw, err := os.ReadFile(targetPath)
+	raw, err := os.ReadFile(resolved.AbsPath)
 	if err != nil {
 		return acpproto.ReadTextFileResponse{}, fmt.Errorf("read file: %w", err)
 	}
@@ -239,14 +277,17 @@ func (h *ACPHandler) CreateTerminal(_ context.Context, req acpproto.CreateTermin
 		return acpproto.CreateTerminalResponse{}, errors.New("terminal command is required")
 	}
 
-	cwd, err := h.normalizeDirInScope(stringPtrValue(req.Cwd))
+	resolvedDir, err := h.resolveDir(stringPtrValue(req.Cwd), accessExec)
 	if err != nil {
 		return acpproto.CreateTerminalResponse{}, err
+	}
+	if resolvedDir.Zone == pathZoneMount && !mountAllowsCommand(resolvedDir.Mount, command, req.Args) {
+		return acpproto.CreateTerminalResponse{}, fmt.Errorf("terminal command %q is not allowed for mount %q", joinCommand(command, req.Args), resolvedDir.Mount.Alias)
 	}
 
 	commandParts := append([]string{command}, req.Args...)
 	cmd := exec.Command(commandParts[0], commandParts[1:]...)
-	cmd.Dir = cwd
+	cmd.Dir = resolvedDir.AbsPath
 	cmd.Env = mergeTerminalEnv(req.Env)
 
 	stdin, err := cmd.StdinPipe()
@@ -357,20 +398,20 @@ func (h *ACPHandler) WriteTextFile(_ context.Context, req acpproto.WriteTextFile
 		return acpproto.WriteTextFileResponse{}, errors.New("acp handler is nil")
 	}
 
-	targetPath, relPath, err := h.normalizePathInScope(req.Path)
+	resolved, err := h.resolvePath(req.Path, accessWrite)
 	if err != nil {
 		return acpproto.WriteTextFileResponse{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(resolved.AbsPath), 0o755); err != nil {
 		return acpproto.WriteTextFileResponse{}, fmt.Errorf("ensure parent dir: %w", err)
 	}
 
 	content := []byte(req.Content)
-	if err := os.WriteFile(targetPath, content, 0o644); err != nil {
-		return acpproto.WriteTextFileResponse{}, fmt.Errorf("write file %q: %w", relPath, err)
+	if err := os.WriteFile(resolved.AbsPath, content, 0o644); err != nil {
+		return acpproto.WriteTextFileResponse{}, fmt.Errorf("write file %q: %w", resolved.RelPath, err)
 	}
 
-	filePaths := h.recordChangedFile(relPath)
+	filePaths := h.recordChangedFile(resolved.RelPath)
 	h.publishFilesChanged(filePaths)
 
 	return acpproto.WriteTextFileResponse{}, nil
@@ -652,19 +693,42 @@ func isACPChunkUpdateType(updateType string) bool {
 	}
 }
 
-func (h *ACPHandler) normalizePathInScope(rawPath string) (string, string, error) {
-	cwd := strings.TrimSpace(h.cwd)
-	if cwd == "" {
-		return "", "", errors.New("handler cwd is required")
-	}
-	cwdAbs, err := filepath.Abs(cwd)
+type accessOp string
+
+const (
+	accessRead  accessOp = "read"
+	accessWrite accessOp = "write"
+	accessExec  accessOp = "exec"
+)
+
+const (
+	pathZoneWorkspace = "workspace"
+	pathZoneArchive   = "archive"
+	pathZoneMount     = "mount"
+)
+
+type resolvedPath struct {
+	AbsPath string
+	RelPath string
+	Zone    string
+	Mount   *ThreadMount
+}
+
+func (h *ACPHandler) resolvePath(rawPath string, op accessOp) (resolvedPath, error) {
+	cwdAbs, err := h.cwdAbs()
 	if err != nil {
-		return "", "", fmt.Errorf("resolve cwd: %w", err)
+		return resolvedPath{}, err
 	}
 
 	trimmed := strings.TrimSpace(rawPath)
 	if trimmed == "" {
-		return "", "", errors.New("write file path is required")
+		return resolvedPath{}, errors.New("path is required")
+	}
+
+	if scope := h.threadWorkspaceSnapshot(); scope != nil {
+		if resolved, ok, err := h.resolveThreadScopedPath(scope, trimmed, op, cwdAbs); ok || err != nil {
+			return resolved, err
+		}
 	}
 
 	target := trimmed
@@ -673,19 +737,20 @@ func (h *ACPHandler) normalizePathInScope(rawPath string) (string, string, error
 	}
 	targetAbs, err := filepath.Abs(target)
 	if err != nil {
-		return "", "", fmt.Errorf("resolve path: %w", err)
+		return resolvedPath{}, fmt.Errorf("resolve path: %w", err)
 	}
-
 	rel, err := filepath.Rel(cwdAbs, targetAbs)
 	if err != nil {
-		return "", "", fmt.Errorf("check path scope: %w", err)
+		return resolvedPath{}, fmt.Errorf("check path scope: %w", err)
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return "", "", fmt.Errorf("path %q is outside cwd scope", trimmed)
+		return resolvedPath{}, fmt.Errorf("path %q is outside cwd scope", trimmed)
 	}
-
-	rel = filepath.ToSlash(filepath.Clean(rel))
-	return targetAbs, rel, nil
+	return resolvedPath{
+		AbsPath: targetAbs,
+		RelPath: filepath.ToSlash(filepath.Clean(rel)),
+		Zone:    pathZoneWorkspace,
+	}, nil
 }
 
 func (h *ACPHandler) recordChangedFile(path string) []string {
@@ -726,7 +791,15 @@ func (h *ACPHandler) publishFilesChanged(filePaths []string) {
 	})
 }
 
-func (h *ACPHandler) normalizeDirInScope(rawDir string) (string, error) {
+func (h *ACPHandler) resolveDir(rawDir string, op accessOp) (resolvedPath, error) {
+	trimmed := strings.TrimSpace(rawDir)
+	if trimmed == "" {
+		return h.resolvePath(".", op)
+	}
+	return h.resolvePath(trimmed, op)
+}
+
+func (h *ACPHandler) cwdAbs() (string, error) {
 	cwd := strings.TrimSpace(h.cwd)
 	if cwd == "" {
 		return "", errors.New("handler cwd is required")
@@ -735,29 +808,176 @@ func (h *ACPHandler) normalizeDirInScope(rawDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve cwd: %w", err)
 	}
+	return cwdAbs, nil
+}
 
-	trimmedDir := strings.TrimSpace(rawDir)
-	if trimmedDir == "" {
-		return cwdAbs, nil
+func (h *ACPHandler) threadWorkspaceSnapshot() *ThreadWorkspaceConfig {
+	if h == nil {
+		return nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.threadScope == nil {
+		return nil
+	}
+	copied := *h.threadScope
+	copied.Mounts = append([]ThreadMount(nil), h.threadScope.Mounts...)
+	return &copied
+}
+
+func (h *ACPHandler) resolveThreadScopedPath(scope *ThreadWorkspaceConfig, rawPath string, op accessOp, cwdAbs string) (resolvedPath, bool, error) {
+	normalized := normalizeThreadAlias(rawPath)
+	if normalized == "" {
+		return resolvedPath{}, false, nil
 	}
 
-	target := trimmedDir
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(cwdAbs, target)
+	if rel, ok := trimThreadPrefix(normalized, "archive/"); ok {
+		archiveDir := strings.TrimSpace(scope.ArchiveDir)
+		if archiveDir == "" {
+			return resolvedPath{}, true, fmt.Errorf("archive path %q is not configured", rawPath)
+		}
+		if op != accessRead {
+			return resolvedPath{}, true, fmt.Errorf("path %q is read-only", rawPath)
+		}
+		return resolveUnderRoot(archiveDir, rel, pathZoneArchive, nil)
+	}
+
+	if mountName, rel, ok := splitMountAlias(normalized); ok {
+		for i := range scope.Mounts {
+			mount := scope.Mounts[i]
+			if !strings.EqualFold(strings.TrimSpace(mount.Alias), mountName) {
+				continue
+			}
+			if err := enforceMountAccess(&mount, op); err != nil {
+				return resolvedPath{}, true, err
+			}
+			return resolveUnderRoot(mount.TargetPath, rel, pathZoneMount, &mount)
+		}
+		return resolvedPath{}, true, fmt.Errorf("mount %q is not available", mountName)
+	}
+
+	if strings.HasPrefix(normalized, "workspace/") {
+		rel := strings.TrimPrefix(normalized, "workspace/")
+		return resolveUnderRoot(cwdAbs, rel, pathZoneWorkspace, nil)
+	}
+	return resolvedPath{}, false, nil
+}
+
+func resolveUnderRoot(root string, rel string, zone string, mount *ThreadMount) (resolvedPath, bool, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return resolvedPath{}, true, errors.New("path root is required")
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return resolvedPath{}, true, fmt.Errorf("resolve root: %w", err)
+	}
+	rel = strings.TrimSpace(rel)
+	target := rootAbs
+	if rel != "" && rel != "." {
+		target = filepath.Join(rootAbs, filepath.FromSlash(rel))
 	}
 	targetAbs, err := filepath.Abs(target)
 	if err != nil {
-		return "", fmt.Errorf("resolve terminal cwd: %w", err)
+		return resolvedPath{}, true, fmt.Errorf("resolve path: %w", err)
 	}
-
-	rel, err := filepath.Rel(cwdAbs, targetAbs)
+	relToRoot, err := filepath.Rel(rootAbs, targetAbs)
 	if err != nil {
-		return "", fmt.Errorf("check terminal cwd scope: %w", err)
+		return resolvedPath{}, true, fmt.Errorf("check path scope: %w", err)
 	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return "", fmt.Errorf("terminal cwd %q is outside handler cwd scope", trimmedDir)
+	if relToRoot == ".." || strings.HasPrefix(relToRoot, ".."+string(filepath.Separator)) || filepath.IsAbs(relToRoot) {
+		return resolvedPath{}, true, fmt.Errorf("path %q is outside allowed scope", rel)
 	}
-	return targetAbs, nil
+	cleanRel := filepath.ToSlash(filepath.Clean(relToRoot))
+	if cleanRel == "." {
+		cleanRel = ""
+	}
+	switch zone {
+	case pathZoneArchive:
+		if cleanRel != "" {
+			cleanRel = "archive/" + cleanRel
+		} else {
+			cleanRel = "archive"
+		}
+	case pathZoneMount:
+		if mount != nil {
+			prefix := "mounts/" + mount.Alias
+			if cleanRel != "" {
+				cleanRel = prefix + "/" + cleanRel
+			} else {
+				cleanRel = prefix
+			}
+		}
+	}
+	return resolvedPath{
+		AbsPath: targetAbs,
+		RelPath: cleanRel,
+		Zone:    zone,
+		Mount:   mount,
+	}, true, nil
+}
+
+func enforceMountAccess(mount *ThreadMount, op accessOp) error {
+	if mount == nil {
+		return errors.New("mount is required")
+	}
+	access := strings.ToLower(strings.TrimSpace(mount.Access))
+	switch op {
+	case accessRead:
+		return nil
+	case accessWrite:
+		if access == "write" {
+			return nil
+		}
+		return fmt.Errorf("mount %q is read-only for writes", mount.Alias)
+	case accessExec:
+		if access == "check" || access == "write" {
+			return nil
+		}
+		return fmt.Errorf("mount %q does not allow terminal commands", mount.Alias)
+	default:
+		return fmt.Errorf("unsupported access operation %q", op)
+	}
+}
+
+func normalizeThreadAlias(rawPath string) string {
+	trimmed := strings.TrimSpace(rawPath)
+	if trimmed == "" {
+		return ""
+	}
+	normalized := filepath.ToSlash(trimmed)
+	for strings.HasPrefix(normalized, "./") {
+		normalized = strings.TrimPrefix(normalized, "./")
+	}
+	if strings.HasPrefix(normalized, "../mounts/") {
+		normalized = strings.TrimPrefix(normalized, "../")
+	}
+	if strings.HasPrefix(normalized, "../archive/") {
+		normalized = strings.TrimPrefix(normalized, "../")
+	}
+	return strings.TrimPrefix(normalized, "/")
+}
+
+func trimThreadPrefix(path string, prefix string) (string, bool) {
+	if strings.HasPrefix(path, prefix) {
+		return strings.TrimPrefix(path, prefix), true
+	}
+	return "", false
+}
+
+func splitMountAlias(path string) (string, string, bool) {
+	if !strings.HasPrefix(path, "mounts/") {
+		return "", "", false
+	}
+	rest := strings.TrimPrefix(path, "mounts/")
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+		return "", "", false
+	}
+	if len(parts) == 1 {
+		return parts[0], "", true
+	}
+	return parts[0], parts[1], true
 }
 
 func applyReadLineWindow(content string, line *int, limit *int) string {
@@ -924,7 +1144,7 @@ func (h *ACPHandler) permissionScopeAllowed(resource string, scope string) bool 
 		if trimmedResource == "" {
 			return true
 		}
-		_, _, err := h.normalizePathInScope(trimmedResource)
+		_, err := h.resolvePath(trimmedResource, accessRead)
 		return err == nil
 	default:
 		return false
@@ -1099,11 +1319,45 @@ func mergeTerminalEnv(extra []acpproto.EnvVariable) []string {
 	return env
 }
 
+func mountAllowsCommand(mount *ThreadMount, command string, args []string) bool {
+	if mount == nil {
+		return false
+	}
+	joined := normalizeCommand(joinCommand(command, args))
+	base := normalizeCommand(joinCommand(strings.TrimSuffix(filepath.Base(command), filepath.Ext(command)), args))
+	for _, allowed := range mount.CheckCommands {
+		allowed = normalizeCommand(allowed)
+		if allowed == "" {
+			continue
+		}
+		if joined == allowed || base == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func joinCommand(command string, args []string) string {
+	parts := make([]string, 0, len(args)+1)
+	if strings.TrimSpace(command) != "" {
+		parts = append(parts, strings.TrimSpace(command))
+	}
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg != "" {
+			parts = append(parts, arg)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func normalizeCommand(value string) string {
+	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(value))), " ")
+}
+
 func stringPtrValue(value *string) string {
 	if value == nil {
 		return ""
 	}
 	return *value
 }
-
-
