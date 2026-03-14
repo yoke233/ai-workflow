@@ -1,161 +1,114 @@
 # AI Workflow
 
-AI Workflow 是一个面向多 Agent 编排的本地开发与执行系统，后端使用 Go，前端使用 React + Vite。
+**An intelligent orchestration platform for AI agent pipelines — plan, execute, and monitor multi-agent work from a single dashboard.**
 
-当前仓库的主线结构已经稳定在以下模块：
+AI Workflow turns your requirements into structured execution pipelines. You describe what needs to be done as Work Items; the system breaks them into Actions (a DAG of steps), dispatches each Action to the right AI agent, and tracks every Run to completion — with built-in gates, retries, and human intervention points.
 
-- `cmd/ai-flow`：主程序入口，提供 `server` 和 `executor` 命令。
-- `internal/application`：流程编排、调度、规则与业务服务。
-- `internal/adapters`：HTTP、存储、执行器等外部适配层。
-- `internal/core`：领域模型与核心接口。
-- `internal/platform`：配置、启动、运行时管理。
-- `internal/runtime`：Agent 运行时与会话管理。
-- `web/`：前端控制台。
-- `configs/`：提示词、配置模板、技能相关配置。
-- `scripts/test/`：后端、前端、集成与 smoke 脚本。
-- `docs/`：计划、规格、学习资料与归档文档。
+## Key Features
 
-历史方案和旧实现保留在 `archive-src/` 与 `docs/archive/`，不属于当前主线。
+- **Work Item Management** — Create, prioritize, and track units of work through their full lifecycle (open → accepted → queued → running → done).
+- **DAG-based Execution** — Actions within a Work Item form a dependency graph. Independent actions run in parallel; gates enforce quality checkpoints.
+- **Multi-Agent Runtime** — Configure multiple AI agent drivers (Claude, Codex, etc.) with distinct capability profiles. The scheduler matches each action to the best-fit agent.
+- **Live Monitoring** — Real-time dashboard with analytics, usage tracking, scheduled inspections, and a unified activity journal for full audit trails.
+- **Project Organization** — Group Work Items under Projects, bind them to Git repositories, and manage resources per project.
+- **Conversational Threads** — AI-human chat threads linked to Work Items for context-rich collaboration.
+- **Desktop & Web** — Web console served from the Go binary; optional Tauri wrapper for a native desktop experience.
 
-## 环境要求
+## Architecture
+
+```
+┌─────────────────────────────────────────┐
+│              Web Console                │
+│         React · Vite · Tailwind         │
+├─────────────────────────────────────────┤
+│             REST / WebSocket            │
+├─────────────────────────────────────────┤
+│            Go Backend Server            │
+│  ┌───────────┐ ┌──────────┐ ┌────────┐ │
+│  │ Scheduler  │ │  Engine  │ │  Gate  │ │
+│  │  (DAG)    │ │ (Actions)│ │Evaluator│ │
+│  └───────────┘ └──────────┘ └────────┘ │
+│  ┌───────────┐ ┌──────────┐ ┌────────┐ │
+│  │  Journal  │ │  Agent   │ │ Skills │ │
+│  │  (Audit)  │ │ Runtime  │ │        │ │
+│  └───────────┘ └──────────┘ └────────┘ │
+├─────────────────────────────────────────┤
+│   SQLite · ACP (Agent Communication)    │
+└─────────────────────────────────────────┘
+```
+
+## Quick Start
+
+### Prerequisites
 
 - Go 1.23+
 - Node.js 20+
 - Git
 
-## 快速开始
+### 1. Install frontend dependencies
 
-### 1. 安装前端依赖
-
-```powershell
+```bash
 npm --prefix web install
 ```
 
-### 2. 启动后端
+### 2. Start the backend server
 
-```powershell
+```bash
 go run ./cmd/ai-flow server --port 8080
 ```
 
-服务启动后会自动：
+The server will:
+- Create a default config at `.ai-workflow/config.toml` if none exists
+- Expose health check at `/health`
+- Serve the API under `/api`
 
-- 读取运行时数据目录下的配置文件 `config.toml`
-- 如果配置文件不存在，则写入一份默认配置
-- 暴露健康检查 `/health`
-- 在 `/api` 前缀下提供后端接口
+### 3. Start the frontend dev server
 
-默认运行时数据目录：
-
-- 优先使用环境变量 `AI_WORKFLOW_DATA_DIR`
-- 未设置时使用仓库根目录下的 `.ai-workflow/`
-
-因此当前项目默认的运行时配置文件通常是：
-
-```text
-.\.ai-workflow\config.toml
+```bash
+npm --prefix web run dev
 ```
 
-### 3. 启动前端
+### 4. Open the console
 
-```powershell
-npm --prefix web run dev -- --strictPort
-```
+- Frontend: `http://localhost:5173`
+- API: `http://localhost:8080/api`
 
-### 4. 访问地址
+## Configuration
 
-- 前端开发环境：`http://127.0.0.1:5173`
-- 后端健康检查：`http://127.0.0.1:8080/health`
-- 后端 API 前缀：`http://127.0.0.1:8080/api`
+Runtime config lives in `.ai-workflow/config.toml` (created automatically on first run). You can override the data directory with the `AI_WORKFLOW_DATA_DIR` environment variable.
 
-## 配置说明
+The config file is hot-reloaded — changes take effect immediately without restarting the server.
 
-运行时配置以数据目录中的 `config.toml` 为准，而不是源码中的内嵌默认文件。
+### Agent Drivers
 
-- 源码里的默认模板：`internal/platform/config/defaults.toml`
-- 运行时实际加载文件：`.ai-workflow/config.toml`
+Agent drivers are configured under `[runtime.agents.drivers]`. Each driver points to an AI agent binary (e.g., Claude CLI, Codex) and declares its capabilities (filesystem access, terminal access).
 
-后端启动后会监听运行时配置文件变更；直接修改 `.ai-workflow/config.toml` 会触发热重载并同步更新运行时 agent registry。
+### Agent Profiles
 
-敏感信息与 token 独立存放在 secrets 文件中，不应提交到仓库。
+Profiles under `[runtime.agents.profiles]` define execution personas — role, allowed capabilities, and session strategy. The scheduler uses profiles to match actions to the best agent.
 
-## CLI
+## Core Concepts
 
-查看版本：
+| Concept | Description |
+|---------|-------------|
+| **Work Item** | A unit of work with title, priority, labels, and dependencies. Lifecycle: `open` → `accepted` → `queued` → `running` → `done`. |
+| **Action** | A step within a Work Item's execution pipeline. Types: `exec` (do work), `gate` (quality check), `plan` (generate sub-actions). Actions form a DAG. |
+| **Run** | A single attempt to execute an Action. Supports retries with error classification (transient / permanent / need_help). |
+| **Project** | Organizational container for grouping Work Items. |
+| **Thread** | A conversation between human and AI agents, optionally linked to a Work Item. |
+| **Inspection** | Scheduled or manual audit of project health (cron or on-demand). |
+| **Activity Journal** | Unified append-only audit log capturing state changes, tool calls, agent outputs, signals, and usage across all runs. |
 
-```powershell
-go run ./cmd/ai-flow version
-```
+## Desktop App
 
-启动服务：
+An optional Tauri desktop wrapper is available:
 
-```powershell
-go run ./cmd/ai-flow server --port 8080
-```
-
-启动执行器：
-
-```powershell
-go run ./cmd/ai-flow executor --nats-url nats://127.0.0.1:4222 --agents claude,codex --max-concurrent 2
-```
-
-## 测试
-
-常用测试脚本位于 `scripts/test/`。
-
-后端全量测试：
-
-```powershell
-pwsh -NoProfile -File .\scripts\test\backend-all.ps1
-```
-
-前端单测：
-
-```powershell
-pwsh -NoProfile -File .\scripts\test\frontend-unit.ps1
-```
-
-前端构建验证：
-
-```powershell
-pwsh -NoProfile -File .\scripts\test\frontend-build.ps1
-```
-
-端到端集成回归：
-
-```powershell
-pwsh -NoProfile -File .\scripts\test\p3-integration.ps1
-```
-
-浏览器 E2E：
-
-```powershell
-pwsh -NoProfile -File .\scripts\test\project-admin-e2e.ps1
-```
-
-更多脚本说明见 `scripts/test/README.md`。
-
-## 桌面版
-
-仓库保留了 Tauri 桌面打包入口，根目录 `package.json` 提供：
-
-```powershell
+```bash
 npm install
-npm run tauri:icons
-npm run tauri:dev
+npm run tauri:dev     # development
+npm run tauri:build   # production build
 ```
 
-构建桌面包：
+## License
 
-```powershell
-npm install
-npm run tauri:build
-```
-
-更多说明见 `docs/spec/tauri-desktop.md`。
-
-## 文档入口
-
-- 当前计划：`docs/plans/README.md`
-- 测试脚本说明：`scripts/test/README.md`
-- 规格与学习资料：`docs/spec/`、`docs/learning/`
-- 历史归档：`docs/archive/`
+Private repository. All rights reserved.
