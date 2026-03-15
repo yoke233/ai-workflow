@@ -1,6 +1,6 @@
 # docs/spec 状态索引
 
-> 最后按代码核对：2026-03-14
+> 最后按代码核对：2026-03-15
 
 本目录同时包含 4 类文档：
 
@@ -56,6 +56,7 @@
 - `naming-transition-thread-workitem.zh-CN.md`
 - `step-context-progressive-loading.zh-CN.md`
 - `thread-summary-workitem-mvp.zh-CN.md`
+- `thread-workspace-context.zh-CN.md`
 
 ### 草案
 
@@ -64,7 +65,6 @@
 - `spec-unified-resource-model.zh-CN.md`
 - `activity-journal-consolidation.zh-CN.md`
 - `thread-collaboration-to-dag-plan.zh-CN.md`
-- `thread-workspace-context.zh-CN.md`
 - `spec-context-memory.md`
 
 ### 历史

@@ -72,3 +72,36 @@ func TestContextAccessCapabilities(t *testing.T) {
 		t.Fatal("expected write access to allow writes")
 	}
 }
+
+func TestThreadFocusHelpers(t *testing.T) {
+	thread := &Thread{}
+	if _, ok := ReadThreadFocus(thread); ok {
+		t.Fatal("expected empty thread focus to be absent")
+	}
+
+	SetThreadFocusProjectID(thread, 42)
+	if got, ok := ReadThreadFocusProjectID(thread); !ok || got != 42 {
+		t.Fatalf("ReadThreadFocusProjectID() = (%d, %v), want (42, true)", got, ok)
+	}
+
+	thread.Metadata["other"] = "value"
+	ClearThreadFocus(thread)
+	if _, ok := ReadThreadFocus(thread); ok {
+		t.Fatal("expected focus to be cleared")
+	}
+	if thread.Metadata["other"] != "value" {
+		t.Fatalf("expected unrelated metadata to remain, got %+v", thread.Metadata)
+	}
+}
+
+func TestReadThreadFocusSupportsDecodedMetadata(t *testing.T) {
+	thread := &Thread{
+		Metadata: map[string]any{
+			"focus": map[string]any{"project_id": float64(7)},
+		},
+	}
+	focus, ok := ReadThreadFocus(thread)
+	if !ok || focus == nil || focus.ProjectID != 7 {
+		t.Fatalf("ReadThreadFocus() = %+v, %v", focus, ok)
+	}
+}

@@ -21,6 +21,7 @@ type ProjectReader interface {
 
 type ThreadWriter interface {
 	CreateThread(ctx context.Context, thread *core.Thread) (int64, error)
+	UpdateThread(ctx context.Context, thread *core.Thread) error
 	DeleteThread(ctx context.Context, id int64) error
 }
 

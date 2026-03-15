@@ -61,8 +61,10 @@ func newWorkItem(id int64, title string, status core.WorkItemStatus) *core.WorkI
 
 func TestBuildBootPrompt_FullContext(t *testing.T) {
 	profile := newProfile("agent-worker-1", core.RoleWorker)
+	thread := newThread("Design review for API v2", core.ThreadActive)
+	core.SetThreadFocusProjectID(thread, 42)
 	out := BuildBootPrompt(ThreadBootInput{
-		Thread: newThread("Design review for API v2", core.ThreadActive),
+		Thread: thread,
 		RecentMessages: []*core.ThreadMessage{
 			newMessage("alice", "human", "Please review the endpoint changes."),
 			newMessage("agent-worker-1", "agent", "I will look into the PR now."),
@@ -81,6 +83,7 @@ func TestBuildBootPrompt_FullContext(t *testing.T) {
 	checks := map[string]string{
 		"thread title":      "Design review for API v2",
 		"thread status":     "active",
+		"focus project":     "Focus Project ID",
 		"profile role":      "worker",
 		"profile ID":        "agent-worker-1",
 		"message content 1": "Please review the endpoint changes.",
@@ -190,6 +193,14 @@ func TestBuildBootPrompt_WorkspaceContext(t *testing.T) {
 			ThreadID:  1,
 			Workspace: ".",
 			Archive:   "../archive",
+			Archives: []core.ThreadWorkspaceArchiveSnapshot{
+				{
+					Date:      "2026-03-15",
+					Path:      "../archive/2026-03-15",
+					Manifest:  "../archive/2026-03-15/.manifest.json",
+					FileCount: 3,
+				},
+			},
 			Mounts: map[string]core.ThreadWorkspaceMount{
 				"project-alpha": {
 					Path:      "../mounts/project-alpha",
@@ -200,7 +211,7 @@ func TestBuildBootPrompt_WorkspaceContext(t *testing.T) {
 		},
 	})
 
-	for _, want := range []string{"Workspace Context", "Mount project-alpha", "../mounts/project-alpha", "[check]"} {
+	for _, want := range []string{"Workspace Context", "Mount project-alpha", "../mounts/project-alpha", "[check]", "Archive Snapshot 2026-03-15", ".manifest.json"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output should contain %q.\nOutput:\n%s", want, out)
 		}

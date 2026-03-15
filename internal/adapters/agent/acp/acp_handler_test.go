@@ -80,6 +80,50 @@ func TestACPHandlerCreateTerminalChecksWhitelist(t *testing.T) {
 	}
 }
 
+func TestACPHandlerCreateTerminalAllowsWhitelistedMountCommand(t *testing.T) {
+	baseDir := t.TempDir()
+	workspaceDir := filepath.Join(baseDir, "workspace")
+	mountDir := filepath.Join(baseDir, "project-alpha")
+	for _, dir := range []string{workspaceDir, mountDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(mountDir, "go.mod"), []byte("module example.com/projectalpha\n\ngo 1.24.0\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(mountDir, "main_test.go"), []byte("package projectalpha\n\nimport \"testing\"\n\nfunc TestWorkspace(t *testing.T) {}\n"), 0o644); err != nil {
+		t.Fatalf("write main_test.go: %v", err)
+	}
+
+	h := NewACPHandler(workspaceDir, "", nil)
+	h.SetThreadWorkspace(ThreadWorkspaceConfig{
+		ThreadID:     1,
+		WorkspaceDir: workspaceDir,
+		Mounts: []ThreadMount{
+			{Alias: "project-alpha", TargetPath: mountDir, Access: "check", CheckCommands: []string{"go test ./..."}},
+		},
+	})
+
+	resp, err := h.CreateTerminal(context.Background(), acpproto.CreateTerminalRequest{
+		Command: "go",
+		Args:    []string{"test", "./..."},
+		Cwd:     stringPtr("mounts/project-alpha"),
+	})
+	if err != nil {
+		t.Fatalf("CreateTerminal() error = %v", err)
+	}
+
+	exit, err := h.WaitForTerminalExit(context.Background(), acpproto.WaitForTerminalExitRequest{TerminalId: resp.TerminalId})
+	if err != nil {
+		t.Fatalf("WaitForTerminalExit() error = %v", err)
+	}
+	if exit.ExitCode == nil || *exit.ExitCode != 0 {
+		output, _ := h.TerminalOutput(context.Background(), acpproto.TerminalOutputRequest{TerminalId: resp.TerminalId})
+		t.Fatalf("expected go test success, exit=%+v output=%s", exit, output.Output)
+	}
+}
+
 func TestACPHandlerWriteTextFileAllowsWriteMount(t *testing.T) {
 	baseDir := t.TempDir()
 	workspaceDir := filepath.Join(baseDir, "workspace")
@@ -224,9 +268,10 @@ func TestACPHandlerRequestPermissionAndHelpers(t *testing.T) {
 
 	editKind := acpproto.ToolKindEdit
 	resp, err := h.RequestPermission(context.Background(), acpproto.RequestPermissionRequest{
-		ToolCall: acpproto.ToolCall{
-			Kind:     &editKind,
-			RawInput: map[string]any{"path": "notes/todo.md"},
+		ToolCall: acpproto.ToolCallUpdate{
+			ToolCallId: "tc-1",
+			Kind:       &editKind,
+			RawInput:   map[string]any{"path": "notes/todo.md"},
 		},
 		Options: []acpproto.PermissionOption{
 			{OptionId: "allow_once", Kind: "allow_once", Name: "Allow once"},
@@ -241,9 +286,10 @@ func TestACPHandlerRequestPermissionAndHelpers(t *testing.T) {
 	}
 
 	unknownResp, err := h.RequestPermission(context.Background(), acpproto.RequestPermissionRequest{
-		ToolCall: acpproto.ToolCall{
-			Kind:     ptrToolKind("custom_tool"),
-			RawInput: json.RawMessage(`{"path":"notes/todo.md"}`),
+		ToolCall: acpproto.ToolCallUpdate{
+			ToolCallId: "tc-2",
+			Kind:       ptrToolKind("custom_tool"),
+			RawInput:   json.RawMessage(`{"path":"notes/todo.md"}`),
 		},
 		Options: []acpproto.PermissionOption{
 			{OptionId: "allow_once", Kind: "allow_once", Name: "Allow once"},
@@ -325,14 +371,14 @@ func TestACPHandlerHandleSessionUpdateAggregatesChunks(t *testing.T) {
 		t.Fatalf("FlushPendingChatRunEvents() error = %v", err)
 	}
 
-	if len(recorder.events) != 2 {
-		t.Fatalf("recorded events = %d, want 2", len(recorder.events))
+	if len(recorder.events) != 4 {
+		t.Fatalf("recorded events = %d, want 4", len(recorder.events))
 	}
-	if recorder.events[0].UpdateType != "agent_message" || recorder.events[0].Payload["text"] != "Hello world" {
-		t.Fatalf("unexpected aggregated event: %+v", recorder.events[0])
+	if recorder.events[2].UpdateType != "agent_message" || recorder.events[2].Payload["text"] != "Hello world" {
+		t.Fatalf("unexpected aggregated event: %+v", recorder.events[2])
 	}
-	if recorder.events[1].UpdateType != "run_completed" {
-		t.Fatalf("unexpected trailing event: %+v", recorder.events[1])
+	if recorder.events[3].UpdateType != "run_completed" {
+		t.Fatalf("unexpected trailing event: %+v", recorder.events[3])
 	}
 
 	if len(publisher.events) != 5 {

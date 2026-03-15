@@ -67,7 +67,7 @@ func main() {
 	default: // codex
 		cfg = acpclient.LaunchConfig{
 			Command: "npx",
-			Args:    []string{"-y", "@zed-industries/codex-acp"},
+			Args:    []string{"-y", "@zed-industries/codex-acp@" + codexACPVersion},
 			WorkDir: workDir,
 			Env:     map[string]string{
 				// "CODEX_HOME": `D:\project\ai-workflow\.ai-workflow\codex-home`,
@@ -168,4 +168,3 @@ func main() {
 		}
 	}
 }
-

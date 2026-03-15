@@ -931,6 +931,15 @@ func TestThreadContextRefCRUDAndWorkspaceContextFile(t *testing.T) {
 		t.Fatalf("decode context ref: %v", err)
 	}
 
+	resp, _ = get(ts, fmt.Sprintf("/threads/%d", thread.ID))
+	var focusedThread core.Thread
+	if err := decodeJSON(resp, &focusedThread); err != nil {
+		t.Fatalf("decode focused thread: %v", err)
+	}
+	if focusProjectID, ok := core.ReadThreadFocusProjectID(&focusedThread); !ok || focusProjectID != project.ID {
+		t.Fatalf("expected thread focus on project %d, got (%d, %v)", project.ID, focusProjectID, ok)
+	}
+
 	resp, _ = get(ts, fmt.Sprintf("/threads/%d/context-refs", thread.ID))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 listing context refs, got %d", resp.StatusCode)
@@ -997,6 +1006,14 @@ func TestThreadContextRefCRUDAndWorkspaceContextFile(t *testing.T) {
 	}
 	if len(ctxPayload.Mounts) != 0 {
 		t.Fatalf("expected no mounts after delete, got %+v", ctxPayload.Mounts)
+	}
+	resp, _ = get(ts, fmt.Sprintf("/threads/%d", thread.ID))
+	focusedThread = core.Thread{}
+	if err := decodeJSON(resp, &focusedThread); err != nil {
+		t.Fatalf("decode focused thread after delete: %v", err)
+	}
+	if _, ok := core.ReadThreadFocusProjectID(&focusedThread); ok {
+		t.Fatalf("expected focus to be cleared after delete, got %+v", focusedThread.Metadata)
 	}
 	if _, err := h.store.ListThreadContextRefs(context.Background(), thread.ID); err != nil {
 		t.Fatalf("store list context refs: %v", err)

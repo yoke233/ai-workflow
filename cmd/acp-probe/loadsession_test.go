@@ -24,7 +24,7 @@ import (
 func codexLaunchConfig(workDir string) acpclient.LaunchConfig {
 	return acpclient.LaunchConfig{
 		Command: "npx",
-		Args:    []string{"-y", "@zed-industries/codex-acp"},
+		Args:    []string{"-y", "@zed-industries/codex-acp@" + codexACPVersion},
 		WorkDir: workDir,
 	}
 }

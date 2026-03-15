@@ -130,6 +130,11 @@ func (s *Service) CreateThreadContextRef(ctx context.Context, input CreateThread
 		_ = s.store.DeleteThreadContextRef(ctx, ref.ID)
 		return nil, err
 	}
+	if err := s.setThreadFocus(ctx, input.ThreadID, input.ProjectID); err != nil {
+		_ = s.store.DeleteThreadContextRef(ctx, ref.ID)
+		_ = s.syncThreadWorkspace(ctx, input.ThreadID)
+		return nil, err
+	}
 	return ref, nil
 }
 
@@ -173,6 +178,9 @@ func (s *Service) UpdateThreadContextRef(ctx context.Context, input UpdateThread
 		}
 		return nil, err
 	}
+	if err := s.ensureThreadFocus(ctx, input.ThreadID, ref.ProjectID); err != nil {
+		return nil, err
+	}
 	if err := s.syncThreadWorkspace(ctx, input.ThreadID); err != nil {
 		return nil, err
 	}
@@ -200,6 +208,9 @@ func (s *Service) DeleteThreadContextRef(ctx context.Context, threadID, refID in
 		if errors.Is(err, core.ErrNotFound) {
 			return newError(CodeContextRefNotFound, "context ref not found", err)
 		}
+		return err
+	}
+	if err := s.reconcileThreadFocusAfterRefDelete(ctx, threadID, ref.ProjectID); err != nil {
 		return err
 	}
 	return s.syncThreadWorkspace(ctx, threadID)
@@ -521,6 +532,48 @@ func cloneMetadata(in map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+func (s *Service) setThreadFocus(ctx context.Context, threadID int64, projectID int64) error {
+	thread, err := s.store.GetThread(ctx, threadID)
+	if err != nil {
+		return err
+	}
+	core.SetThreadFocusProjectID(thread, projectID)
+	return s.store.UpdateThread(ctx, thread)
+}
+
+func (s *Service) ensureThreadFocus(ctx context.Context, threadID int64, projectID int64) error {
+	thread, err := s.store.GetThread(ctx, threadID)
+	if err != nil {
+		return err
+	}
+	if _, ok := core.ReadThreadFocusProjectID(thread); ok {
+		return nil
+	}
+	core.SetThreadFocusProjectID(thread, projectID)
+	return s.store.UpdateThread(ctx, thread)
+}
+
+func (s *Service) reconcileThreadFocusAfterRefDelete(ctx context.Context, threadID int64, deletedProjectID int64) error {
+	thread, err := s.store.GetThread(ctx, threadID)
+	if err != nil {
+		return err
+	}
+	focusProjectID, ok := core.ReadThreadFocusProjectID(thread)
+	if !ok || focusProjectID != deletedProjectID {
+		return nil
+	}
+	refs, err := s.store.ListThreadContextRefs(ctx, threadID)
+	if err != nil {
+		return err
+	}
+	if len(refs) == 0 {
+		core.ClearThreadFocus(thread)
+		return s.store.UpdateThread(ctx, thread)
+	}
+	core.SetThreadFocusProjectID(thread, refs[0].ProjectID)
+	return s.store.UpdateThread(ctx, thread)
 }
 
 func (s *Service) syncThreadWorkspace(ctx context.Context, threadID int64) error {

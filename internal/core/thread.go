@@ -115,6 +115,11 @@ type ThreadWorkItemLink struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// ThreadFocus tracks the project currently emphasized in a thread.
+type ThreadFocus struct {
+	ProjectID int64 `json:"project_id"`
+}
+
 // ContextAccess defines a Thread's access level to mounted project resources.
 type ContextAccess string
 
@@ -169,14 +174,23 @@ type ThreadWorkspaceMount struct {
 	CheckCommands []string      `json:"check_commands,omitempty"`
 }
 
+// ThreadWorkspaceArchiveSnapshot describes one archived workspace snapshot.
+type ThreadWorkspaceArchiveSnapshot struct {
+	Date      string `json:"date"`
+	Path      string `json:"path"`
+	Manifest  string `json:"manifest,omitempty"`
+	FileCount int    `json:"file_count,omitempty"`
+}
+
 // ThreadWorkspaceContext is the platform-maintained .context.json payload.
 type ThreadWorkspaceContext struct {
-	ThreadID  int64                           `json:"thread_id"`
-	Workspace string                          `json:"workspace"`
-	Mounts    map[string]ThreadWorkspaceMount `json:"mounts,omitempty"`
-	Archive   string                          `json:"archive"`
-	Members   []string                        `json:"members,omitempty"`
-	UpdatedAt time.Time                       `json:"updated_at"`
+	ThreadID  int64                            `json:"thread_id"`
+	Workspace string                           `json:"workspace"`
+	Mounts    map[string]ThreadWorkspaceMount  `json:"mounts,omitempty"`
+	Archive   string                           `json:"archive"`
+	Archives  []ThreadWorkspaceArchiveSnapshot `json:"archives,omitempty"`
+	Members   []string                         `json:"members,omitempty"`
+	UpdatedAt time.Time                        `json:"updated_at"`
 }
 
 // ThreadAgentStatus represents the lifecycle status of an agent thread member.
@@ -230,6 +244,83 @@ func CanTransitionThreadAgentStatus(from, to ThreadAgentStatus) bool {
 	default:
 		return false
 	}
+}
+
+func ReadThreadFocus(thread *Thread) (*ThreadFocus, bool) {
+	if thread == nil || len(thread.Metadata) == 0 {
+		return nil, false
+	}
+	raw, ok := thread.Metadata["focus"]
+	if !ok || raw == nil {
+		return nil, false
+	}
+	switch value := raw.(type) {
+	case ThreadFocus:
+		if value.ProjectID > 0 {
+			copyValue := value
+			return &copyValue, true
+		}
+	case *ThreadFocus:
+		if value != nil && value.ProjectID > 0 {
+			copyValue := *value
+			return &copyValue, true
+		}
+	case map[string]any:
+		if projectID, ok := parseThreadFocusProjectID(value["project_id"]); ok {
+			return &ThreadFocus{ProjectID: projectID}, true
+		}
+	case map[string]int64:
+		if projectID, ok := value["project_id"]; ok && projectID > 0 {
+			return &ThreadFocus{ProjectID: projectID}, true
+		}
+	}
+	return nil, false
+}
+
+func ReadThreadFocusProjectID(thread *Thread) (int64, bool) {
+	focus, ok := ReadThreadFocus(thread)
+	if !ok || focus == nil || focus.ProjectID <= 0 {
+		return 0, false
+	}
+	return focus.ProjectID, true
+}
+
+func SetThreadFocusProjectID(thread *Thread, projectID int64) {
+	if thread == nil || projectID <= 0 {
+		return
+	}
+	if thread.Metadata == nil {
+		thread.Metadata = map[string]any{}
+	}
+	thread.Metadata["focus"] = map[string]any{"project_id": projectID}
+}
+
+func ClearThreadFocus(thread *Thread) {
+	if thread == nil || len(thread.Metadata) == 0 {
+		return
+	}
+	delete(thread.Metadata, "focus")
+	if len(thread.Metadata) == 0 {
+		thread.Metadata = nil
+	}
+}
+
+func parseThreadFocusProjectID(raw any) (int64, bool) {
+	switch value := raw.(type) {
+	case int:
+		if value > 0 {
+			return int64(value), true
+		}
+	case int64:
+		if value > 0 {
+			return value, true
+		}
+	case float64:
+		if value > 0 {
+			return int64(value), true
+		}
+	}
+	return 0, false
 }
 
 // ThreadStore persists Thread aggregates.

@@ -1,16 +1,16 @@
 # Thread Workspace 与上下文引用模型规格
 
-> 状态：草案
+> 状态：部分实现
 >
-> 最后按代码核对：2026-03-14
+> 最后按代码核对：2026-03-15
 >
-> 对应实现：尚无；当前 `thread_session_pool.go:191` 启动 ACP 时 cwd 为空字符串
+> 当前实现状态：`thread_context_refs` 表、Thread workspace 目录与 `.context.json`、context-ref CRUD API、Thread agent 启动时使用 workspace cwd、以及 ACP handler 的 mount/archive 路径映射与基础访问控制均已落地；但 `Thread.Metadata.focus`、workspace 每日归档、以及更完整的权限/执行约束仍未全部实现。
 >
 > 补充边界说明：Thread 主模型见 `thread-agent-runtime.zh-CN.md`；Thread-WorkItem 关联见 `thread-workitem-linking.zh-CN.md`；项目资源绑定见 `spec-unified-resource-model.zh-CN.md`
 
 ## 概述
 
-Thread 是不绑定项目的全局讨论容器。当前 Thread agent 启动 ACP session 时没有 cwd（`acphandler.NewACPHandler("", "", nil)`），导致 agent 无法执行文件读写和终端命令，本质上只是"讨论型会话"。
+Thread 是不绑定项目的全局讨论容器。当前代码已经为 Thread agent 分配独立 workspace cwd，并支持基于 `thread_context_refs` 的项目挂载与 `.context.json` 同步；但该能力仍是“workspace + 只读/检查/受限写入挂载”的第一阶段，尚未覆盖本文定义的全部扩展点。
 
 本规格解决两个问题：
 
@@ -146,17 +146,12 @@ Thread 创建时同步创建 workspace 目录：
 
 ### ACP Session 配置变更
 
-当前 `thread_session_pool.go:191`：
+当前实现位于 `internal/runtime/agent/thread_session_pool.go`，已在启动 Thread agent 时把 workspace 目录作为 ACP cwd，并同步注入 Thread workspace scope：
 
 ```go
-handler := acphandler.NewACPHandler("", "", nil)
-```
-
-变更为：
-
-```go
-workspaceDir := filepath.Join(dataDir, "threads", strconv.FormatInt(threadID, 10), "workspace")
+workspaceDir, scopeCfg, err := p.prepareThreadWorkspace(ctx, member.ThreadID)
 handler := acphandler.NewACPHandler(workspaceDir, "", nil)
+handler.SetThreadWorkspace(scopeCfg)
 ```
 
 ### 每日归档
@@ -375,6 +370,16 @@ type ResourceRef struct {
 - Thread 删除时：先调用 `CleanupThread(threadID)` 释放 ACP session（已有），再清理 `thread_context_refs` 记录
 - workspace 目录：Thread 删除后保留 N 天（可配置），之后由后台任务清理
 - `thread_context_refs` 不设 `ON DELETE CASCADE`，通过 handler 显式清理（与 `thread_work_item_links` 策略一致）
+
+## 实施顺序与统一资源模型的关系
+
+本规格与 `spec-unified-resource-model.zh-CN.md` 无表结构冲突。`thread_context_refs` 只引用 `project_id`，不直接引用 `ResourceBinding` 或 `ResourceSpace`。路径解析发生在运行时代码（ACP handler 挂载映射），不在表结构上。
+
+**建议先实施本规格，后实施统一资源模型。** 原因：
+
+1. 当前 thread agent cwd 为空字符串，是功能缺口，本规格直接解决
+2. 统一资源模型是大型重构（5 Phase），周期长，不应阻塞 Thread 能力建设
+3. 本规格的挂载解析暂时走 `ResourceBinding`；统一资源模型完成后，只需将解析改为查 `ResourceSpace`（一处代码变更）
 
 ## 与现有设计的关系
 

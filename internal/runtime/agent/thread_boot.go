@@ -37,6 +37,9 @@ func BuildBootPrompt(in ThreadBootInput) string {
 	if in.Thread != nil {
 		fmt.Fprintf(&b, "**Title**: %s\n", in.Thread.Title)
 		fmt.Fprintf(&b, "**Status**: %s\n", in.Thread.Status)
+		if focusProjectID, ok := core.ReadThreadFocusProjectID(in.Thread); ok {
+			fmt.Fprintf(&b, "**Focus Project ID**: %d\n", focusProjectID)
+		}
 	}
 	if in.AgentProfile != nil {
 		fmt.Fprintf(&b, "**Your Role**: %s (%s)\n", in.AgentProfile.Role, in.AgentProfile.ID)
@@ -83,6 +86,15 @@ func BuildBootPrompt(in ThreadBootInput) string {
 		fmt.Fprintf(&b, "- Workspace: %s\n", strings.TrimSpace(in.Workspace.Workspace))
 		if strings.TrimSpace(in.Workspace.Archive) != "" {
 			fmt.Fprintf(&b, "- Archive: %s\n", strings.TrimSpace(in.Workspace.Archive))
+		}
+		if len(in.Workspace.Archives) > 0 {
+			for _, snapshot := range in.Workspace.Archives {
+				if strings.TrimSpace(snapshot.Manifest) != "" {
+					fmt.Fprintf(&b, "- Archive Snapshot %s => %s (manifest: %s, files: %d)\n", snapshot.Date, snapshot.Path, snapshot.Manifest, snapshot.FileCount)
+					continue
+				}
+				fmt.Fprintf(&b, "- Archive Snapshot %s => %s\n", snapshot.Date, snapshot.Path)
+			}
 		}
 		if len(in.Workspace.Mounts) > 0 {
 			keys := make([]string, 0, len(in.Workspace.Mounts))
