@@ -542,6 +542,9 @@ func (m *Manager) reloadLocked(ctx context.Context, reason string) (*Snapshot, e
 }
 
 func (m *Manager) buildSnapshotFromPaths(configPath string, secretsPath string) (*Snapshot, error) {
+	if _, err := os.Stat(configPath); err != nil {
+		return nil, fmt.Errorf("config file unavailable: %w", err)
+	}
 	cfg, err := config.LoadGlobal(configPath, secretsPath)
 	if err != nil {
 		return nil, fmt.Errorf("load config runtime: %w", err)
