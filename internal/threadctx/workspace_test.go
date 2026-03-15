@@ -211,6 +211,12 @@ type threadctxStoreStub struct {
 	listRefsErr          error
 	listSpacesErr        error
 	project              *core.Project
+	projectsByID         map[int64]*core.Project
+	spacesByProject      map[int64][]*core.ResourceSpace
+	getProjectCalls      int
+	listSpacesCalls      int
+	batchProjectCalls    int
+	batchSpacesCalls     int
 }
 
 func (s *threadctxStoreStub) GetThread(context.Context, int64) (*core.Thread, error) {
@@ -220,14 +226,29 @@ func (s *threadctxStoreStub) GetThread(context.Context, int64) (*core.Thread, er
 	return &core.Thread{ID: 1, Title: "thread"}, nil
 }
 
-func (s *threadctxStoreStub) GetProject(context.Context, int64) (*core.Project, error) {
+func (s *threadctxStoreStub) GetProject(_ context.Context, id int64) (*core.Project, error) {
+	s.getProjectCalls++
 	if s.getProjectErr != nil {
 		return nil, s.getProjectErr
+	}
+	if len(s.projectsByID) > 0 {
+		return s.projectsByID[id], nil
 	}
 	if s.project != nil {
 		return s.project, nil
 	}
 	return &core.Project{ID: 1, Name: "Project"}, nil
+}
+
+func (s *threadctxStoreStub) GetProjectsByID(_ context.Context, ids []int64) (map[int64]*core.Project, error) {
+	s.batchProjectCalls++
+	out := make(map[int64]*core.Project, len(ids))
+	for _, id := range ids {
+		if project, ok := s.projectsByID[id]; ok {
+			out[id] = project
+		}
+	}
+	return out, s.getProjectErr
 }
 
 func (s *threadctxStoreStub) ListThreadMembers(context.Context, int64) ([]*core.ThreadMember, error) {
@@ -243,7 +264,76 @@ func (s *threadctxStoreStub) ListThreadAttachments(context.Context, int64) ([]*c
 }
 
 func (s *threadctxStoreStub) ListResourceSpaces(context.Context, int64) ([]*core.ResourceSpace, error) {
+	s.listSpacesCalls++
 	return s.listSpaces, s.listSpacesErr
+}
+
+func (s *threadctxStoreStub) ListResourceSpacesByProjects(_ context.Context, projectIDs []int64) (map[int64][]*core.ResourceSpace, error) {
+	s.batchSpacesCalls++
+	out := make(map[int64][]*core.ResourceSpace, len(projectIDs))
+	for _, id := range projectIDs {
+		if spaces, ok := s.spacesByProject[id]; ok {
+			out[id] = spaces
+		}
+	}
+	return out, s.listSpacesErr
+}
+
+func TestBuildWorkspaceContextUsesBatchMountLoaders(t *testing.T) {
+	store := &threadctxStoreStub{
+		listMembers: []*core.ThreadMember{{UserID: "owner-1"}},
+		listThreadContextRef: []*core.ThreadContextRef{
+			{ProjectID: 1, Access: core.ContextAccessRead},
+			{ProjectID: 2, Access: core.ContextAccessCheck},
+		},
+		projectsByID: map[int64]*core.Project{
+			1: &core.Project{ID: 1, Name: "Project One"},
+			2: &core.Project{ID: 2, Name: "Project Two"},
+		},
+		spacesByProject: map[int64][]*core.ResourceSpace{
+			1: {&core.ResourceSpace{ProjectID: 1, Kind: core.ResourceKindLocalFS, RootURI: t.TempDir()}},
+			2: {&core.ResourceSpace{ProjectID: 2, Kind: core.ResourceKindLocalFS, RootURI: t.TempDir()}},
+		},
+	}
+
+	payload, err := BuildWorkspaceContext(context.Background(), store, t.TempDir(), 1)
+	if err != nil {
+		t.Fatalf("BuildWorkspaceContext() error = %v", err)
+	}
+	if len(payload.Mounts) != 2 {
+		t.Fatalf("expected 2 mounts, got %+v", payload.Mounts)
+	}
+	if store.batchProjectCalls != 1 || store.batchSpacesCalls != 1 {
+		t.Fatalf("expected batch loaders to be used once, got projects=%d spaces=%d", store.batchProjectCalls, store.batchSpacesCalls)
+	}
+	if store.getProjectCalls != 0 || store.listSpacesCalls != 0 {
+		t.Fatalf("expected fallback loaders to be skipped, got getProject=%d listSpaces=%d", store.getProjectCalls, store.listSpacesCalls)
+	}
+}
+
+func TestSyncContextFileAvoidsDuplicateMountResolution(t *testing.T) {
+	store := &threadctxStoreStub{
+		listMembers: []*core.ThreadMember{{UserID: "owner-1"}},
+		listThreadContextRef: []*core.ThreadContextRef{
+			{ProjectID: 7, Access: core.ContextAccessRead},
+		},
+		projectsByID: map[int64]*core.Project{
+			7: &core.Project{ID: 7, Name: "Project Seven"},
+		},
+		spacesByProject: map[int64][]*core.ResourceSpace{
+			7: {&core.ResourceSpace{ProjectID: 7, Kind: core.ResourceKindLocalFS, RootURI: t.TempDir()}},
+		},
+	}
+
+	if _, err := SyncContextFile(context.Background(), store, t.TempDir(), 1); err != nil {
+		t.Fatalf("SyncContextFile() error = %v", err)
+	}
+	if store.batchProjectCalls != 1 || store.batchSpacesCalls != 1 {
+		t.Fatalf("expected a single mount preload, got projects=%d spaces=%d", store.batchProjectCalls, store.batchSpacesCalls)
+	}
+	if store.getProjectCalls != 0 || store.listSpacesCalls != 0 {
+		t.Fatalf("expected fallback loaders to be skipped, got getProject=%d listSpaces=%d", store.getProjectCalls, store.listSpacesCalls)
+	}
 }
 
 func TestPathsAndEnsureLayout(t *testing.T) {

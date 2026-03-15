@@ -63,6 +63,24 @@ func (s *Store) ListProjects(ctx context.Context, limit, offset int) ([]*core.Pr
 	return out, nil
 }
 
+func (s *Store) GetProjectsByID(ctx context.Context, ids []int64) (map[int64]*core.Project, error) {
+	out := make(map[int64]*core.Project, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+
+	uniqueIDs := uniqueInt64s(ids)
+	var models []ProjectModel
+	if err := s.orm.WithContext(ctx).Where("id IN ?", uniqueIDs).Find(&models).Error; err != nil {
+		return nil, err
+	}
+	for i := range models {
+		project := models[i].toCore()
+		out[project.ID] = project
+	}
+	return out, nil
+}
+
 func (s *Store) UpdateProject(ctx context.Context, p *core.Project) error {
 	if p == nil {
 		return fmt.Errorf("project is nil")

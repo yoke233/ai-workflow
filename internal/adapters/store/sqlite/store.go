@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -31,8 +32,9 @@ func New(path string) (*Store, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), startupDBTimeout)
 	defer cancel()
 
-	// SQLite: serialize writes through one connection to avoid SQLITE_BUSY.
-	db.SetMaxOpenConns(1)
+	maxOpenConns := sqliteMaxOpenConns(path)
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxOpenConns)
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
 		return nil, startupDBError(path, "ping sqlite", err)
@@ -63,6 +65,24 @@ func New(path string) (*Store, error) {
 	}
 
 	return &Store{db: db, orm: orm}, nil
+}
+
+func sqliteMaxOpenConns(path string) int {
+	normalized := strings.ToLower(strings.TrimSpace(path))
+	// Plain in-memory SQLite databases are isolated per connection, so keep them
+	// on a single connection to preserve the existing test/runtime behavior.
+	if normalized == ":memory:" || strings.Contains(normalized, "mode=memory") {
+		return 1
+	}
+
+	maxOpenConns := runtime.GOMAXPROCS(0)
+	if maxOpenConns < 4 {
+		maxOpenConns = 4
+	}
+	if maxOpenConns > 8 {
+		maxOpenConns = 8
+	}
+	return maxOpenConns
 }
 
 func startupDBError(path string, op string, err error) error {

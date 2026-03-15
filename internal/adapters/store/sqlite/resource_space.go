@@ -49,6 +49,27 @@ func (s *Store) ListResourceSpaces(ctx context.Context, projectID int64) ([]*cor
 	return out, nil
 }
 
+func (s *Store) ListResourceSpacesByProjects(ctx context.Context, projectIDs []int64) (map[int64][]*core.ResourceSpace, error) {
+	out := make(map[int64][]*core.ResourceSpace, len(projectIDs))
+	if len(projectIDs) == 0 {
+		return out, nil
+	}
+
+	uniqueIDs := uniqueInt64s(projectIDs)
+	var models []ResourceSpaceModel
+	if err := s.orm.WithContext(ctx).
+		Where("project_id IN ?", uniqueIDs).
+		Order("project_id ASC, id ASC").
+		Find(&models).Error; err != nil {
+		return nil, err
+	}
+	for i := range models {
+		space := models[i].toCore()
+		out[space.ProjectID] = append(out[space.ProjectID], space)
+	}
+	return out, nil
+}
+
 func (s *Store) UpdateResourceSpace(ctx context.Context, rs *core.ResourceSpace) error {
 	now := time.Now().UTC()
 	model := resourceSpaceModelFromCore(rs)

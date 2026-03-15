@@ -20,6 +20,15 @@ func newTestStore(t *testing.T) *Store {
 	return s
 }
 
+func TestSQLiteMaxOpenConns(t *testing.T) {
+	if got := sqliteMaxOpenConns(":memory:"); got != 1 {
+		t.Fatalf("sqliteMaxOpenConns(:memory:) = %d, want 1", got)
+	}
+	if got := sqliteMaxOpenConns(filepath.Join(t.TempDir(), "test.db")); got < 4 {
+		t.Fatalf("sqliteMaxOpenConns(file) = %d, want at least 4", got)
+	}
+}
+
 func TestIssueCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

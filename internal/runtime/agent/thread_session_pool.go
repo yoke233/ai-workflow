@@ -207,8 +207,9 @@ func (p *ThreadSessionPool) InviteAgent(ctx context.Context, threadID int64, pro
 // bootSessionBackground runs the full ACP boot sequence in a background
 // goroutine and publishes success/failure events via the EventBus.
 func (p *ThreadSessionPool) bootSessionBackground(member *core.ThreadMember, profile *core.AgentProfile, priorSummary string) {
-	ctx := context.Background()
-	if _, err := p.bootSession(ctx, member, profile, priorSummary); err != nil {
+	bootCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if _, err := p.bootSession(bootCtx, member, profile, priorSummary); err != nil {
 		slog.Warn("thread pool: background boot failed",
 			"thread_id", member.ThreadID, "profile", profile.ID, "error", err)
 	}
@@ -349,32 +350,99 @@ func (p *ThreadSessionPool) buildBootPrompt(ctx context.Context, threadID int64,
 	}), nil
 }
 
-// WaitAgentReady polls until the agent session is active or the context expires.
-// Returns nil when the session is ready, or an error if it failed/timed out.
+// WaitAgentReady waits for boot/failed lifecycle events and falls back to a
+// low-frequency status check so external state changes are still observed.
 func (p *ThreadSessionPool) WaitAgentReady(ctx context.Context, threadID int64, profileID string) error {
 	key := threadSessionKey{threadID: threadID, agentID: profileID}
-	ticker := time.NewTicker(500 * time.Millisecond)
+	if err := p.agentReadyState(ctx, key, profileID); err != nil || p.sessionReady(key) {
+		return err
+	}
+
+	var events <-chan core.Event
+	if p.bus != nil {
+		sub := p.bus.Subscribe(core.SubscribeOpts{
+			Types:      []core.EventType{core.EventThreadAgentBooted, core.EventThreadAgentFailed, core.EventThreadAgentLeft},
+			BufferSize: 8,
+		})
+		defer sub.Cancel()
+		events = sub.C
+	}
+
+	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("timeout waiting for agent %q in thread %d", profileID, threadID)
-		case <-ticker.C:
-			p.mu.Lock()
-			pooled := p.sessions[key]
-			p.mu.Unlock()
-			if pooled != nil {
-				return nil // session is ready
+		case event, ok := <-events:
+			if !ok {
+				events = nil
+				continue
 			}
-			// Check if the member has failed.
-			members, _ := p.store.ListThreadMembers(context.Background(), threadID)
-			for _, m := range members {
-				if m.AgentProfileID == profileID && m.Status == core.ThreadAgentFailed {
-					return fmt.Errorf("agent %q failed to boot in thread %d", profileID, threadID)
+			if eventTypeMatchesThreadAgent(event, threadID, profileID) {
+				if err := p.agentReadyState(ctx, key, profileID); err != nil || p.sessionReady(key) {
+					return err
 				}
+			}
+		case <-ticker.C:
+			if err := p.agentReadyState(ctx, key, profileID); err != nil || p.sessionReady(key) {
+				return err
 			}
 		}
 	}
+}
+
+func (p *ThreadSessionPool) sessionReady(key threadSessionKey) bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.sessions[key] != nil
+}
+
+func (p *ThreadSessionPool) agentReadyState(ctx context.Context, key threadSessionKey, profileID string) error {
+	if p.sessionReady(key) {
+		return nil
+	}
+	if p == nil || p.store == nil {
+		return fmt.Errorf("agent %q is not available in thread %d", profileID, key.threadID)
+	}
+	members, err := p.store.ListThreadMembers(ctx, key.threadID)
+	if err != nil {
+		return err
+	}
+	for _, member := range members {
+		if member == nil || member.AgentProfileID != profileID {
+			continue
+		}
+		switch member.Status {
+		case core.ThreadAgentActive:
+			return nil
+		case core.ThreadAgentFailed:
+			return fmt.Errorf("agent %q failed to boot in thread %d", profileID, key.threadID)
+		case core.ThreadAgentLeft:
+			return fmt.Errorf("agent %q left thread %d before becoming ready", profileID, key.threadID)
+		}
+	}
+	return nil
+}
+
+func eventTypeMatchesThreadAgent(event core.Event, threadID int64, profileID string) bool {
+	if event.Type != core.EventThreadAgentBooted && event.Type != core.EventThreadAgentFailed && event.Type != core.EventThreadAgentLeft {
+		return false
+	}
+	var eventThreadID int64
+	switch value := event.Data["thread_id"].(type) {
+	case int64:
+		eventThreadID = value
+	case int:
+		eventThreadID = int64(value)
+	case float64:
+		eventThreadID = int64(value)
+	}
+	eventProfileID, _ := event.Data["profile_id"].(string)
+	return eventThreadID == threadID && strings.TrimSpace(eventProfileID) == profileID
 }
 
 // SendMessage routes a human message to all active agents in a thread and
@@ -677,6 +745,9 @@ func (p *ThreadSessionPool) checkContextBudget(ctx context.Context, threadID int
 }
 
 func (p *ThreadSessionPool) publishThreadEvent(ctx context.Context, eventType core.EventType, threadID int64, profileID string, extra map[string]any) {
+	if p == nil || p.bus == nil {
+		return
+	}
 	data := map[string]any{
 		"thread_id":  threadID,
 		"profile_id": profileID,

@@ -315,12 +315,6 @@ func (e *WorkItemEngine) scheduleLoop(ctx context.Context, workItemID int64) err
 			}
 		}
 
-		// Re-fetch after promotions to get updated statuses.
-		actions, err = e.workflow.store.ListActionsByWorkItem(ctx, workItemID)
-		if err != nil {
-			return fmt.Errorf("list actions after promote: %w", err)
-		}
-
 		// Phase 2: dispatch all ready actions for execution.
 		runnable := RunnableActions(actions)
 		if len(runnable) == 0 {
@@ -334,7 +328,9 @@ func (e *WorkItemEngine) scheduleLoop(ctx context.Context, workItemID int64) err
 			if !hasActive {
 				return fmt.Errorf("work item %d is stuck: no runnable, running, or waiting actions", workItemID)
 			}
-			time.Sleep(10 * time.Millisecond)
+			if err := e.waitForWorkItemProgress(ctx, workItemID); err != nil {
+				return err
+			}
 			continue
 		}
 
@@ -384,6 +380,51 @@ func (e *WorkItemEngine) scheduleLoop(ctx context.Context, workItemID int64) err
 
 		if runErr != nil {
 			return runErr
+		}
+	}
+}
+
+func (e *WorkItemEngine) waitForWorkItemProgress(ctx context.Context, workItemID int64) error {
+	const fallbackPollInterval = 250 * time.Millisecond
+
+	timer := time.NewTimer(fallbackPollInterval)
+	defer timer.Stop()
+
+	var events <-chan core.Event
+	if bus, ok := e.workflow.bus.(EventBus); ok && bus != nil {
+		sub := bus.Subscribe(core.SubscribeOpts{
+			Types: []core.EventType{
+				core.EventActionReady,
+				core.EventActionStarted,
+				core.EventActionCompleted,
+				core.EventActionFailed,
+				core.EventActionBlocked,
+				core.EventActionSignal,
+				core.EventActionUnblocked,
+				core.EventGatePassed,
+				core.EventGateRejected,
+				core.EventGateReworkLimitReached,
+			},
+			BufferSize: 16,
+		})
+		defer sub.Cancel()
+		events = sub.C
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event, ok := <-events:
+			if !ok {
+				events = nil
+				continue
+			}
+			if event.WorkItemID == workItemID {
+				return nil
+			}
+		case <-timer.C:
+			return nil
 		}
 	}
 }

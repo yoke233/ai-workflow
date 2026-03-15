@@ -30,6 +30,14 @@ type Store interface {
 	ListResourceSpaces(ctx context.Context, projectID int64) ([]*core.ResourceSpace, error)
 }
 
+type projectBatchLoader interface {
+	GetProjectsByID(ctx context.Context, ids []int64) (map[int64]*core.Project, error)
+}
+
+type resourceSpaceBatchLoader interface {
+	ListResourceSpacesByProjects(ctx context.Context, projectIDs []int64) (map[int64][]*core.ResourceSpace, error)
+}
+
 type PathsInfo struct {
 	ThreadDir      string
 	ProjectsDir    string
@@ -96,11 +104,11 @@ func SyncContextFile(ctx context.Context, store Store, dataDir string, threadID 
 		return nil, err
 	}
 
-	payload, err := BuildWorkspaceContext(ctx, store, dataDir, threadID)
+	payload, aliasTargets, err := buildWorkspaceContextData(ctx, store, threadID)
 	if err != nil {
 		return nil, err
 	}
-	if err := syncMountAliasDirs(paths.ProjectsDir, payload, resolvedMountTargets(ctx, store, threadID)); err != nil {
+	if err := syncMountAliasDirs(paths.ProjectsDir, payload, aliasTargets); err != nil {
 		return nil, err
 	}
 
@@ -115,21 +123,33 @@ func SyncContextFile(ctx context.Context, store Store, dataDir string, threadID 
 }
 
 func BuildWorkspaceContext(ctx context.Context, store Store, dataDir string, threadID int64) (*core.ThreadWorkspaceContext, error) {
+	payload, _, err := buildWorkspaceContextData(ctx, store, threadID)
+	if err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func buildWorkspaceContextData(ctx context.Context, store Store, threadID int64) (*core.ThreadWorkspaceContext, map[string]string, error) {
 	if store == nil {
-		return nil, fmt.Errorf("thread context store is nil")
+		return nil, nil, fmt.Errorf("thread context store is nil")
 	}
 
 	if _, err := store.GetThread(ctx, threadID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	refs, err := store.ListThreadContextRefs(ctx, threadID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	members, err := store.ListThreadMembers(ctx, threadID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	projectCache, resourceSpacesByProject, err := preloadMountData(ctx, store, refs)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	payload := &core.ThreadWorkspaceContext{
@@ -138,6 +158,7 @@ func BuildWorkspaceContext(ctx context.Context, store Store, dataDir string, thr
 		Mounts:    map[string]core.ThreadWorkspaceMount{},
 		UpdatedAt: nowUTC(),
 	}
+	aliasTargets := make(map[string]string, len(refs))
 
 	memberSet := make(map[string]struct{})
 	for _, member := range members {
@@ -157,7 +178,7 @@ func BuildWorkspaceContext(ctx context.Context, store Store, dataDir string, thr
 	sort.Strings(payload.Members)
 
 	for _, ref := range refs {
-		mount, err := ResolveMount(ctx, store, ref)
+		mount, err := resolveMountFromCache(ref, projectCache, resourceSpacesByProject)
 		if err != nil || mount == nil {
 			continue
 		}
@@ -167,6 +188,7 @@ func BuildWorkspaceContext(ctx context.Context, store Store, dataDir string, thr
 			Access:        mount.Access,
 			CheckCommands: append([]string(nil), mount.CheckCommands...),
 		}
+		aliasTargets[mount.Slug] = mount.TargetPath
 	}
 
 	if len(payload.Mounts) == 0 {
@@ -189,7 +211,7 @@ func BuildWorkspaceContext(ctx context.Context, store Store, dataDir string, thr
 		}
 	}
 
-	return payload, nil
+	return payload, aliasTargets, nil
 }
 
 func ResolveMount(ctx context.Context, store Store, ref *core.ThreadContextRef) (*ResolvedMount, error) {
@@ -199,15 +221,95 @@ func ResolveMount(ctx context.Context, store Store, ref *core.ThreadContextRef) 
 	if ref == nil {
 		return nil, fmt.Errorf("thread context ref is nil")
 	}
-	project, err := store.GetProject(ctx, ref.ProjectID)
+	projectCache, resourceSpacesByProject, err := preloadMountData(ctx, store, []*core.ThreadContextRef{ref})
 	if err != nil {
 		return nil, err
 	}
-	spaces, err := store.ListResourceSpaces(ctx, ref.ProjectID)
-	if err != nil {
-		return nil, err
+	return resolveMountFromCache(ref, projectCache, resourceSpacesByProject)
+}
+
+func preloadMountData(ctx context.Context, store Store, refs []*core.ThreadContextRef) (map[int64]*core.Project, map[int64][]*core.ResourceSpace, error) {
+	projectIDs := collectProjectIDs(refs)
+	projectCache := make(map[int64]*core.Project, len(projectIDs))
+	resourceSpacesByProject := make(map[int64][]*core.ResourceSpace, len(projectIDs))
+	if len(projectIDs) == 0 {
+		return projectCache, resourceSpacesByProject, nil
 	}
 
+	if loader, ok := store.(projectBatchLoader); ok {
+		projects, err := loader.GetProjectsByID(ctx, projectIDs)
+		if err != nil {
+			return nil, nil, err
+		}
+		for projectID, project := range projects {
+			if project != nil {
+				projectCache[projectID] = project
+			}
+		}
+	}
+	for _, projectID := range projectIDs {
+		if _, ok := projectCache[projectID]; ok {
+			continue
+		}
+		project, err := store.GetProject(ctx, projectID)
+		if err != nil {
+			return nil, nil, err
+		}
+		projectCache[projectID] = project
+	}
+
+	if loader, ok := store.(resourceSpaceBatchLoader); ok {
+		projectSpaces, err := loader.ListResourceSpacesByProjects(ctx, projectIDs)
+		if err != nil {
+			return nil, nil, err
+		}
+		for projectID, spaces := range projectSpaces {
+			resourceSpacesByProject[projectID] = cloneResourceSpaces(spaces)
+		}
+	}
+	for _, projectID := range projectIDs {
+		if _, ok := resourceSpacesByProject[projectID]; ok {
+			continue
+		}
+		spaces, err := store.ListResourceSpaces(ctx, projectID)
+		if err != nil {
+			return nil, nil, err
+		}
+		resourceSpacesByProject[projectID] = cloneResourceSpaces(spaces)
+	}
+
+	return projectCache, resourceSpacesByProject, nil
+}
+
+func collectProjectIDs(refs []*core.ThreadContextRef) []int64 {
+	if len(refs) == 0 {
+		return nil
+	}
+	seen := make(map[int64]struct{}, len(refs))
+	ids := make([]int64, 0, len(refs))
+	for _, ref := range refs {
+		if ref == nil || ref.ProjectID <= 0 {
+			continue
+		}
+		if _, ok := seen[ref.ProjectID]; ok {
+			continue
+		}
+		seen[ref.ProjectID] = struct{}{}
+		ids = append(ids, ref.ProjectID)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+func resolveMountFromCache(ref *core.ThreadContextRef, projects map[int64]*core.Project, resourceSpacesByProject map[int64][]*core.ResourceSpace) (*ResolvedMount, error) {
+	if ref == nil {
+		return nil, fmt.Errorf("thread context ref is nil")
+	}
+	project, ok := projects[ref.ProjectID]
+	if !ok || project == nil {
+		return nil, core.ErrNotFound
+	}
+	spaces := resourceSpacesByProject[ref.ProjectID]
 	targetPath, checkCommands := resolveSpaceTarget(spaces)
 	if targetPath == "" {
 		return nil, fmt.Errorf("project %d has no resolvable workspace space", ref.ProjectID)
@@ -219,6 +321,21 @@ func ResolveMount(ctx context.Context, store Store, ref *core.ThreadContextRef) 
 		Access:        ref.Access,
 		CheckCommands: checkCommands,
 	}, nil
+}
+
+func cloneResourceSpaces(spaces []*core.ResourceSpace) []*core.ResourceSpace {
+	if len(spaces) == 0 {
+		return nil
+	}
+	out := make([]*core.ResourceSpace, 0, len(spaces))
+	for _, space := range spaces {
+		if space == nil {
+			continue
+		}
+		cp := *space
+		out = append(out, &cp)
+	}
+	return out
 }
 
 func resolveSpaceTarget(spaces []*core.ResourceSpace) (string, []string) {
@@ -362,25 +479,6 @@ func syncMountAliasDirs(mountsDir string, payload *core.ThreadWorkspaceContext, 
 		}
 	}
 	return nil
-}
-
-func resolvedMountTargets(ctx context.Context, store Store, threadID int64) map[string]string {
-	if store == nil {
-		return nil
-	}
-	refs, err := store.ListThreadContextRefs(ctx, threadID)
-	if err != nil {
-		return nil
-	}
-	out := map[string]string{}
-	for _, ref := range refs {
-		mount, err := ResolveMount(ctx, store, ref)
-		if err != nil || mount == nil {
-			continue
-		}
-		out[mount.Slug] = mount.TargetPath
-	}
-	return out
 }
 
 func ensureMountAliasPath(aliasPath string, targetPath string) error {
