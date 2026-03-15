@@ -933,6 +933,47 @@ func TestIntegration_StepUpdateAndDelete(t *testing.T) {
 	requireStatus(t, resp, http.StatusConflict)
 }
 
+func TestIntegration_StepUpdateRejectsPartialDAGMigration(t *testing.T) {
+	env := setupIntegration(t, func(_ context.Context, _ *core.Action, _ *core.Run) error {
+		return nil
+	})
+	ts := env.server
+
+	resp, _ := postJSON(ts, "/work-items", map[string]any{"title": "partial-dag", "priority": "medium"})
+	issue := decode[core.WorkItem](t, resp)
+
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
+		"name": "step-A", "type": "exec",
+	})
+	sA := decode[core.Action](t, resp)
+
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
+		"name": "step-B", "type": "exec",
+	})
+	sB := decode[core.Action](t, resp)
+
+	resp, _ = postJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
+		"name": "step-C", "type": "exec",
+	})
+	decode[core.Action](t, resp)
+
+	resp, _ = putJSON(ts, fmt.Sprintf("/steps/%d", sB.ID), map[string]any{
+		"depends_on": []int64{sA.ID},
+	})
+	requireStatus(t, resp, http.StatusBadRequest)
+
+	resp, _ = getJSON(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID))
+	steps := decode[[]*core.Action](t, resp)
+	if len(steps) != 3 {
+		t.Fatalf("expected 3 steps, got %d", len(steps))
+	}
+	for _, step := range steps {
+		if step.ID == sB.ID && len(step.DependsOn) != 0 {
+			t.Fatalf("expected step-B depends_on to remain empty after rejected update, got %v", step.DependsOn)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Test 15: DAG generate-steps endpoint (mock LLM)
 // ---------------------------------------------------------------------------

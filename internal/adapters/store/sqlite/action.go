@@ -86,6 +86,7 @@ func (s *Store) UpdateAction(ctx context.Context, st *core.Action) error {
 			"type":                  model.Type,
 			"status":                model.Status,
 			"position":              model.Position,
+			"depends_on":            model.DependsOn,
 			"agent_role":            model.AgentRole,
 			"required_capabilities": model.RequiredCapabilities,
 			"acceptance_criteria":   model.AcceptanceCriteria,

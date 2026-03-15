@@ -161,7 +161,7 @@ func (e *WorkItemEngine) Run(ctx context.Context, workItemID int64) error {
 		return core.ErrWorkItemNotRunnable
 	}
 
-	// Validate action ordering (sequential by Position).
+	// Validate action ordering (Position-mode: sequential; DAG-mode: DependsOn acyclicity).
 	if err := ValidateActions(actions); err != nil {
 		return err
 	}

@@ -91,6 +91,8 @@ func (s *Service) Generate(ctx context.Context, taskDescription string) (*Genera
 }
 
 // Materialize creates Actions in the store for a given work item from a GeneratedDAG.
+// Phase 1: create all Actions (position-ordered) and build a name→ID map.
+// Phase 2: resolve name-based DependsOn to action IDs and persist them.
 func (s *Service) Materialize(ctx context.Context, store core.Store, issueID int64, dag *GeneratedDAG) ([]*core.Action, error) {
 	if dag == nil {
 		return nil, fmt.Errorf("dag_gen: generated dag is nil")
@@ -99,6 +101,8 @@ func (s *Service) Materialize(ctx context.Context, store core.Store, issueID int
 		return nil, fmt.Errorf("dag_gen: %w", err)
 	}
 
+	// Phase 1: create all actions, record name→ID.
+	nameToID := make(map[string]int64, len(dag.Steps))
 	var created []*core.Action
 
 	for i, gs := range dag.Steps {
@@ -124,7 +128,27 @@ func (s *Service) Materialize(ctx context.Context, store core.Store, issueID int
 			return nil, fmt.Errorf("dag_gen: create step %q: %w", gs.Name, err)
 		}
 		step.ID = id
+		nameToID[gs.Name] = id
 		created = append(created, step)
+	}
+
+	// Phase 2: resolve DependsOn names → IDs and persist.
+	for i, gs := range dag.Steps {
+		if len(gs.DependsOn) == 0 {
+			continue
+		}
+		resolved := make([]int64, 0, len(gs.DependsOn))
+		for _, depName := range gs.DependsOn {
+			depID, ok := nameToID[depName]
+			if !ok {
+				return nil, fmt.Errorf("dag_gen: step %q depends on unknown step %q", gs.Name, depName)
+			}
+			resolved = append(resolved, depID)
+		}
+		if err := store.UpdateActionDependsOn(ctx, created[i].ID, resolved); err != nil {
+			return nil, fmt.Errorf("dag_gen: update depends_on for step %q: %w", gs.Name, err)
+		}
+		created[i].DependsOn = resolved
 	}
 
 	return created, nil
