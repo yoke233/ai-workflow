@@ -275,6 +275,9 @@ func TestBuildDAGGenPrompt_WithProfiles(t *testing.T) {
 	if !strings.Contains(prompt, "go, backend") {
 		t.Fatal("prompt should list capabilities")
 	}
+	if !strings.Contains(prompt, "Planning Guidance") {
+		t.Fatal("prompt should include planning guidance section")
+	}
 	if !strings.Contains(prompt, "ONLY capability tags") {
 		t.Fatal("prompt should instruct to use only known tags")
 	}

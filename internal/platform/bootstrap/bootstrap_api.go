@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	chatacp "github.com/yoke233/ai-workflow/internal/adapters/chat/acp"
@@ -51,7 +52,11 @@ func buildAPIStack(
 	var dagGen api.DAGGenerator
 	if flow.llmClient != nil {
 		completer := llmplanning.NewCompleter(flow.llmClient)
-		dagGen = planningapp.NewService(completer, base.registry)
+		skillsRoot := ""
+		if base.dataDir != "" {
+			skillsRoot = filepath.Join(base.dataDir, "skills")
+		}
+		dagGen = planningapp.NewService(completer, base.registry, planningapp.WithPlanningSkillsRoot(skillsRoot))
 	}
 
 	probeSvc := probeapp.NewRunProbeService(probeapp.RunProbeServiceConfig{

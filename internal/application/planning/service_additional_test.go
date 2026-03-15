@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -177,6 +178,43 @@ func TestServiceGenerate(t *testing.T) {
 		}
 		if len(llm.tools) != 1 {
 			t.Fatalf("tools = %#v", llm.tools)
+		}
+	})
+
+	t.Run("uses plan skill prompt when available", func(t *testing.T) {
+		skillsRoot := filepath.Join(t.TempDir(), "skills")
+		skillDir := filepath.Join(skillsRoot, "plan-core")
+		if err := os.MkdirAll(skillDir, 0o755); err != nil {
+			t.Fatalf("mkdir skill dir: %v", err)
+		}
+		const skillBody = `---
+name: plan-core
+description: custom planning guidance
+---
+
+# Custom Planning Guidance
+
+Always identify the primary deliverable first.
+`
+		if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillBody), 0o644); err != nil {
+			t.Fatalf("write skill: %v", err)
+		}
+
+		llm := &planningLLMStub{raw: json.RawMessage(`{"steps":[{"name":"implement-api","type":"exec","agent_role":"worker","required_capabilities":["backend"],"description":"ship api","acceptance_criteria":["tests pass"]}]}`)}
+		svc := NewService(
+			llm,
+			&planningRegistryStub{profiles: []*core.AgentProfile{{ID: "backend-worker", Role: core.RoleWorker, Capabilities: []string{"backend"}}}},
+			WithPlanningSkillsRoot(skillsRoot),
+		)
+
+		if _, err := svc.Generate(ctx, "build api"); err != nil {
+			t.Fatalf("Generate(skill prompt) error = %v", err)
+		}
+		if !strings.Contains(llm.prompt, "Custom Planning Guidance") {
+			t.Fatalf("prompt should include plan skill guidance, got %q", llm.prompt)
+		}
+		if strings.Contains(llm.prompt, "Use this workflow to convert a task description") {
+			t.Fatalf("prompt should prefer skill guidance over fallback, got %q", llm.prompt)
 		}
 	})
 }

@@ -42,6 +42,38 @@ func TestEnsureBuiltinSkills_ExtractsStepSignal(t *testing.T) {
 	}
 }
 
+func TestEnsureBuiltinSkills_ExtractsPlanCore(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := EnsureBuiltinSkills(root); err != nil {
+		t.Fatalf("EnsureBuiltinSkills: %v", err)
+	}
+
+	skillMD := filepath.Join(root, "plan-core", "SKILL.md")
+	b, err := os.ReadFile(skillMD)
+	if err != nil {
+		t.Fatalf("read extracted plan-core SKILL.md: %v", err)
+	}
+	content := string(b)
+
+	if meta, errs := ValidateSkillMD("plan-core", content); len(errs) > 0 {
+		t.Fatalf("extracted plan-core SKILL.md validation errors: %v", errs)
+	} else if meta.Name != "plan-core" {
+		t.Fatalf("expected name=plan-core, got %q", meta.Name)
+	}
+
+	for _, keyword := range []string{
+		"Planning Objectives",
+		"Role And Capability Mapping",
+		"structured DAG plan",
+	} {
+		if !contains(content, keyword) {
+			t.Errorf("expected plan-core SKILL.md to contain %q", keyword)
+		}
+	}
+}
+
 func TestEnsureBuiltinSkills_SkipsWhenContentMatches(t *testing.T) {
 	t.Parallel()
 

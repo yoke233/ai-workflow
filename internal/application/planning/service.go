@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/yoke233/ai-workflow/internal/core"
 )
@@ -12,13 +11,42 @@ import (
 // Service orchestrates DAG generation: prompt building, LLM invocation,
 // validation, and materialization into the store.
 type Service struct {
-	llm      LLMCompleter
-	registry core.AgentRegistry
+	llm           LLMCompleter
+	registry      core.AgentRegistry
+	promptBuilder *PromptBuilder
+}
+
+// Option configures the planning service.
+type Option func(*Service)
+
+// WithPlanningSkillsRoot configures the skills root used by the planning prompt builder.
+func WithPlanningSkillsRoot(root string) Option {
+	return func(s *Service) {
+		builder := s.promptBuilder
+		if builder == nil {
+			builder = NewPromptBuilder()
+		}
+		s.promptBuilder = NewPromptBuilder(
+			WithPromptSkillsRoot(root),
+			withPlanningSkillName(builder.skillName),
+		)
+	}
 }
 
 // NewService creates a planning Service.
-func NewService(llm LLMCompleter, registry core.AgentRegistry) *Service {
-	return &Service{llm: llm, registry: registry}
+func NewService(llm LLMCompleter, registry core.AgentRegistry, opts ...Option) *Service {
+	svc := &Service{
+		llm:           llm,
+		registry:      registry,
+		promptBuilder: NewPromptBuilder(),
+	}
+	for _, opt := range opts {
+		opt(svc)
+	}
+	if svc.promptBuilder == nil {
+		svc.promptBuilder = NewPromptBuilder()
+	}
+	return svc
 }
 
 // Generate calls the LLM to decompose a task description into a DAG of Steps.
@@ -32,7 +60,7 @@ func (s *Service) Generate(ctx context.Context, taskDescription string) (*Genera
 		return nil, fmt.Errorf("dag_gen: list profiles: %w", err)
 	}
 
-	prompt := BuildDAGGenPrompt(taskDescription, profiles)
+	prompt := s.promptBuilder.BuildDAGGenPrompt(taskDescription, profiles)
 	tools := BuildDAGGenSchema(profiles)
 
 	raw, err := s.llm.Complete(ctx, prompt, tools)
@@ -168,49 +196,7 @@ func ValidateCapabilityFit(dag *GeneratedDAG, profiles []*core.AgentProfile) err
 
 // BuildDAGGenPrompt constructs the LLM prompt for DAG generation.
 func BuildDAGGenPrompt(taskDescription string, profiles []*core.AgentProfile) string {
-	var sb strings.Builder
-	sb.WriteString(`You are a software engineering workflow planner. Given a task description, decompose it into a DAG (directed acyclic graph) of execution steps.
-
-Rules:
-1. Each step has a unique name (short, lowercase, dash-separated, e.g. "parse-requirements", "implement-api").
-2. Step types: "exec" (run code/task), "gate" (review/approval check), "composite" (delegates to sub-workflow).
-3. Use "depends_on" to express ordering — list the names of upstream steps.
-4. Entry steps (no dependencies) should have an empty depends_on.
-5. Include a "gate" step after implementation steps if quality review is needed.
-6. Keep it minimal — only create steps that are clearly needed. Prefer fewer, focused steps over many tiny ones.
-7. Provide clear acceptance_criteria for each step — what must be true for the step to be considered done.
-8. Provide a description for each step — what should be accomplished.
-`)
-
-	if len(profiles) > 0 {
-		sb.WriteString("\nAvailable agent profiles:\n")
-		for _, p := range profiles {
-			caps := "none"
-			if len(p.Capabilities) > 0 {
-				caps = strings.Join(p.Capabilities, ", ")
-			}
-			sb.WriteString(fmt.Sprintf("- %q (role: %s, capabilities: [%s])\n", p.ID, p.Role, caps))
-		}
-		sb.WriteString(`
-When assigning agent_role and required_capabilities to a step:
-- Set agent_role to one of the roles listed above (e.g. "worker", "gate").
-- Set required_capabilities using ONLY capability tags from the profiles above.
-- Each step's role + capabilities must match at least one available profile.
-`)
-	} else {
-		sb.WriteString(`9. Set agent_role: "worker" for implementation, "gate" for review steps.
-`)
-	}
-
-	sb.WriteString(fmt.Sprintf(`
-Task description:
----
-%s
----
-
-Return a JSON object with a "steps" array. Steps MUST be ordered so that dependencies always appear before dependents (topological order).`, taskDescription))
-
-	return sb.String()
+	return NewPromptBuilder().BuildDAGGenPrompt(taskDescription, profiles)
 }
 
 // BuildDAGGenSchema returns the tool schema for structured LLM output.

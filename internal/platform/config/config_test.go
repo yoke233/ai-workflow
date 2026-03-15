@@ -68,6 +68,9 @@ func TestLoadDefaults_RuntimeAgents(t *testing.T) {
 	if lead.PromptTemplate != "team_leader" {
 		t.Fatalf("expected lead.prompt_template=team_leader, got %q", lead.PromptTemplate)
 	}
+	if len(lead.Skills) != 1 || lead.Skills[0] != "plan-core" {
+		t.Fatalf("expected lead.skills=[plan-core], got %#v", lead.Skills)
+	}
 }
 
 func TestLoadLayerRejectsLegacySections(t *testing.T) {
