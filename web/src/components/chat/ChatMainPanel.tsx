@@ -14,6 +14,7 @@ interface ChatMainPanelProps {
   isDraftSessionView: boolean;
   projects: Array<{ id: number; name: string }>;
   draftProjectId: number | null;
+  draftProfileId: string;
   draftDriverId: string;
   leadDriverOptions: LeadDriverOption[];
   leadProfiles: AgentProfile[];
@@ -26,6 +27,7 @@ interface ChatMainPanelProps {
   currentProjectLabel: string;
   fileInputRef: React.RefObject<HTMLInputElement>;
   onProjectChange: (id: number | null) => void;
+  onProfileChange: (id: string) => void;
   onDriverChange: (id: string) => void;
   onMessageChange: (value: string) => void;
   onSend: () => void;
@@ -52,6 +54,7 @@ export function ChatMainPanel({
   isDraftSessionView,
   projects,
   draftProjectId,
+  draftProfileId,
   draftDriverId,
   leadDriverOptions,
   leadProfiles,
@@ -64,6 +67,7 @@ export function ChatMainPanel({
   currentProjectLabel,
   fileInputRef,
   onProjectChange,
+  onProfileChange,
   onDriverChange,
   onMessageChange,
   onSend,
@@ -99,6 +103,7 @@ export function ChatMainPanel({
             <DraftSessionSetup
               projects={projects}
               draftProjectId={draftProjectId}
+              draftProfileId={draftProfileId}
               draftDriverId={draftDriverId}
               leadDriverOptions={leadDriverOptions}
               leadProfiles={leadProfiles}
@@ -111,6 +116,7 @@ export function ChatMainPanel({
               currentProjectLabel={currentProjectLabel}
               fileInputRef={fileInputRef}
               onProjectChange={onProjectChange}
+              onProfileChange={onProfileChange}
               onDriverChange={onDriverChange}
               onMessageChange={onMessageChange}
               onSend={onSend}

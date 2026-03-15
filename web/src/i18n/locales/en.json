@@ -742,6 +742,7 @@
     "toolCalls": "Tool Calls",
     "noCommandsMatch": "No matching commands",
     "noLeadDriver": "No lead driver available. Please configure one in the Agents page.",
+    "noProfileAvailable": "No profile available. Please configure one in the Agents page.",
     "noDriverAvailable": "No Driver available. Please configure one in the Agents page.",
     "inputPlaceholderActive": "Type a message to chat with Lead Agent...",
     "inputPlaceholderNew": "Type a message, using Lead · {{driver}} in {{project}} to start a session..."

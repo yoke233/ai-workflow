@@ -152,9 +152,8 @@ export function MobileHomePage() {
         apiClient.listProfiles(),
         apiClient.listDrivers(),
       ]);
-      const leads = profiles.filter((p) => p.role === "lead");
       setDrivers(driverList);
-      setLeadProfiles(leads);
+      setLeadProfiles(profiles);
       setDraftDriverId((cur) => {
         if (cur && driverList.some((d) => d.id === cur)) return cur;
         return driverList[0]?.id ?? "";
@@ -195,7 +194,14 @@ export function MobileHomePage() {
     return Array.from(grouped.values());
   }, [drivers, t]);
 
-  const draftProfileId = useMemo(() => leadProfiles[0]?.id ?? "", [leadProfiles]);
+  const [draftProfileId, setDraftProfileId] = useState("");
+  // Auto-select first profile when loaded.
+  useEffect(() => {
+    setDraftProfileId((cur) => {
+      if (cur && leadProfiles.some((p) => p.id === cur)) return cur;
+      return leadProfiles[0]?.id ?? "";
+    });
+  }, [leadProfiles]);
   const draftSessionReady = Boolean(draftProfileId && draftDriverId);
   const filteredSessions = useMemo(() => {
     const query = sessionSearch.trim().toLowerCase();
@@ -370,6 +376,22 @@ export function MobileHomePage() {
                     <option value="">{t("chat.noProject")}</option>
                     {projects.map((p) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </Select>
+
+                  {/* Profile selector */}
+                  <Select
+                    value={draftProfileId || ""}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      setDraftProfileId(nextId);
+                      const profile = leadProfiles.find((p) => p.id === nextId);
+                      if (profile?.driver_id) setDraftDriverId(profile.driver_id);
+                    }}
+                    className="h-8 max-w-[120px] text-xs"
+                  >
+                    {leadProfiles.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name || p.id}</option>
                     ))}
                   </Select>
 

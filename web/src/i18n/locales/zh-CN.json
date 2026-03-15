@@ -742,6 +742,7 @@
     "toolCalls": "工具调用",
     "noCommandsMatch": "无匹配的命令",
     "noLeadDriver": "还没有可用的 lead driver，请先到代理页面配置。",
+    "noProfileAvailable": "还没有可用的 Profile，请先到代理页面配置。",
     "noDriverAvailable": "还没有可用的 Driver，请先到代理页面配置。",
     "inputPlaceholderActive": "输入消息，与 Lead Agent 对话...",
     "inputPlaceholderNew": "输入消息，使用 Lead · {{driver}} 在 {{project}} 下开始会话..."

@@ -199,18 +199,22 @@ export function ChatPage() {
         apiClient.listProfiles(),
         apiClient.listDrivers(),
       ]);
-      const leads = profiles.filter((profile) => profile.role === "lead");
       setDrivers(driverList);
-      setLeadProfiles(leads);
+      setLeadProfiles(profiles);
       setDraftProfileId((current) => {
-        if (current && leads.some((profile) => profile.id === current)) {
+        if (current && profiles.some((profile) => profile.id === current)) {
           return current;
         }
-        return leads[0]?.id ?? "";
+        return profiles[0]?.id ?? "";
       });
       setDraftDriverId((current) => {
         if (current && driverList.some((driver) => driver.id === current)) {
           return current;
+        }
+        // Auto-select driver from first profile's driver_id, or first driver.
+        const firstProfile = profiles[0];
+        if (firstProfile?.driver_id && driverList.some((d) => d.id === firstProfile.driver_id)) {
+          return firstProfile.driver_id;
         }
         return driverList[0]?.id ?? "";
       });
@@ -1136,6 +1140,7 @@ export function ChatPage() {
           isDraftSessionView={isDraftSessionView}
           projects={projects}
           draftProjectId={draftProjectId}
+          draftProfileId={draftProfileId}
           draftDriverId={draftDriverId}
           leadDriverOptions={leadDriverOptions}
           leadProfiles={leadProfiles}
@@ -1150,6 +1155,13 @@ export function ChatPage() {
           onProjectChange={(id) => {
             setDraftProjectId(id);
             setSelectedProjectId(id);
+          }}
+          onProfileChange={(profileId) => {
+            setDraftProfileId(profileId);
+            const profile = leadProfiles.find((p) => p.id === profileId);
+            if (profile?.driver_id) {
+              setDraftDriverId(profile.driver_id);
+            }
           }}
           onDriverChange={setDraftDriverId}
           onMessageChange={setMessageInput}
