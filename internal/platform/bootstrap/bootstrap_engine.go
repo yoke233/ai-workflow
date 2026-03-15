@@ -102,7 +102,7 @@ func resolveRuntimeLLMConfig(cfg config.RuntimeLLMConfig, maxRetries int) (llm.C
 func llmConfigFromRuntimeEntry(item config.RuntimeLLMEntryConfig, maxRetries int) (llm.Config, bool) {
 	provider := strings.ToLower(strings.TrimSpace(item.Type))
 	switch provider {
-	case "", llm.ProviderOpenAIResponse, llm.ProviderOpenAIChatCompletion:
+	case "", llm.ProviderOpenAIResponse, llm.ProviderOpenAIChatCompletion, llm.ProviderAnthropic:
 	default:
 		return llm.Config{}, false
 	}
@@ -112,11 +112,15 @@ func llmConfigFromRuntimeEntry(item config.RuntimeLLMEntryConfig, maxRetries int
 		return llm.Config{}, false
 	}
 	return llm.Config{
-		Provider:   provider,
-		BaseURL:    strings.TrimSpace(item.BaseURL),
-		APIKey:     apiKey,
-		Model:      model,
-		MaxRetries: maxRetries,
+		Provider:             provider,
+		BaseURL:              strings.TrimSpace(item.BaseURL),
+		APIKey:               apiKey,
+		Model:                model,
+		Temperature:          item.Temperature,
+		MaxOutputTokens:      max(0, item.MaxOutputTokens),
+		ReasoningEffort:      strings.TrimSpace(item.ReasoningEffort),
+		ThinkingBudgetTokens: max(0, item.ThinkingBudgetTokens),
+		MaxRetries:           maxRetries,
 	}, true
 }
 

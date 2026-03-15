@@ -1845,11 +1845,15 @@ func TestAPI_GetLLMConfig(t *testing.T) {
 	var got struct {
 		DefaultConfigID string `json:"default_config_id"`
 		Configs         []struct {
-			ID      string `json:"id"`
-			Type    string `json:"type"`
-			BaseURL string `json:"base_url"`
-			APIKey  string `json:"api_key"`
-			Model   string `json:"model"`
+			ID                   string  `json:"id"`
+			Type                 string  `json:"type"`
+			BaseURL              string  `json:"base_url"`
+			APIKey               string  `json:"api_key"`
+			Model                string  `json:"model"`
+			Temperature          float64 `json:"temperature"`
+			MaxOutputTokens      int64   `json:"max_output_tokens"`
+			ReasoningEffort      string  `json:"reasoning_effort"`
+			ThinkingBudgetTokens int64   `json:"thinking_budget_tokens"`
 		} `json:"configs"`
 	}
 	if err := decodeJSON(resp, &got); err != nil {
@@ -1863,6 +1867,9 @@ func TestAPI_GetLLMConfig(t *testing.T) {
 	}
 	if got.Configs[0].ID == "" || got.Configs[0].Type == "" {
 		t.Fatalf("expected llm config id/type, got %#v", got.Configs[0])
+	}
+	if got.Configs[2].MaxOutputTokens != 4096 {
+		t.Fatalf("expected anthropic max_output_tokens in response, got %#v", got.Configs[2])
 	}
 }
 
@@ -1887,11 +1894,14 @@ func TestAPI_UpdateLLMConfig(t *testing.T) {
 					Model:   "gpt-4.1-mini",
 				},
 				{
-					ID:      "anthropic-default",
-					Type:    "anthropic",
-					BaseURL: "https://api.anthropic.com",
-					APIKey:  "",
-					Model:   "claude-3-7-sonnet-latest",
+					ID:                   "anthropic-default",
+					Type:                 "anthropic",
+					BaseURL:              "https://api.anthropic.com",
+					APIKey:               "",
+					Model:                "claude-3-7-sonnet-latest",
+					Temperature:          0,
+					MaxOutputTokens:      4096,
+					ThinkingBudgetTokens: 1024,
 				},
 			},
 		},
@@ -1902,11 +1912,15 @@ func TestAPI_UpdateLLMConfig(t *testing.T) {
 		"default_config_id": "anthropic-default",
 		"configs": []map[string]any{
 			{
-				"id":       "anthropic-default",
-				"type":     "anthropic",
-				"base_url": "https://api.anthropic.com",
-				"api_key":  "sk-ant",
-				"model":    "claude-sonnet-4-5",
+				"id":                     "anthropic-default",
+				"type":                   "anthropic",
+				"base_url":               "https://api.anthropic.com",
+				"api_key":                "sk-ant",
+				"model":                  "claude-sonnet-4-5",
+				"temperature":            0.15,
+				"max_output_tokens":      4096,
+				"reasoning_effort":       "high",
+				"thinking_budget_tokens": 2048,
 			},
 		},
 	})
@@ -1932,6 +1946,9 @@ func TestAPI_UpdateLLMConfig(t *testing.T) {
 	}
 	if ctrl.lastReq.Configs == nil || len(*ctrl.lastReq.Configs) != 1 || (*ctrl.lastReq.Configs)[0].Model != "claude-sonnet-4-5" {
 		t.Fatalf("configs request not passed through: %#v", ctrl.lastReq)
+	}
+	if (*ctrl.lastReq.Configs)[0].ThinkingBudgetTokens != 2048 || (*ctrl.lastReq.Configs)[0].ReasoningEffort != "high" {
+		t.Fatalf("llm tuning fields not passed through: %#v", ctrl.lastReq)
 	}
 }
 

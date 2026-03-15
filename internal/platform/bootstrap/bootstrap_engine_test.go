@@ -96,6 +96,46 @@ func TestResolveFlowLLMConfigPrefersRuntimeLLMDefault(t *testing.T) {
 	}
 }
 
+func TestResolveFlowLLMConfigSupportsAnthropicDefault(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Defaults()
+	cfg.Runtime.Collector.MaxRetries = 2
+	cfg.Runtime.LLM.DefaultConfigID = "anthropic-default"
+	cfg.Runtime.LLM.Configs = []config.RuntimeLLMEntryConfig{
+		{
+			ID:                   "anthropic-default",
+			Type:                 llm.ProviderAnthropic,
+			BaseURL:              "https://api.anthropic.com",
+			APIKey:               "anthropic-key",
+			Model:                "claude-3-5-sonnet-latest",
+			Temperature:          0.25,
+			MaxOutputTokens:      3000,
+			ThinkingBudgetTokens: 2048,
+		},
+	}
+
+	got, source, ok := resolveFlowLLMConfig(&cfg)
+	if !ok {
+		t.Fatalf("resolveFlowLLMConfig() ok = false, want true")
+	}
+	if source != "runtime.llm" {
+		t.Fatalf("source = %q, want runtime.llm", source)
+	}
+	if got.Provider != llm.ProviderAnthropic {
+		t.Fatalf("Provider = %q, want %q", got.Provider, llm.ProviderAnthropic)
+	}
+	if got.APIKey != "anthropic-key" || got.Model != "claude-3-5-sonnet-latest" {
+		t.Fatalf("got = %#v, want runtime.llm anthropic credentials", got)
+	}
+	if got.Temperature != 0.25 || got.MaxOutputTokens != 3000 || got.ThinkingBudgetTokens != 2048 {
+		t.Fatalf("got provider tuning = %#v, want anthropic runtime tuning", got)
+	}
+	if got.MaxRetries != 2 {
+		t.Fatalf("MaxRetries = %d, want 2", got.MaxRetries)
+	}
+}
+
 func TestResolveFlowLLMConfigReturnsFalseWhenNoUsableConfig(t *testing.T) {
 	t.Parallel()
 

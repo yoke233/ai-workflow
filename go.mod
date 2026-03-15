@@ -4,6 +4,7 @@ go 1.24.7
 
 require (
 	github.com/a2aproject/a2a-go v0.3.7
+	github.com/anthropics/anthropic-sdk-go v1.18.0
 	github.com/bradleyfalzon/ghinstallation/v2 v2.17.0
 	github.com/cexll/agentsdk-go v0.0.0
 	github.com/coder/acp-go-sdk v0.6.4-0.20260227160919-584abe6abe22
@@ -25,7 +26,6 @@ require (
 )
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.18.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect

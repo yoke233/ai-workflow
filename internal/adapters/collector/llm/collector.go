@@ -130,11 +130,18 @@ func extractionTools(stepType core.ActionType) []basellm.ToolDef {
 	}
 }
 
-type OpenAICompleter = basellm.Client
-type OpenAICompleterConfig = basellm.Config
+type Completer = basellm.Client
+type CompleterConfig = basellm.Config
+
+func NewCompleter(cfg CompleterConfig) (*Completer, error) {
+	return basellm.New(cfg)
+}
+
+type OpenAICompleter = Completer
+type OpenAICompleterConfig = CompleterConfig
 
 func NewOpenAICompleter(cfg OpenAICompleterConfig) (*OpenAICompleter, error) {
-	return basellm.New(cfg)
+	return NewCompleter(cfg)
 }
 
 type ToolDef = basellm.ToolDef

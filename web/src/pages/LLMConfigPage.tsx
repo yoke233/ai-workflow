@@ -16,10 +16,21 @@ const PROVIDER_OPTIONS = [
   { value: "anthropic", label: "Anthropic" },
 ] as const;
 
+const REASONING_EFFORT_OPTIONS = [
+  { value: "", label: "默认" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+] as const;
+
 const EMPTY_ITEM = (index: number): LLMConfigItem => ({
   id: `llm-config-${index}`,
   type: "openai_response",
   model: "",
+  temperature: 0,
+  max_output_tokens: 0,
+  reasoning_effort: "",
+  thinking_budget_tokens: 0,
 });
 
 const nextDraftConfig = (current: LLMConfigItem[]): LLMConfigItem => {
@@ -190,6 +201,22 @@ export function LLMConfigPage() {
               <div className="text-sm font-medium">{t("llmConfig.fieldModel")}</div>
               <p className="mt-1 text-sm text-muted-foreground">{t("llmConfig.modelHint")}</p>
             </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="text-sm font-medium">{t("llmConfig.fieldTemperature")}</div>
+              <p className="mt-1 text-sm text-muted-foreground">{t("llmConfig.temperatureHint")}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="text-sm font-medium">{t("llmConfig.fieldMaxOutputTokens")}</div>
+              <p className="mt-1 text-sm text-muted-foreground">{t("llmConfig.maxOutputTokensHint")}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="text-sm font-medium">{t("llmConfig.fieldReasoningEffort")}</div>
+              <p className="mt-1 text-sm text-muted-foreground">{t("llmConfig.reasoningEffortHint")}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="text-sm font-medium">{t("llmConfig.fieldThinkingBudgetTokens")}</div>
+              <p className="mt-1 text-sm text-muted-foreground">{t("llmConfig.thinkingBudgetHint")}</p>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -219,7 +246,7 @@ export function LLMConfigPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+              <CardContent className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
                 <label className="space-y-2 xl:col-span-1">
                   <span className="text-sm font-medium">{t("llmConfig.fieldConfigId")}</span>
                   <Input
@@ -242,6 +269,49 @@ export function LLMConfigPage() {
                     value={item.model}
                     onChange={(event) => updateConfig(index, { model: event.target.value })}
                     placeholder={t("llmConfig.modelPlaceholder")}
+                  />
+                </label>
+                <label className="space-y-2 xl:col-span-1">
+                  <span className="text-sm font-medium">{t("llmConfig.fieldTemperature")}</span>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    value={item.temperature ?? 0}
+                    onChange={(event) => updateConfig(index, { temperature: Number(event.target.value) || 0 })}
+                    placeholder="0"
+                  />
+                </label>
+                <label className="space-y-2 xl:col-span-1">
+                  <span className="text-sm font-medium">{t("llmConfig.fieldMaxOutputTokens")}</span>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={item.max_output_tokens ?? 0}
+                    onChange={(event) => updateConfig(index, { max_output_tokens: Number(event.target.value) || 0 })}
+                    placeholder="0"
+                  />
+                </label>
+                <label className="space-y-2 xl:col-span-1">
+                  <span className="text-sm font-medium">{t("llmConfig.fieldReasoningEffort")}</span>
+                  <Select
+                    value={item.reasoning_effort ?? ""}
+                    onChange={(event) => updateConfig(index, { reasoning_effort: event.target.value as LLMConfigItem["reasoning_effort"] })}
+                  >
+                    {REASONING_EFFORT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </Select>
+                </label>
+                <label className="space-y-2 xl:col-span-1">
+                  <span className="text-sm font-medium">{t("llmConfig.fieldThinkingBudgetTokens")}</span>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={item.thinking_budget_tokens ?? 0}
+                    onChange={(event) => updateConfig(index, { thinking_budget_tokens: Number(event.target.value) || 0 })}
+                    placeholder="0"
                   />
                 </label>
               </CardContent>

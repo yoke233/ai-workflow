@@ -176,25 +176,29 @@ func TestManager_UpdateRuntimeWritesLLMConfig(t *testing.T) {
 		DefaultConfigID: "anthropic-main",
 		Configs: []config.RuntimeLLMEntryConfig{
 			{
-				ID:      "openai-chat-main",
-				Type:    "openai_chat_completion",
-				BaseURL: "https://openai.example.com/v1",
-				APIKey:  "chat-key",
-				Model:   "gpt-4.1",
+				ID:              "openai-chat-main",
+				Type:            "openai_chat_completion",
+				BaseURL:         "https://openai.example.com/v1",
+				APIKey:          "chat-key",
+				Model:           "gpt-4.1",
+				Temperature:     0.1,
+				ReasoningEffort: "medium",
 			},
 			{
-				ID:      "openai-response-main",
-				Type:    "openai_response",
-				BaseURL: "https://responses.example.com/v1",
-				APIKey:  "responses-key",
-				Model:   "gpt-4.1-mini",
+				ID:              "openai-response-main",
+				Type:            "openai_response",
+				BaseURL:         "https://responses.example.com/v1",
+				APIKey:          "responses-key",
+				Model:           "gpt-4.1-mini",
+				MaxOutputTokens: 4096,
 			},
 			{
-				ID:      "anthropic-main",
-				Type:    "anthropic",
-				BaseURL: "https://api.anthropic.com",
-				APIKey:  "anthropic-key",
-				Model:   "claude-3-7-sonnet-latest",
+				ID:                   "anthropic-main",
+				Type:                 "anthropic",
+				BaseURL:              "https://api.anthropic.com",
+				APIKey:               "anthropic-key",
+				Model:                "claude-3-7-sonnet-latest",
+				ThinkingBudgetTokens: 2048,
 			},
 		},
 	}
@@ -212,6 +216,9 @@ func TestManager_UpdateRuntimeWritesLLMConfig(t *testing.T) {
 	}
 	if got.Configs[1].APIKey != "responses-key" {
 		t.Fatalf("openai response api key not persisted: %+v", got.Configs[1])
+	}
+	if got.Configs[0].ReasoningEffort != "medium" || got.Configs[1].MaxOutputTokens != 4096 || got.Configs[2].ThinkingBudgetTokens != 2048 {
+		t.Fatalf("llm tuning fields not persisted: %+v", got.Configs)
 	}
 
 	raw, err := manager.ReadRawString()
@@ -233,6 +240,9 @@ func TestManager_UpdateRuntimeWritesLLMConfig(t *testing.T) {
 	}
 	if (*layer.Runtime.LLM.Configs)[1].Model != "gpt-4.1-mini" {
 		t.Fatalf("openai response model missing in raw layer: %+v", (*layer.Runtime.LLM.Configs)[1])
+	}
+	if (*layer.Runtime.LLM.Configs)[2].ThinkingBudgetTokens != 2048 {
+		t.Fatalf("anthropic thinking budget missing in raw layer: %+v", (*layer.Runtime.LLM.Configs)[2])
 	}
 }
 

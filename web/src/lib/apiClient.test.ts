@@ -25,22 +25,6 @@ describe("apiClient", () => {
     expect(JSON.parse(String(init.body))).toEqual({ description: "make a dag" });
   });
 
-  it("generateSteps backward compat alias works", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify([]), {
-        status: 201,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
-    await client.generateSteps(12, { description: "make a dag" });
-
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/work-items/12/generate-steps");
-  });
-
   it("updateAction 会命中 /steps/{id} 并 PUT JSON body", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -164,6 +148,7 @@ describe("apiClient", () => {
               base_url: "https://api.openai.com/v1",
               api_key: "",
               model: "gpt-4.1",
+              temperature: 0,
             },
             {
               id: "openai-response-default",
@@ -171,6 +156,7 @@ describe("apiClient", () => {
               base_url: "https://api.openai.com/v1",
               api_key: "",
               model: "gpt-4.1-mini",
+              max_output_tokens: 4096,
             },
             {
               id: "anthropic-default",
@@ -178,6 +164,7 @@ describe("apiClient", () => {
               base_url: "https://api.anthropic.com",
               api_key: "",
               model: "claude-3-7-sonnet-latest",
+              thinking_budget_tokens: 2048,
             },
           ],
         }),
@@ -210,6 +197,10 @@ describe("apiClient", () => {
               base_url: "https://api.anthropic.com",
               api_key: "sk-ant",
               model: "claude-sonnet-4-5",
+              temperature: 0.2,
+              max_output_tokens: 4096,
+              reasoning_effort: "high",
+              thinking_budget_tokens: 2048,
             },
           ],
         }),
@@ -231,6 +222,10 @@ describe("apiClient", () => {
           base_url: "https://api.anthropic.com",
           api_key: "sk-ant",
           model: "claude-sonnet-4-5",
+          temperature: 0.2,
+          max_output_tokens: 4096,
+          reasoning_effort: "high",
+          thinking_budget_tokens: 2048,
         },
       ],
     });
@@ -248,6 +243,10 @@ describe("apiClient", () => {
           base_url: "https://api.anthropic.com",
           api_key: "sk-ant",
           model: "claude-sonnet-4-5",
+          temperature: 0.2,
+          max_output_tokens: 4096,
+          reasoning_effort: "high",
+          thinking_budget_tokens: 2048,
         },
       ],
     });

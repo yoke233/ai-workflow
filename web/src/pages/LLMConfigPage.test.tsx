@@ -78,6 +78,18 @@ describe("LLMConfigPage", () => {
     fireEvent.change(within(newConfigCard as HTMLElement).getByLabelText("MODEL"), {
       target: { value: "claude-3-7-sonnet-latest" },
     });
+    fireEvent.change(within(newConfigCard as HTMLElement).getByLabelText("Temperature"), {
+      target: { value: "0.3" },
+    });
+    fireEvent.change(within(newConfigCard as HTMLElement).getByLabelText("最大输出 Tokens"), {
+      target: { value: "4096" },
+    });
+    fireEvent.change(within(newConfigCard as HTMLElement).getByLabelText("思考强度"), {
+      target: { value: "high" },
+    });
+    fireEvent.change(within(newConfigCard as HTMLElement).getByLabelText("Thinking Budget"), {
+      target: { value: "2048" },
+    });
     fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "claude-backup" } });
 
     const originalCard = screen.getByDisplayValue("openai-prod").closest(".rounded-2xl");
@@ -94,6 +106,10 @@ describe("LLMConfigPage", () => {
             id: "claude-backup",
             type: "anthropic",
             model: "claude-3-7-sonnet-latest",
+            temperature: 0.3,
+            max_output_tokens: 4096,
+            reasoning_effort: "high",
+            thinking_budget_tokens: 2048,
           },
         ],
       });

@@ -263,22 +263,6 @@ export interface ApiClient {
   archiveWorkItem(workItemId: number): Promise<void>;
   bootstrapPRWorkItem(workItemId: number, body?: BootstrapPRWorkItemRequest): Promise<BootstrapPRWorkItemResponse>;
 
-  // Backward compat aliases
-  listIssues(params?: {
-    project_id?: number;
-    status?: string;
-    archived?: boolean | "all";
-    limit?: number;
-    offset?: number;
-  }): Promise<WorkItem[]>;
-  createIssue(body: CreateWorkItemRequest): Promise<WorkItem>;
-  getIssue(issueId: number): Promise<WorkItem>;
-  runIssue(issueId: number): Promise<RunWorkItemResponse>;
-  cancelIssue(issueId: number): Promise<CancelWorkItemResponse>;
-  updateIssue(issueId: number, body: UpdateWorkItemRequest): Promise<WorkItem>;
-  archiveIssue(issueId: number): Promise<void>;
-  bootstrapPRIssue(issueId: number, body?: BootstrapPRWorkItemRequest): Promise<BootstrapPRWorkItemResponse>;
-
   listActions(workItemId: number): Promise<Action[]>;
   createAction(workItemId: number, body: CreateActionRequest): Promise<Action>;
   generateActions(workItemId: number, body: GenerateActionsRequest): Promise<Action[]>;
@@ -287,20 +271,8 @@ export interface ApiClient {
   updateAction(actionId: number, body: UpdateActionRequest): Promise<Action>;
   deleteAction(actionId: number): Promise<void>;
 
-  // Backward compat aliases
-  listSteps(issueId: number): Promise<Action[]>;
-  createStep(issueId: number, body: CreateActionRequest): Promise<Action>;
-  generateSteps(issueId: number, body: GenerateActionsRequest): Promise<Action[]>;
-  getStep(stepId: number): Promise<Action>;
-  updateStep(stepId: number, body: UpdateActionRequest): Promise<Action>;
-  deleteStep(stepId: number): Promise<void>;
-
   listRuns(actionId: number): Promise<Run[]>;
   getRun(runId: number): Promise<Run>;
-
-  // Backward compat aliases
-  listExecutions(stepId: number): Promise<Run[]>;
-  getExecution(execId: number): Promise<Run>;
 
   listEvents(params?: {
     issue_id?: number;
@@ -312,12 +284,6 @@ export interface ApiClient {
   }): Promise<Event[]>;
   listWorkItemEvents(
     workItemId: number,
-    params?: { types?: string[]; limit?: number; offset?: number },
-  ): Promise<Event[]>;
-
-  // Backward compat alias
-  listIssueEvents(
-    issueId: number,
     params?: { types?: string[]; limit?: number; offset?: number },
   ): Promise<Event[]>;
 
@@ -337,19 +303,11 @@ export interface ApiClient {
   getAnalyticsSummary(params?: AnalyticsFilter): Promise<AnalyticsSummary>;
   getUsageSummary(params?: AnalyticsFilter): Promise<UsageAnalyticsSummary>;
   getUsageByRun(runId: number): Promise<UsageRecord>;
-  // Backward compat alias
-  getUsageByExecution(execId: number): Promise<UsageRecord>;
 
   listCronWorkItems(): Promise<CronStatus[]>;
   getWorkItemCronStatus(workItemId: number): Promise<CronStatus>;
   setupWorkItemCron(workItemId: number, body: SetupCronRequest): Promise<CronStatus>;
   disableWorkItemCron(workItemId: number): Promise<CronStatus>;
-
-  // Backward compat aliases
-  listCronIssues(): Promise<CronStatus[]>;
-  getIssueCronStatus(issueId: number): Promise<CronStatus>;
-  setupIssueCron(issueId: number, body: SetupCronRequest): Promise<CronStatus>;
-  disableIssueCron(issueId: number): Promise<CronStatus>;
 
   // DAG Templates
   listDAGTemplates(params?: {
@@ -365,10 +323,6 @@ export interface ApiClient {
   deleteDAGTemplate(templateId: number): Promise<void>;
   saveWorkItemAsTemplate(workItemId: number, body: SaveWorkItemAsTemplateRequest): Promise<DAGTemplate>;
   createWorkItemFromTemplate(templateId: number, body: CreateWorkItemFromTemplateRequest): Promise<CreateWorkItemFromTemplateResponse>;
-
-  // Backward compat aliases
-  saveIssueAsTemplate(issueId: number, body: SaveWorkItemAsTemplateRequest): Promise<DAGTemplate>;
-  createIssueFromTemplate(templateId: number, body: CreateWorkItemFromTemplateRequest): Promise<CreateWorkItemFromTemplateResponse>;
 
   // Git Tags
   listGitCommits(projectId: number, params?: { limit?: number }): Promise<GitCommitEntry[]>;
@@ -417,12 +371,6 @@ export interface ApiClient {
   getWorkItemAttachment(attachmentId: number): Promise<WorkItemAttachment>;
   deleteWorkItemAttachment(attachmentId: number): Promise<void>;
   getAttachmentDownloadUrl(attachmentId: number): string;
-
-  // Backward compat aliases
-  uploadIssueAttachment(issueId: number, file: File): Promise<WorkItemAttachment>;
-  listIssueAttachments(issueId: number): Promise<WorkItemAttachment[]>;
-  getIssueAttachment(attachmentId: number): Promise<WorkItemAttachment>;
-  deleteIssueAttachment(attachmentId: number): Promise<void>;
 
   // Notifications
   listNotifications(params?: {
@@ -897,7 +845,7 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: `/chat/${encodeURIComponent(sessionId)}/status`,
       }),
 
-    // Work Items (primary + compat)
+    // Work Items
     listWorkItems,
     createWorkItem,
     getWorkItem,
@@ -906,16 +854,8 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     updateWorkItem,
     archiveWorkItem,
     bootstrapPRWorkItem,
-    listIssues: listWorkItems,
-    createIssue: createWorkItem,
-    getIssue: getWorkItem,
-    runIssue: runWorkItem,
-    cancelIssue: cancelWorkItem,
-    updateIssue: updateWorkItem,
-    archiveIssue: archiveWorkItem,
-    bootstrapPRIssue: bootstrapPRWorkItem,
 
-    // Actions (primary + compat)
+    // Actions
     listActions,
     createAction,
     generateActions,
@@ -928,23 +868,14 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     getAction,
     updateAction,
     deleteAction,
-    listSteps: listActions,
-    createStep: createAction,
-    generateSteps: generateActions,
-    getStep: getAction,
-    updateStep: updateAction,
-    deleteStep: deleteAction,
 
-    // Runs (primary + compat)
+    // Runs
     listRuns,
     getRun,
-    listExecutions: listRuns,
-    getExecution: getRun,
 
     // Events
     listEvents,
     listWorkItemEvents,
-    listIssueEvents: listWorkItemEvents,
 
     listProfiles: () =>
       request<AgentProfile[]>({
@@ -1030,17 +961,12 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         },
       }),
     getUsageByRun,
-    getUsageByExecution: getUsageByRun,
 
-    // Cron (primary + compat)
+    // Cron
     listCronWorkItems,
     getWorkItemCronStatus,
     setupWorkItemCron,
     disableWorkItemCron,
-    listCronIssues: listCronWorkItems,
-    getIssueCronStatus: getWorkItemCronStatus,
-    setupIssueCron: setupWorkItemCron,
-    disableIssueCron: disableWorkItemCron,
 
     // DAG Templates
     listDAGTemplates: (params) =>
@@ -1077,8 +1003,6 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       }),
     saveWorkItemAsTemplate,
     createWorkItemFromTemplate,
-    saveIssueAsTemplate: saveWorkItemAsTemplate,
-    createIssueFromTemplate: createWorkItemFromTemplate,
 
     // Git Tags
     listGitCommits: (projectId, params) =>
@@ -1290,15 +1214,11 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     deleteManifestEntry: (entryId: number) =>
       request<void>({ path: `/manifest/entries/${entryId}`, method: "DELETE" }),
 
-    // Work Item Attachments (primary + compat)
+    // Work Item Attachments
     uploadWorkItemAttachment,
     listWorkItemAttachments,
     getWorkItemAttachment,
     deleteWorkItemAttachment,
-    uploadIssueAttachment: uploadWorkItemAttachment,
-    listIssueAttachments: listWorkItemAttachments,
-    getIssueAttachment: getWorkItemAttachment,
-    deleteIssueAttachment: deleteWorkItemAttachment,
     getAttachmentDownloadUrl: (attachmentId) =>
       buildUrl(baseUrl, `/resources/${attachmentId}/download`),
 

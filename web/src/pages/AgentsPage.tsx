@@ -38,10 +38,21 @@ const PROVIDER_OPTIONS = [
   { value: "anthropic", label: "Anthropic" },
 ] as const;
 
+const REASONING_EFFORT_OPTIONS = [
+  { value: "", label: "默认" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+] as const;
+
 const EMPTY_ITEM = (index: number): LLMConfigItem => ({
   id: `llm-config-${index}`,
   type: "openai_response",
   model: "",
+  temperature: 0,
+  max_output_tokens: 0,
+  reasoning_effort: "",
+  thinking_budget_tokens: 0,
 });
 
 const nextDraftConfig = (current: LLMConfigItem[]): LLMConfigItem => {
@@ -509,13 +520,17 @@ export function AgentsPage() {
                     <TableHead className="h-10 px-3 text-[11px] uppercase tracking-[0.16em]">{t("llmConfig.fieldConfigId")}</TableHead>
                     <TableHead className="h-10 px-3 text-[11px] uppercase tracking-[0.16em]">{t("llmConfig.fieldType")}</TableHead>
                     <TableHead className="h-10 px-3 text-[11px] uppercase tracking-[0.16em]">{t("llmConfig.fieldModel")}</TableHead>
+                    <TableHead className="h-10 px-3 text-[11px] uppercase tracking-[0.16em]">{t("llmConfig.fieldTemperature")}</TableHead>
+                    <TableHead className="h-10 px-3 text-[11px] uppercase tracking-[0.16em]">{t("llmConfig.fieldMaxOutputTokens")}</TableHead>
+                    <TableHead className="h-10 px-3 text-[11px] uppercase tracking-[0.16em]">{t("llmConfig.fieldReasoningEffort")}</TableHead>
+                    <TableHead className="h-10 px-3 text-[11px] uppercase tracking-[0.16em]">{t("llmConfig.fieldThinkingBudgetTokens")}</TableHead>
                     <TableHead className="h-10 px-3 text-right text-[11px] uppercase tracking-[0.16em]">{t("common.operations")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {configs.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="px-3 py-10 text-center text-muted-foreground">{t("llmConfig.emptyState")}</TableCell>
+                      <TableCell colSpan={8} className="px-3 py-10 text-center text-muted-foreground">{t("llmConfig.emptyState")}</TableCell>
                     </TableRow>
                   ) : (
                     configs.map((item, index) => {
@@ -550,6 +565,49 @@ export function AgentsPage() {
                               onChange={(event) => updateConfig(index, { model: event.target.value })}
                               placeholder={t("llmConfig.modelPlaceholder")}
                               className="h-9 min-w-[170px]"
+                            />
+                          </TableCell>
+                          <TableCell className="px-3 py-3">
+                            <Input
+                              type="number"
+                              step="0.1"
+                              value={item.temperature ?? 0}
+                              onChange={(event) => updateConfig(index, { temperature: Number(event.target.value) || 0 })}
+                              placeholder="0"
+                              className="h-9 min-w-[110px]"
+                            />
+                          </TableCell>
+                          <TableCell className="px-3 py-3">
+                            <Input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={item.max_output_tokens ?? 0}
+                              onChange={(event) => updateConfig(index, { max_output_tokens: Number(event.target.value) || 0 })}
+                              placeholder="0"
+                              className="h-9 min-w-[120px]"
+                            />
+                          </TableCell>
+                          <TableCell className="px-3 py-3">
+                            <Select
+                              value={item.reasoning_effort ?? ""}
+                              onChange={(event) => updateConfig(index, { reasoning_effort: event.target.value as LLMConfigItem["reasoning_effort"] })}
+                              className="h-9 min-w-[120px]"
+                            >
+                              {REASONING_EFFORT_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </Select>
+                          </TableCell>
+                          <TableCell className="px-3 py-3">
+                            <Input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={item.thinking_budget_tokens ?? 0}
+                              onChange={(event) => updateConfig(index, { thinking_budget_tokens: Number(event.target.value) || 0 })}
+                              placeholder="0"
+                              className="h-9 min-w-[120px]"
                             />
                           </TableCell>
                           <TableCell className="px-3 py-3 text-right">

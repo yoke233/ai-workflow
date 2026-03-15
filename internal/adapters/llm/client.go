@@ -1,6 +1,6 @@
-// Package llm provides a reusable OpenAI-compatible LLM client.
-// It wraps the openai-go SDK and exposes two high-level methods:
-//   - Complete: structured JSON output via JSON Schema (Structured Outputs).
+// Package llm provides a reusable runtime LLM client.
+// It wraps the official OpenAI and Anthropic SDKs and exposes two high-level methods:
+//   - Complete: structured JSON output.
 //   - CompleteText: free-form text completion.
 package llm
 
@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	anthropic "github.com/anthropics/anthropic-sdk-go"
+	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/responses"
@@ -28,27 +30,39 @@ type ToolDef struct {
 const (
 	ProviderOpenAIResponse       = "openai_response"
 	ProviderOpenAIChatCompletion = "openai_chat_completion"
+	ProviderAnthropic            = "anthropic"
+
+	defaultAnthropicMaxTokens int64 = 4096
 )
 
 // Config configures the LLM client.
 type Config struct {
-	Provider   string
-	BaseURL    string
-	APIKey     string
-	Model      string
-	MaxRetries int           // 0 = no retry
-	MinBackoff time.Duration // default 200ms
-	MaxBackoff time.Duration // default 2s
+	Provider             string
+	BaseURL              string
+	APIKey               string
+	Model                string
+	Temperature          float64       // default 0 to preserve deterministic behavior
+	MaxOutputTokens      int64         // 0 = provider default
+	ReasoningEffort      string        // OpenAI reasoning models: low/medium/high
+	ThinkingBudgetTokens int64         // Anthropic extended thinking budget; 0 = disabled
+	MaxRetries           int           // 0 = no retry
+	MinBackoff           time.Duration // default 200ms
+	MaxBackoff           time.Duration // default 2s
 }
 
-// Client is a reusable OpenAI-compatible LLM client.
+// Client is a reusable runtime LLM client.
 type Client struct {
-	client     openai.Client
-	provider   string
-	model      string
-	maxRetries int
-	minBackoff time.Duration
-	maxBackoff time.Duration
+	openaiClient         openai.Client
+	anthropicClient      anthropic.Client
+	provider             string
+	model                string
+	temperature          float64
+	maxOutputTokensLimit int64
+	reasoningEffort      string
+	thinkingBudgetTokens int64
+	maxRetries           int
+	minBackoff           time.Duration
+	maxBackoff           time.Duration
 }
 
 // New creates a Client from the given Config.
@@ -63,10 +77,21 @@ func New(cfg Config) (*Client, error) {
 	if provider == "" {
 		return nil, fmt.Errorf("llm: unsupported provider %q", strings.TrimSpace(cfg.Provider))
 	}
-
-	opts := []option.RequestOption{option.WithAPIKey(cfg.APIKey)}
-	if baseURL := strings.TrimSpace(cfg.BaseURL); baseURL != "" {
-		opts = append(opts, option.WithBaseURL(baseURL))
+	if cfg.MaxOutputTokens < 0 {
+		return nil, fmt.Errorf("llm: max_output_tokens must be >= 0")
+	}
+	if cfg.ThinkingBudgetTokens < 0 {
+		return nil, fmt.Errorf("llm: thinking_budget_tokens must be >= 0")
+	}
+	reasoningEffort := normalizeReasoningEffort(cfg.ReasoningEffort)
+	if strings.TrimSpace(cfg.ReasoningEffort) != "" && reasoningEffort == "" {
+		return nil, fmt.Errorf("llm: unsupported reasoning_effort %q", strings.TrimSpace(cfg.ReasoningEffort))
+	}
+	if cfg.ThinkingBudgetTokens > 0 && cfg.ThinkingBudgetTokens < 1024 {
+		return nil, fmt.Errorf("llm: thinking_budget_tokens must be >= 1024")
+	}
+	if cfg.MaxOutputTokens > 0 && cfg.ThinkingBudgetTokens >= cfg.MaxOutputTokens {
+		return nil, fmt.Errorf("llm: thinking_budget_tokens must be less than max_output_tokens")
 	}
 
 	minBackoff := cfg.MinBackoff
@@ -78,18 +103,44 @@ func New(cfg Config) (*Client, error) {
 		maxBackoff = 2 * time.Second
 	}
 
-	return &Client{
-		client:     openai.NewClient(opts...),
-		provider:   provider,
-		model:      strings.TrimSpace(cfg.Model),
-		maxRetries: max(0, cfg.MaxRetries),
-		minBackoff: minBackoff,
-		maxBackoff: maxBackoff,
-	}, nil
+	client := &Client{
+		provider:             provider,
+		model:                strings.TrimSpace(cfg.Model),
+		temperature:          cfg.Temperature,
+		maxOutputTokensLimit: max(0, cfg.MaxOutputTokens),
+		reasoningEffort:      reasoningEffort,
+		thinkingBudgetTokens: max(0, cfg.ThinkingBudgetTokens),
+		maxRetries:           max(0, cfg.MaxRetries),
+		minBackoff:           minBackoff,
+		maxBackoff:           maxBackoff,
+	}
+
+	switch provider {
+	case ProviderAnthropic:
+		opts := []anthropicoption.RequestOption{
+			anthropicoption.WithAPIKey(cfg.APIKey),
+			anthropicoption.WithMaxRetries(0),
+		}
+		if baseURL := strings.TrimSpace(cfg.BaseURL); baseURL != "" {
+			opts = append(opts, anthropicoption.WithBaseURL(baseURL))
+		}
+		client.anthropicClient = anthropic.NewClient(opts...)
+	default:
+		opts := []option.RequestOption{
+			option.WithAPIKey(cfg.APIKey),
+			option.WithMaxRetries(0),
+		}
+		if baseURL := strings.TrimSpace(cfg.BaseURL); baseURL != "" {
+			opts = append(opts, option.WithBaseURL(baseURL))
+		}
+		client.openaiClient = openai.NewClient(opts...)
+	}
+
+	return client, nil
 }
 
-// Complete calls the OpenAI Responses API with Structured Outputs (JSON Schema)
-// and returns the raw JSON. The first tool's schema is used as the response format.
+// Complete returns structured JSON output. For Anthropic this is implemented via
+// forced single-tool use and reading the tool input JSON from the response.
 func (c *Client) Complete(ctx context.Context, prompt string, tools []ToolDef) (json.RawMessage, error) {
 	if c == nil {
 		return nil, fmt.Errorf("llm: client is nil")
@@ -117,13 +168,16 @@ func (c *Client) Complete(ctx context.Context, prompt string, tools []ToolDef) (
 
 	return c.doWithRetry(ctx, func(ctx context.Context) (string, error) {
 		switch c.provider {
+		case ProviderAnthropic:
+			return c.completeAnthropic(ctx, prompt, tool, schema)
 		case ProviderOpenAIChatCompletion:
-			resp, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+			params := openai.ChatCompletionNewParams{
 				Model: shared.ChatModel(c.model),
 				Messages: []openai.ChatCompletionMessageParamUnion{
 					openai.UserMessage(prompt),
 				},
-				Temperature: openai.Float(0),
+				Temperature:     openai.Float(c.temperature),
+				ReasoningEffort: shared.ReasoningEffort(c.reasoningEffort),
 				ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
 					OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
 						JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{
@@ -134,7 +188,11 @@ func (c *Client) Complete(ctx context.Context, prompt string, tools []ToolDef) (
 						},
 					},
 				},
-			})
+			}
+			if c.maxOutputTokensLimit > 0 {
+				params.MaxTokens = openai.Int(c.maxOutputTokensLimit)
+			}
+			resp, err := c.openaiClient.Chat.Completions.New(ctx, params)
 			if err != nil {
 				return "", err
 			}
@@ -143,12 +201,13 @@ func (c *Client) Complete(ctx context.Context, prompt string, tools []ToolDef) (
 			}
 			return resp.Choices[0].Message.Content, nil
 		default:
-			resp, err := c.client.Responses.New(ctx, responses.ResponseNewParams{
+			params := responses.ResponseNewParams{
 				Model: shared.ResponsesModel(c.model),
 				Input: responses.ResponseNewParamsInputUnion{
 					OfString: openai.String(prompt),
 				},
-				Temperature: openai.Float(0),
+				Temperature: openai.Float(c.temperature),
+				Reasoning:   c.openAIReasoning(),
 				Text: responses.ResponseTextConfigParam{
 					Format: responses.ResponseFormatTextConfigUnionParam{
 						OfJSONSchema: &responses.ResponseFormatTextJSONSchemaConfigParam{
@@ -159,7 +218,11 @@ func (c *Client) Complete(ctx context.Context, prompt string, tools []ToolDef) (
 						},
 					},
 				},
-			})
+			}
+			if c.maxOutputTokensLimit > 0 {
+				params.MaxOutputTokens = openai.Int(c.maxOutputTokensLimit)
+			}
+			resp, err := c.openaiClient.Responses.New(ctx, params)
 			if err != nil {
 				return "", err
 			}
@@ -168,8 +231,7 @@ func (c *Client) Complete(ctx context.Context, prompt string, tools []ToolDef) (
 	})
 }
 
-// CompleteText calls the OpenAI Responses API for free-form text completion.
-// Returns the raw text output.
+// CompleteText returns free-form text output.
 func (c *Client) CompleteText(ctx context.Context, prompt string) (string, error) {
 	if c == nil {
 		return "", fmt.Errorf("llm: client is nil")
@@ -180,14 +242,21 @@ func (c *Client) CompleteText(ctx context.Context, prompt string) (string, error
 
 	raw, err := c.doTextWithRetry(ctx, func(ctx context.Context) (string, error) {
 		switch c.provider {
+		case ProviderAnthropic:
+			return c.completeAnthropicText(ctx, prompt)
 		case ProviderOpenAIChatCompletion:
-			resp, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+			params := openai.ChatCompletionNewParams{
 				Model: shared.ChatModel(c.model),
 				Messages: []openai.ChatCompletionMessageParamUnion{
 					openai.UserMessage(prompt),
 				},
-				Temperature: openai.Float(0),
-			})
+				Temperature:     openai.Float(c.temperature),
+				ReasoningEffort: shared.ReasoningEffort(c.reasoningEffort),
+			}
+			if c.maxOutputTokensLimit > 0 {
+				params.MaxTokens = openai.Int(c.maxOutputTokensLimit)
+			}
+			resp, err := c.openaiClient.Chat.Completions.New(ctx, params)
 			if err != nil {
 				return "", err
 			}
@@ -196,13 +265,18 @@ func (c *Client) CompleteText(ctx context.Context, prompt string) (string, error
 			}
 			return resp.Choices[0].Message.Content, nil
 		default:
-			resp, err := c.client.Responses.New(ctx, responses.ResponseNewParams{
+			params := responses.ResponseNewParams{
 				Model: shared.ResponsesModel(c.model),
 				Input: responses.ResponseNewParamsInputUnion{
 					OfString: openai.String(prompt),
 				},
-				Temperature: openai.Float(0),
-			})
+				Temperature: openai.Float(c.temperature),
+				Reasoning:   c.openAIReasoning(),
+			}
+			if c.maxOutputTokensLimit > 0 {
+				params.MaxOutputTokens = openai.Int(c.maxOutputTokensLimit)
+			}
+			resp, err := c.openaiClient.Responses.New(ctx, params)
 			if err != nil {
 				return "", err
 			}
@@ -213,6 +287,176 @@ func (c *Client) CompleteText(ctx context.Context, prompt string) (string, error
 		return "", err
 	}
 	return raw, nil
+}
+
+func (c *Client) completeAnthropic(ctx context.Context, prompt string, tool ToolDef, schema map[string]any) (string, error) {
+	name := strings.TrimSpace(tool.Name)
+	if name == "" {
+		name = "extract_metadata"
+	}
+
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(c.model),
+		MaxTokens: c.maxOutputTokens(),
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
+		},
+		Temperature: anthropic.Float(c.temperature),
+		Thinking:    c.anthropicThinking(),
+		Tools: []anthropic.ToolUnionParam{{
+			OfTool: &anthropic.ToolParam{
+				Name:        name,
+				Description: anthropic.String(strings.TrimSpace(tool.Description)),
+				InputSchema: anthropicToolInputSchema(schema),
+				Type:        anthropic.ToolTypeCustom,
+			},
+		}},
+		ToolChoice: anthropic.ToolChoiceParamOfTool(name),
+	}
+
+	resp, err := c.anthropicClient.Messages.New(ctx, params)
+	if err != nil {
+		return "", err
+	}
+
+	raw, err := extractAnthropicToolInput(resp, name)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
+}
+
+func (c *Client) completeAnthropicText(ctx context.Context, prompt string) (string, error) {
+	resp, err := c.anthropicClient.Messages.New(ctx, anthropic.MessageNewParams{
+		Model:     anthropic.Model(c.model),
+		MaxTokens: c.maxOutputTokens(),
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
+		},
+		Temperature: anthropic.Float(c.temperature),
+		Thinking:    c.anthropicThinking(),
+	})
+	if err != nil {
+		return "", err
+	}
+
+	text := extractAnthropicText(resp)
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("llm: anthropic returned empty text output")
+	}
+	return text, nil
+}
+
+func anthropicToolInputSchema(schema map[string]any) anthropic.ToolInputSchemaParam {
+	params := anthropic.ToolInputSchemaParam{}
+
+	if properties, ok := schema["properties"]; ok {
+		params.Properties = properties
+	}
+	if required, ok := schema["required"].([]string); ok {
+		params.Required = append([]string(nil), required...)
+	} else if requiredAny, ok := schema["required"].([]any); ok {
+		params.Required = make([]string, 0, len(requiredAny))
+		for _, item := range requiredAny {
+			if value, ok := item.(string); ok {
+				params.Required = append(params.Required, value)
+			}
+		}
+	}
+
+	extras := make(map[string]any)
+	for key, value := range schema {
+		switch key {
+		case "type", "properties", "required":
+			continue
+		default:
+			extras[key] = value
+		}
+	}
+	if len(extras) > 0 {
+		params.ExtraFields = extras
+	}
+	return params
+}
+
+func extractAnthropicToolInput(resp *anthropic.Message, toolName string) (json.RawMessage, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("llm: anthropic returned nil response")
+	}
+	for _, block := range resp.Content {
+		if block.Type != "tool_use" {
+			continue
+		}
+		if toolName != "" && strings.TrimSpace(block.Name) != toolName {
+			continue
+		}
+		raw := trimRawJSON(block.Input)
+		if len(raw) == 0 {
+			return nil, fmt.Errorf("llm: anthropic tool %q returned empty input", block.Name)
+		}
+		return raw, nil
+	}
+	return nil, fmt.Errorf("llm: anthropic response did not include expected tool_use block")
+}
+
+func extractAnthropicText(resp *anthropic.Message) string {
+	if resp == nil {
+		return ""
+	}
+	parts := make([]string, 0, len(resp.Content))
+	for _, block := range resp.Content {
+		if block.Type != "text" {
+			continue
+		}
+		text := strings.TrimSpace(block.Text)
+		if text == "" {
+			continue
+		}
+		parts = append(parts, text)
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
+func trimRawJSON(in []byte) []byte {
+	return []byte(strings.TrimSpace(string(in)))
+}
+
+func (c *Client) maxOutputTokens() int64 {
+	if c == nil || c.maxOutputTokensLimit <= 0 {
+		return defaultAnthropicMaxTokens
+	}
+	return c.maxOutputTokensLimit
+}
+
+func (c *Client) anthropicThinking() anthropic.ThinkingConfigParamUnion {
+	if c == nil || c.thinkingBudgetTokens <= 0 {
+		return anthropic.ThinkingConfigParamUnion{}
+	}
+	return anthropic.ThinkingConfigParamOfEnabled(c.thinkingBudgetTokens)
+}
+
+func (c *Client) openAIReasoning() shared.ReasoningParam {
+	if c == nil || c.reasoningEffort == "" {
+		return shared.ReasoningParam{}
+	}
+	return shared.ReasoningParam{
+		Effort: shared.ReasoningEffort(c.reasoningEffort),
+	}
+}
+
+func normalizeReasoningEffort(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return ""
+	case "low":
+		return "low"
+	case "medium":
+		return "medium"
+	case "high":
+		return "high"
+	default:
+		return ""
+	}
 }
 
 // doWithRetry runs fn with exponential backoff retries.
@@ -298,6 +542,17 @@ func IsRetryable(err error) bool {
 			return false
 		}
 	}
+	var anthropicErr *anthropic.Error
+	if errors.As(err, &anthropicErr) {
+		switch anthropicErr.StatusCode {
+		case 400, 401, 402, 403, 404:
+			return false
+		case 408, 409, 425, 429, 500, 502, 503, 504:
+			return true
+		default:
+			return anthropicErr.StatusCode >= 500
+		}
+	}
 	return true
 }
 
@@ -354,6 +609,8 @@ func normalizeProvider(provider string) string {
 		return ProviderOpenAIResponse
 	case ProviderOpenAIChatCompletion:
 		return ProviderOpenAIChatCompletion
+	case ProviderAnthropic:
+		return ProviderAnthropic
 	default:
 		return ""
 	}

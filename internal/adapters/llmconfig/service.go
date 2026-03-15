@@ -125,6 +125,13 @@ func normalizeConfig(cfg config.RuntimeLLMConfig) config.RuntimeLLMConfig {
 		cfg.Configs[i].BaseURL = strings.TrimSpace(cfg.Configs[i].BaseURL)
 		cfg.Configs[i].APIKey = strings.TrimSpace(cfg.Configs[i].APIKey)
 		cfg.Configs[i].Model = strings.TrimSpace(cfg.Configs[i].Model)
+		cfg.Configs[i].ReasoningEffort = strings.ToLower(strings.TrimSpace(cfg.Configs[i].ReasoningEffort))
+		if cfg.Configs[i].MaxOutputTokens < 0 {
+			cfg.Configs[i].MaxOutputTokens = 0
+		}
+		if cfg.Configs[i].ThinkingBudgetTokens < 0 {
+			cfg.Configs[i].ThinkingBudgetTokens = 0
+		}
 		if cfg.Configs[i].BaseURL == "" {
 			cfg.Configs[i].BaseURL = defaultBaseURLForProvider(cfg.Configs[i].Type)
 		}
@@ -147,6 +154,12 @@ func validateConfig(cfg config.RuntimeLLMConfig) error {
 		seen[item.ID] = struct{}{}
 		if !isKnownProviderType(item.Type) {
 			return fmt.Errorf("unknown llm provider type %q", item.Type)
+		}
+		if item.ReasoningEffort != "" && item.ReasoningEffort != "low" && item.ReasoningEffort != "medium" && item.ReasoningEffort != "high" {
+			return fmt.Errorf("unsupported llm reasoning_effort %q", item.ReasoningEffort)
+		}
+		if item.ThinkingBudgetTokens > 0 && item.ThinkingBudgetTokens < 1024 {
+			return fmt.Errorf("thinking_budget_tokens must be >= 1024")
 		}
 	}
 	if cfg.DefaultConfigID != "" {
@@ -181,6 +194,13 @@ func mergeEntries(current []config.RuntimeLLMEntryConfig, incoming []config.Runt
 		incoming[i].BaseURL = strings.TrimSpace(incoming[i].BaseURL)
 		incoming[i].APIKey = strings.TrimSpace(incoming[i].APIKey)
 		incoming[i].Model = strings.TrimSpace(incoming[i].Model)
+		incoming[i].ReasoningEffort = strings.ToLower(strings.TrimSpace(incoming[i].ReasoningEffort))
+		if incoming[i].MaxOutputTokens < 0 {
+			incoming[i].MaxOutputTokens = 0
+		}
+		if incoming[i].ThinkingBudgetTokens < 0 {
+			incoming[i].ThinkingBudgetTokens = 0
+		}
 
 		if existing, ok := currentByID[incoming[i].ID]; ok {
 			if incoming[i].BaseURL == "" {

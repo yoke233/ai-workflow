@@ -279,11 +279,15 @@ type RuntimeLLMConfig struct {
 }
 
 type RuntimeLLMEntryConfig struct {
-	ID      string `toml:"id"       yaml:"id" json:"id"`
-	Type    string `toml:"type"     yaml:"type" json:"type"`
-	BaseURL string `toml:"base_url" yaml:"base_url" json:"base_url"`
-	APIKey  string `toml:"api_key"  yaml:"api_key" json:"api_key"`
-	Model   string `toml:"model"    yaml:"model" json:"model"`
+	ID                   string  `toml:"id"                     yaml:"id" json:"id"`
+	Type                 string  `toml:"type"                   yaml:"type" json:"type"`
+	BaseURL              string  `toml:"base_url"               yaml:"base_url" json:"base_url"`
+	APIKey               string  `toml:"api_key"                yaml:"api_key" json:"api_key"`
+	Model                string  `toml:"model"                  yaml:"model" json:"model"`
+	Temperature          float64 `toml:"temperature"            yaml:"temperature" json:"temperature"`
+	MaxOutputTokens      int64   `toml:"max_output_tokens"      yaml:"max_output_tokens" json:"max_output_tokens"`
+	ReasoningEffort      string  `toml:"reasoning_effort"       yaml:"reasoning_effort" json:"reasoning_effort"`
+	ThinkingBudgetTokens int64   `toml:"thinking_budget_tokens" yaml:"thinking_budget_tokens" json:"thinking_budget_tokens"`
 }
 
 type RunConfig struct {

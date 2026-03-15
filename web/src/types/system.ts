@@ -25,6 +25,10 @@ export interface LLMConfigItem {
   base_url?: string;
   api_key?: string;
   model: string;
+  temperature?: number;
+  max_output_tokens?: number;
+  reasoning_effort?: "" | "low" | "medium" | "high";
+  thinking_budget_tokens?: number;
 }
 
 export interface LLMConfigResponse {

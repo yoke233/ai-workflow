@@ -13,11 +13,13 @@ func TestBuildReportHidesConnectionFields(t *testing.T) {
 	report := buildReport(config.RuntimeLLMConfig{
 		DefaultConfigID: "openai-prod",
 		Configs: []config.RuntimeLLMEntryConfig{{
-			ID:      "openai-prod",
-			Type:    ProviderOpenAIResponse,
-			BaseURL: "https://api.example.com/v1",
-			APIKey:  "sk-secret",
-			Model:   "gpt-4.1-mini",
+			ID:              "openai-prod",
+			Type:            ProviderOpenAIResponse,
+			BaseURL:         "https://api.example.com/v1",
+			APIKey:          "sk-secret",
+			Model:           "gpt-4.1-mini",
+			Temperature:     0.3,
+			ReasoningEffort: "medium",
 		}},
 	})
 
@@ -30,6 +32,9 @@ func TestBuildReportHidesConnectionFields(t *testing.T) {
 	if report.Configs[0].Model != "gpt-4.1-mini" {
 		t.Fatalf("model = %q, want gpt-4.1-mini", report.Configs[0].Model)
 	}
+	if report.Configs[0].Temperature != 0.3 || report.Configs[0].ReasoningEffort != "medium" {
+		t.Fatalf("non-secret tuning should remain visible, got %+v", report.Configs[0])
+	}
 }
 
 func TestMergeEntriesPreservesExistingConnectionFields(t *testing.T) {
@@ -37,16 +42,18 @@ func TestMergeEntriesPreservesExistingConnectionFields(t *testing.T) {
 
 	got := mergeEntries(
 		[]config.RuntimeLLMEntryConfig{{
-			ID:      "openai-prod",
-			Type:    ProviderOpenAIResponse,
-			BaseURL: "https://api.example.com/v1",
-			APIKey:  "sk-secret",
-			Model:   "gpt-4.1-mini",
+			ID:                   "openai-prod",
+			Type:                 ProviderOpenAIResponse,
+			BaseURL:              "https://api.example.com/v1",
+			APIKey:               "sk-secret",
+			Model:                "gpt-4.1-mini",
+			ThinkingBudgetTokens: 2048,
 		}},
 		[]config.RuntimeLLMEntryConfig{{
-			ID:    "openai-prod",
-			Type:  ProviderOpenAIResponse,
-			Model: "gpt-4.1",
+			ID:                   "openai-prod",
+			Type:                 ProviderOpenAIResponse,
+			Model:                "gpt-4.1",
+			ThinkingBudgetTokens: 0,
 		}},
 	)
 
@@ -61,6 +68,9 @@ func TestMergeEntriesPreservesExistingConnectionFields(t *testing.T) {
 	}
 	if got[0].Model != "gpt-4.1" {
 		t.Fatalf("Model = %q, want updated value", got[0].Model)
+	}
+	if got[0].ThinkingBudgetTokens != 0 {
+		t.Fatalf("ThinkingBudgetTokens = %d, want explicit reset to 0", got[0].ThinkingBudgetTokens)
 	}
 }
 
@@ -80,6 +90,23 @@ func TestNormalizeConfigFillsProviderDefaultBaseURL(t *testing.T) {
 	}
 	if cfg.Configs[0].BaseURL != "https://api.anthropic.com" {
 		t.Fatalf("BaseURL = %q, want anthropic default", cfg.Configs[0].BaseURL)
+	}
+}
+
+func TestValidateConfigRejectsInvalidThinkingBudget(t *testing.T) {
+	t.Parallel()
+
+	err := validateConfig(config.RuntimeLLMConfig{
+		DefaultConfigID: "anthropic-default",
+		Configs: []config.RuntimeLLMEntryConfig{{
+			ID:                   "anthropic-default",
+			Type:                 ProviderAnthropic,
+			Model:                "claude-sonnet",
+			ThinkingBudgetTokens: 512,
+		}},
+	})
+	if err == nil {
+		t.Fatal("validateConfig() should reject thinking_budget_tokens < 1024")
 	}
 }
 
