@@ -51,6 +51,21 @@ type LeadAgentConfig struct {
 	Sandbox            v2sandbox.Sandbox
 	DataDir            string
 	NewClient          func(cfg acpclient.LaunchConfig, h acpproto.Client, opts ...acpclient.Option) (ChatACPClient, error)
+
+	// GC controls workspace resource reclamation.
+	GC GCConfig
+}
+
+// GCConfig controls workspace resource reclamation for chat sessions.
+type GCConfig struct {
+	// ArchiveCleanup deletes workspace (worktree/sandbox dir) when a session is archived.
+	ArchiveCleanup bool
+	// StartupCleanup removes orphan workspaces on server start.
+	StartupCleanup bool
+	// Interval is the periodic GC sweep interval. Zero disables periodic GC.
+	Interval time.Duration
+	// RepoMaxAge is how long an unused cloned repo is kept. Zero means keep forever.
+	RepoMaxAge time.Duration
 }
 
 type LeadAgent struct {
@@ -155,13 +170,175 @@ func NewLeadAgent(cfg LeadAgentConfig) *LeadAgent {
 		catalog = map[string]*persistedLeadSession{}
 	}
 
-	return &LeadAgent{
+	agent := &LeadAgent{
 		cfg:         cfg,
 		broker:      newPermissionBroker(),
 		sessions:    make(map[string]*leadSession),
 		catalog:     catalog,
 		catalogPath: catalogPath,
 		activeRuns:  make(map[string]context.CancelFunc),
+	}
+	if cfg.GC.StartupCleanup {
+		agent.gcOrphanWorkspaces()
+	}
+	return agent
+}
+
+// StartGC launches the periodic GC goroutine. Call this after the server is
+// ready.  The goroutine stops when ctx is cancelled.
+func (l *LeadAgent) StartGC(ctx context.Context) {
+	interval := l.cfg.GC.Interval
+	if interval <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				l.gcOrphanWorkspaces()
+				l.gcStaleRepos()
+			}
+		}
+	}()
+	slog.Info("lead chat gc: periodic GC started", "interval", interval)
+}
+
+// gcOrphanWorkspaces removes worktree and sandbox directories that are not
+// referenced by any active (non-archived) catalog entry.  This recovers disk
+// space leaked by server crashes.
+func (l *LeadAgent) gcOrphanWorkspaces() {
+	dataDir := strings.TrimSpace(l.cfg.DataDir)
+	if dataDir == "" {
+		return
+	}
+
+	// Collect active workspace paths from catalog.
+	l.mu.Lock()
+	activeWorkDirs := make(map[string]struct{}, len(l.catalog))
+	for _, record := range l.catalog {
+		if !record.Archived || !l.cfg.GC.ArchiveCleanup {
+			if wd := strings.TrimSpace(record.WorkDir); wd != "" {
+				activeWorkDirs[filepath.Clean(wd)] = struct{}{}
+			}
+		}
+	}
+	l.mu.Unlock()
+
+	// Scan worktrees/<projectID>/ directories.
+	worktreeRoot := filepath.Join(dataDir, "worktrees")
+	l.gcOrphanDirs(worktreeRoot, activeWorkDirs, "worktree")
+
+	// Scan chat-sandboxes/ directories.
+	sandboxRoot := filepath.Join(dataDir, "chat-sandboxes")
+	l.gcOrphanDirs(sandboxRoot, activeWorkDirs, "sandbox")
+}
+
+func (l *LeadAgent) gcOrphanDirs(root string, activeWorkDirs map[string]struct{}, label string) {
+	projectDirs, err := os.ReadDir(root)
+	if err != nil {
+		return // directory doesn't exist yet — nothing to clean
+	}
+
+	for _, projectEntry := range projectDirs {
+		projectPath := filepath.Join(root, projectEntry.Name())
+
+		if !projectEntry.IsDir() {
+			continue
+		}
+
+		// For worktrees: root/<projectID>/<chat-slug>; for sandboxes: root/<sess-xxx>.
+		if label == "sandbox" {
+			// Sandbox dirs are directly under root.
+			if _, active := activeWorkDirs[filepath.Clean(projectPath)]; !active {
+				if err := os.RemoveAll(projectPath); err == nil {
+					slog.Info("lead chat gc: removed orphan sandbox", "path", projectPath)
+				}
+			}
+			continue
+		}
+
+		// Worktree: enumerate children.
+		children, err := os.ReadDir(projectPath)
+		if err != nil {
+			continue
+		}
+		for _, child := range children {
+			childPath := filepath.Join(projectPath, child.Name())
+			if !child.IsDir() {
+				continue
+			}
+			if _, active := activeWorkDirs[filepath.Clean(childPath)]; !active {
+				// Try git worktree remove first; fall back to RemoveAll.
+				cleanupIsolatedDir("worktree", childPath, "")
+				_ = os.RemoveAll(childPath) // ensure removal even if git fails
+				slog.Info("lead chat gc: removed orphan worktree", "path", childPath)
+			}
+		}
+		// Remove empty project dir.
+		if remaining, _ := os.ReadDir(projectPath); len(remaining) == 0 {
+			_ = os.Remove(projectPath)
+		}
+	}
+}
+
+// gcStaleRepos removes auto-cloned repositories that haven't been used by any
+// catalog session for longer than RepoMaxAge.
+func (l *LeadAgent) gcStaleRepos() {
+	maxAge := l.cfg.GC.RepoMaxAge
+	if maxAge <= 0 {
+		return
+	}
+	dataDir := strings.TrimSpace(l.cfg.DataDir)
+	if dataDir == "" {
+		return
+	}
+
+	// Collect project IDs still referenced by any catalog entry.
+	l.mu.Lock()
+	activeProjectIDs := make(map[int64]struct{})
+	for _, record := range l.catalog {
+		if record.ProjectID > 0 {
+			activeProjectIDs[record.ProjectID] = struct{}{}
+		}
+	}
+	l.mu.Unlock()
+
+	repoRoot := filepath.Join(dataDir, "repos")
+	entries, err := os.ReadDir(repoRoot)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-maxAge)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		// Parse project ID from directory name.
+		projectID, err := strconv.ParseInt(entry.Name(), 10, 64)
+		if err != nil {
+			continue
+		}
+		// Skip repos still referenced by active sessions.
+		if _, active := activeProjectIDs[projectID]; active {
+			continue
+		}
+		// Check modification time.
+		repoPath := filepath.Join(repoRoot, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(repoPath); err == nil {
+			slog.Info("lead chat gc: removed stale repo clone",
+				"project_id", projectID, "path", repoPath, "age", time.Since(info.ModTime()))
+		}
 	}
 }
 
@@ -562,14 +739,44 @@ func (l *LeadAgent) ArchiveSession(sessionID string, archived bool) error {
 	}
 
 	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	record, ok := l.catalog[sessionID]
 	if !ok {
+		l.mu.Unlock()
 		return core.ErrNotFound
 	}
 	record.Archived = archived
-	return l.saveCatalogLocked()
+	if err := l.saveCatalogLocked(); err != nil {
+		l.mu.Unlock()
+		return err
+	}
+
+	// When archiving (not un-archiving), reclaim workspace resources.
+	var sess *leadSession
+	var isolation, workDir, repoPath string
+	if archived && l.cfg.GC.ArchiveCleanup {
+		sess = l.sessions[sessionID]
+		if sess != nil {
+			delete(l.sessions, sessionID)
+			isolation = sess.isolation
+			workDir = sess.workDir
+			repoPath = sess.repoPath
+		} else {
+			isolation = record.Isolation
+			workDir = record.WorkDir
+			repoPath = record.RepoPath
+		}
+	}
+	l.mu.Unlock()
+
+	if archived && l.cfg.GC.ArchiveCleanup && workDir != "" {
+		if sess != nil {
+			sess.close()
+		}
+		cleanupIsolatedDir(isolation, workDir, repoPath)
+		slog.Info("lead chat gc: archived session workspace cleaned",
+			"session_id", sessionID, "isolation", isolation, "work_dir", workDir)
+	}
+	return nil
 }
 
 func (l *LeadAgent) Shutdown() {

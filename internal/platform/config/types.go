@@ -131,8 +131,21 @@ type RuntimeNATSConfig struct {
 type RuntimeSandboxConfig struct {
 	Enabled  bool                 `toml:"enabled"  yaml:"enabled"`
 	Provider string               `toml:"provider" yaml:"provider"`
+	GC       RuntimeSandboxGCConfig `toml:"gc"     yaml:"gc"`
 	LiteBox  RuntimeLiteBoxConfig `toml:"litebox"  yaml:"litebox"`
 	Docker   RuntimeDockerConfig  `toml:"docker"   yaml:"docker"`
+}
+
+// RuntimeSandboxGCConfig controls workspace resource reclamation.
+type RuntimeSandboxGCConfig struct {
+	// ArchiveCleanup deletes workspace (worktree/sandbox dir) when a session is archived.
+	ArchiveCleanup bool `toml:"archive_cleanup" yaml:"archive_cleanup" json:"archive_cleanup"`
+	// StartupCleanup removes orphan workspaces on server start (crash recovery).
+	StartupCleanup bool `toml:"startup_cleanup" yaml:"startup_cleanup" json:"startup_cleanup"`
+	// Interval is the periodic GC sweep interval. Zero disables periodic GC.
+	Interval Duration `toml:"interval" yaml:"interval" json:"interval"`
+	// RepoMaxAge is how long an unused cloned repo is kept. Zero means keep forever.
+	RepoMaxAge Duration `toml:"repo_max_age" yaml:"repo_max_age" json:"repo_max_age"`
 }
 
 type RuntimeLiteBoxConfig struct {

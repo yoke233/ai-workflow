@@ -52,6 +52,12 @@ default_config_id = "openai-response-default"
 enabled = false
 provider = "home_dir"
 
+  [runtime.sandbox.gc]
+  archive_cleanup = true
+  startup_cleanup = true
+  interval = "6h"
+  repo_max_age = "168h"
+
   [runtime.sandbox.litebox]
   bridge_command = "litebox-acp"
   bridge_args = []

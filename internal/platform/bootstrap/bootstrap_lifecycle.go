@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	chatacp "github.com/yoke233/ai-workflow/internal/adapters/chat/acp"
 	cronapp "github.com/yoke233/ai-workflow/internal/application/cron"
 	flowapp "github.com/yoke233/ai-workflow/internal/application/flow"
 	inspectionapp "github.com/yoke233/ai-workflow/internal/application/inspection"
@@ -18,6 +19,7 @@ type bootstrapLifecycle struct {
 	probeWatchCancel   context.CancelFunc
 	cronCancel         context.CancelFunc
 	inspectionCancel   context.CancelFunc
+	gcCancel           context.CancelFunc
 	inspectionEngine   *inspectionapp.Engine
 }
 
@@ -32,8 +34,12 @@ func startBootstrapLifecycle(
 	startProbeWatchdog(lifecycle, base.store, apiStack.probeSvc, bootstrapCfg)
 	startCronTrigger(lifecycle, base.store, base.bus, flow.scheduler, bootstrapCfg)
 	startInspectionScheduler(lifecycle, apiStack.inspectionEngine, base.bus, bootstrapCfg)
+	startLeadChatGC(lifecycle, apiStack.leadAgent)
 
 	return func() {
+		if lifecycle.gcCancel != nil {
+			lifecycle.gcCancel()
+		}
 		if lifecycle.inspectionCancel != nil {
 			lifecycle.inspectionCancel()
 		}
@@ -137,4 +143,13 @@ func startInspectionScheduler(
 	ctx, cancel := context.WithCancel(context.Background())
 	lifecycle.inspectionCancel = cancel
 	go scheduler.Start(ctx)
+}
+
+func startLeadChatGC(lifecycle *bootstrapLifecycle, leadAgent *chatacp.LeadAgent) {
+	if leadAgent == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	lifecycle.gcCancel = cancel
+	leadAgent.StartGC(ctx)
 }

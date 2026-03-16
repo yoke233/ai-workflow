@@ -39,6 +39,7 @@ func buildAPIStack(
 			return base.runtimeManager.ResolveDriverConfig(driverID)
 		}
 	}
+	gcCfg := bootstrapCfg.Runtime.Sandbox.GC
 	leadAgent := chatacp.NewLeadAgent(chatacp.LeadAgentConfig{
 		Registry:           base.registry,
 		DriverResolver:     driverResolver,
@@ -47,6 +48,12 @@ func buildAPIStack(
 		LLM:                llmCompleter,
 		Sandbox:            sb,
 		DataDir:            base.dataDir,
+		GC: chatacp.GCConfig{
+			ArchiveCleanup: gcCfg.ArchiveCleanup,
+			StartupCleanup: gcCfg.StartupCleanup,
+			Interval:       gcCfg.Interval.Duration,
+			RepoMaxAge:     gcCfg.RepoMaxAge.Duration,
+		},
 	})
 
 	var dagGen api.DAGGenerator
