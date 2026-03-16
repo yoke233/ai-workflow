@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import typography from "@tailwindcss/typography";
 
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
@@ -57,13 +58,18 @@ export default {
           from: { opacity: "0", transform: "scale(0.97) translateY(-2px)" },
           to: { opacity: "1", transform: "scale(1) translateY(0)" },
         },
+        "dot-pulse": {
+          "0%, 100%": { transform: "scale(0.6)", opacity: "0.4" },
+          "50%": { transform: "scale(1.3)", opacity: "1" },
+        },
       },
       animation: {
         "dialog-overlay-in": "dialog-overlay-in 0.18s ease-out",
         "dialog-content-in": "dialog-content-in 0.18s ease-out",
         "select-in": "select-in 0.12s ease-out",
+        "dot-pulse": "dot-pulse 1.4s ease-in-out infinite",
       },
     },
   },
-  plugins: []
+  plugins: [typography]
 } satisfies Config;

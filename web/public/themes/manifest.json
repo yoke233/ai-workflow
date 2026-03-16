@@ -1,0 +1,39 @@
+{
+  "themes": [
+    {
+      "id": "one-dark",
+      "name": "One Dark",
+      "type": "dark",
+      "folder": "one-dark",
+      "description": "Atom One Dark inspired theme"
+    },
+    {
+      "id": "dracula",
+      "name": "Dracula",
+      "type": "dark",
+      "folder": "dracula",
+      "description": "Dracula classic dark theme"
+    },
+    {
+      "id": "github-dark",
+      "name": "GitHub Dark",
+      "type": "dark",
+      "folder": "github-dark",
+      "description": "GitHub dark mode colors"
+    },
+    {
+      "id": "solarized-dark",
+      "name": "Solarized Dark",
+      "type": "dark",
+      "folder": "solarized-dark",
+      "description": "Ethan Schoonover's Solarized Dark"
+    },
+    {
+      "id": "nord",
+      "name": "Nord",
+      "type": "dark",
+      "folder": "nord",
+      "description": "Arctic, north-bluish color palette"
+    }
+  ]
+}

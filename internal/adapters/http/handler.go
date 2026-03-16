@@ -242,6 +242,12 @@ func (h *Handler) Register(r chi.Router) {
 	registerThreadRoutes(r, h)
 	registerThreadTaskRoutes(r, h)
 
+	// User themes (persisted in {dataDir}/themes/)
+	r.Get("/themes", h.listUserThemes)
+	r.Get("/themes/{themeID}", h.getUserTheme)
+	r.Post("/themes", h.saveUserTheme)
+	r.Delete("/themes/{themeID}", h.deleteUserTheme)
+
 	// Notifications
 	registerNotificationRoutes(r, h)
 

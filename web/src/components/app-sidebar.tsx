@@ -18,6 +18,7 @@ import {
   Globe,
   PanelLeftClose,
   PanelLeftOpen,
+  Settings,
 } from "lucide-react";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 
@@ -123,8 +124,24 @@ export function AppSidebar() {
         ))}
       </nav>
 
-      {/* Language switcher + Logout + Collapse toggle */}
+      {/* Settings + Language switcher + Logout + Collapse toggle */}
       <div className={cn("border-t py-3 space-y-1", collapsed ? "px-1.5" : "px-3")}>
+        <NavLink
+          to="/settings"
+          title={collapsed ? t("nav.settings") : undefined}
+          className={({ isActive }) =>
+            cn(
+              "flex w-full items-center rounded-md text-sm font-medium transition-colors",
+              collapsed ? "justify-center px-0 py-2" : "gap-3 px-3 py-2",
+              isActive
+                ? "bg-primary/10 text-primary font-semibold"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+            )
+          }
+        >
+          <Settings className="h-4 w-4 shrink-0" />
+          {!collapsed && t("nav.settings")}
+        </NavLink>
         <button
           onClick={() => {
             const next = i18n.language === "zh-CN" ? "en" : "zh-CN";

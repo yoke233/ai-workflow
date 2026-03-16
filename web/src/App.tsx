@@ -27,6 +27,7 @@ const ThreadDetailPage = lazy(() => import("@/pages/ThreadDetailPage").then((mod
 const ThreadsPage = lazy(() => import("@/pages/ThreadsPage").then((module) => ({ default: module.ThreadsPage })));
 const UsagePage = lazy(() => import("@/pages/UsagePage").then((module) => ({ default: module.UsagePage })));
 const WorkItemDetailPage = lazy(() => import("@/pages/WorkItemDetailPage").then((module) => ({ default: module.WorkItemDetailPage })));
+const SettingsPage = lazy(() => import("@/pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const WorkItemsPage = lazy(() => import("@/pages/WorkItemsPage").then((module) => ({ default: module.WorkItemsPage })));
 
 const RouteLoadingFallback = () => (
@@ -97,10 +98,12 @@ const WorkbenchRoutes = () => {
               <Route path="agents" element={<AgentsPage />} />
               <Route path="skills" element={<SkillsPage />} />
               <Route path="templates" element={<TemplatesPage />} />
+              <Route path="sandbox" element={<SandboxPage />} />
             </Route>
+            {/* Settings */}
+            <Route path="/settings" element={<SettingsPage />} />
             {/* Standalone pages */}
             <Route path="/runs/:runId" element={<RunDetailPage />} />
-            <Route path="/sandbox" element={<SandboxPage />} />
             <Route path="/dashboard" element={<Navigate to="/monitoring/dashboard" replace />} />
             <Route path="/analytics" element={<Navigate to="/monitoring/analytics" replace />} />
             <Route path="/usage" element={<Navigate to="/monitoring/usage" replace />} />
@@ -109,6 +112,7 @@ const WorkbenchRoutes = () => {
             <Route path="/agents" element={<Navigate to="/runtime/agents" replace />} />
             <Route path="/skills" element={<Navigate to="/runtime/skills" replace />} />
             <Route path="/templates" element={<Navigate to="/runtime/templates" replace />} />
+            <Route path="/sandbox" element={<Navigate to="/runtime/sandbox" replace />} />
             <Route path="/llm-api" element={<Navigate to="/runtime/agents" replace />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
