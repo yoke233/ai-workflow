@@ -139,7 +139,7 @@ export function ChatPage() {
     setSessions((current) => {
       const existing = current.filter((item) => item.session_id !== detail.session_id);
       return [record, ...existing].sort((left, right) => (
-        new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+        new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
       ));
     });
     setMessagesBySession((current) => ({
@@ -229,7 +229,7 @@ export function ChatPage() {
       const list = await apiClient.listChatSessions();
       const next = list.map((s) => toSummaryRecord(s, t));
       setSessions(next.sort((left, right) => (
-        new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+        new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
       )));
       setActiveSession((current) => {
         if (preferredSessionId) {
@@ -427,15 +427,15 @@ export function ChatPage() {
       const existing = groups.get(key);
       if (existing) {
         existing.sessions.push(session);
-        if (new Date(session.updated_at).getTime() > new Date(existing.updatedAt).getTime()) {
-          existing.updatedAt = session.updated_at;
+        if (new Date(session.created_at).getTime() > new Date(existing.updatedAt).getTime()) {
+          existing.updatedAt = session.created_at;
         }
         continue;
       }
       groups.set(key, {
         key,
         label: fallbackLabel(session.project_name, t("chat.noProject")),
-        updatedAt: session.updated_at,
+        updatedAt: session.created_at,
         sessions: [session],
       });
     }
@@ -443,7 +443,7 @@ export function ChatPage() {
       .map((group) => ({
         ...group,
         sessions: [...group.sessions].sort((left, right) => (
-          new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+          new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
         )),
       }))
       .sort((left, right) => {

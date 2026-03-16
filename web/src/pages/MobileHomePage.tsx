@@ -78,7 +78,7 @@ interface SessionDateGroup {
 function groupSessionsByDate(sessions: SessionRecord[]): SessionDateGroup[] {
   const groups = new Map<string, SessionDateGroup>();
   for (const session of sessions) {
-    const label = formatSessionDate(session.updated_at);
+    const label = formatSessionDate(session.created_at);
     const existing = groups.get(label);
     if (existing) {
       existing.sessions.push(session);
@@ -132,7 +132,7 @@ export function MobileHomePage() {
         if (!cancelled) {
           const sorted = list
             .map((s) => toSummaryRecord(s, t))
-            .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
           setSessions(sorted);
         }
       } catch (e) {
@@ -614,7 +614,7 @@ function SessionListItem({
             </span>
           ) : null}
           <span>
-            {new Date(session.updated_at).toLocaleTimeString("zh-CN", {
+            {new Date(session.created_at).toLocaleTimeString("zh-CN", {
               hour: "2-digit",
               minute: "2-digit",
             })}

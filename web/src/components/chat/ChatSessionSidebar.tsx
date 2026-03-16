@@ -107,7 +107,7 @@ export function ChatSessionSidebar(props: ChatSessionSidebarProps) {
                       activeSession === session.session_id ? "font-semibold" : "font-medium",
                     )}>{session.title ?? t("chat.newSession")}</span>
                     <span className="shrink-0 text-[11px] text-muted-foreground">
-                      {new Date(session.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                      {new Date(session.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
                   <p className="mt-1.5 truncate text-xs text-muted-foreground">{preview}</p>
