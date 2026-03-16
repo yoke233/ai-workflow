@@ -94,6 +94,7 @@ export function ChatPage() {
   const [draftProjectId, setDraftProjectId] = useState<number | null>(selectedProjectId);
   const [draftProfileId, setDraftProfileId] = useState("");
   const [draftDriverId, setDraftDriverId] = useState("");
+  const [draftUseWorktree, setDraftUseWorktree] = useState(true);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [detailView, setDetailView] = useState<"chat" | "events">("chat");
   const [submitting, setSubmitting] = useState(false);
@@ -781,6 +782,7 @@ export function ChatPage() {
       }
       return leadDriverOptions[0]?.driverId ?? drivers[0]?.id ?? "";
     });
+    setDraftUseWorktree(true);
     setActiveSession(null);
     setDraftMessages([]);
     setMessageInput("");
@@ -916,6 +918,7 @@ export function ChatPage() {
           project_name: resolvedProjectName,
           profile_id: resolvedProfileId,
           driver_id: resolvedDriverId,
+          ...(!workingSessionId ? { use_worktree: draftUseWorktree } : {}),
         },
       });
     } catch (sendError) {
@@ -1165,6 +1168,7 @@ export function ChatPage() {
           draftProjectId={draftProjectId}
           draftProfileId={draftProfileId}
           draftDriverId={draftDriverId}
+          draftUseWorktree={draftUseWorktree}
           leadDriverOptions={leadDriverOptions}
           leadProfiles={leadProfiles}
           drivers={drivers}
@@ -1187,6 +1191,7 @@ export function ChatPage() {
             }
           }}
           onDriverChange={setDraftDriverId}
+          onUseWorktreeChange={setDraftUseWorktree}
           onMessageChange={setMessageInput}
           onSend={() => void sendMessage()}
           onPaste={handlePaste}

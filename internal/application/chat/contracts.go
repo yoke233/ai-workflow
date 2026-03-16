@@ -61,6 +61,10 @@ type Request struct {
 	ProjectName string       `json:"project_name,omitempty"`
 	ProfileID   string       `json:"profile_id,omitempty"`
 	DriverID    string       `json:"driver_id,omitempty"`
+	// UseWorktree controls whether to create a git worktree for this session.
+	// nil = default behaviour (auto-detect based on project git binding),
+	// true = force worktree, false = run directly in project directory.
+	UseWorktree *bool `json:"use_worktree,omitempty"`
 }
 
 // Response is the output from a direct chat message.

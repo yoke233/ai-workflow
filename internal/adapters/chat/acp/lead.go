@@ -1005,11 +1005,14 @@ func resolveLeadWorkDir(workDir string) (string, error) {
 }
 
 // resolveIsolatedWorkDir provisions an isolated working directory for a new
-// chat session.  It returns (workDir, isolation, repoPath, error).
+// chat session.  It returns (workDir, isolation, repoPath, branch, error).
 //
 //   - If the caller provides an explicit WorkDir, it is used as-is (isolation="").
-//   - If a project with a git ResourceSpace is selected, a git worktree is
-//     created so the agent never touches the default branch (isolation="worktree").
+//   - If UseWorktree is explicitly false, the project's git root directory is
+//     used directly without creating a worktree (isolation="").
+//   - If a project with a git ResourceSpace is selected (and UseWorktree is
+//     nil or true), a git worktree is created so the agent never touches the
+//     default branch (isolation="worktree").
 //   - Otherwise a temporary sandbox directory is created under DataDir
 //     (isolation="sandbox").
 func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Request) (string, string, string, string, error) {
@@ -1022,7 +1025,7 @@ func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Requ
 		return abs, "", "", "", nil
 	}
 
-	// Project with git space → worktree isolation.
+	// Project with git space.
 	if req.ProjectID > 0 && l.cfg.ResourceSpaceStore != nil {
 		spaces, err := l.cfg.ResourceSpaceStore.ListResourceSpaces(ctx, req.ProjectID)
 		if err != nil {
@@ -1036,6 +1039,18 @@ func (l *LeadAgent) resolveIsolatedWorkDir(ctx context.Context, req chatapp.Requ
 			if repoPath == "" {
 				continue
 			}
+
+			// UseWorktree explicitly disabled → run directly in project directory.
+			if req.UseWorktree != nil && !*req.UseWorktree {
+				abs, err := filepath.Abs(repoPath)
+				if err != nil {
+					return "", "", "", "", fmt.Errorf("resolve project directory %q: %w", repoPath, err)
+				}
+				slog.Info("lead chat: using project directory directly (worktree disabled)", "project_id", req.ProjectID, "path", abs)
+				return abs, "", repoPath, "", nil
+			}
+
+			// Default / UseWorktree=true → create worktree.
 			slug := l.generateBranchSlug(ctx, req.Message)
 			branchName := fmt.Sprintf("ai-chat/%s", slug)
 			worktreePath := filepath.Join(repoPath, ".worktrees", "chat-"+slug)

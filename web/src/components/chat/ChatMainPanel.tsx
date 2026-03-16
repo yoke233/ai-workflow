@@ -16,6 +16,7 @@ interface ChatMainPanelProps {
   draftProjectId: number | null;
   draftProfileId: string;
   draftDriverId: string;
+  draftUseWorktree: boolean;
   leadDriverOptions: LeadDriverOption[];
   leadProfiles: AgentProfile[];
   drivers: AgentDriver[];
@@ -29,6 +30,7 @@ interface ChatMainPanelProps {
   onProjectChange: (id: number | null) => void;
   onProfileChange: (id: string) => void;
   onDriverChange: (id: string) => void;
+  onUseWorktreeChange: (v: boolean) => void;
   onMessageChange: (value: string) => void;
   onSend: () => void;
   onPaste: (e: React.ClipboardEvent) => void;
@@ -56,6 +58,7 @@ export function ChatMainPanel({
   draftProjectId,
   draftProfileId,
   draftDriverId,
+  draftUseWorktree,
   leadDriverOptions,
   leadProfiles,
   drivers,
@@ -69,6 +72,7 @@ export function ChatMainPanel({
   onProjectChange,
   onProfileChange,
   onDriverChange,
+  onUseWorktreeChange,
   onMessageChange,
   onSend,
   onPaste,
@@ -105,6 +109,7 @@ export function ChatMainPanel({
               draftProjectId={draftProjectId}
               draftProfileId={draftProfileId}
               draftDriverId={draftDriverId}
+              draftUseWorktree={draftUseWorktree}
               leadDriverOptions={leadDriverOptions}
               leadProfiles={leadProfiles}
               drivers={drivers}
@@ -118,6 +123,7 @@ export function ChatMainPanel({
               onProjectChange={onProjectChange}
               onProfileChange={onProfileChange}
               onDriverChange={onDriverChange}
+              onUseWorktreeChange={onUseWorktreeChange}
               onMessageChange={onMessageChange}
               onSend={onSend}
               onPaste={onPaste}

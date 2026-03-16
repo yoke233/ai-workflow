@@ -1,6 +1,6 @@
 import type React from "react";
 import { useTranslation } from "react-i18next";
-import { Paperclip, Send, X } from "lucide-react";
+import { GitBranch, Paperclip, Send, X } from "lucide-react";
 import type { AgentDriver, AgentProfile } from "@/types/apiV2";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ interface DraftSessionSetupProps {
   draftProjectId: number | null;
   draftProfileId: string;
   draftDriverId: string;
+  draftUseWorktree: boolean;
   leadDriverOptions: LeadDriverOption[];
   leadProfiles: AgentProfile[];
   drivers: AgentDriver[];
@@ -27,6 +28,7 @@ interface DraftSessionSetupProps {
   onProjectChange: (id: number | null) => void;
   onProfileChange: (id: string) => void;
   onDriverChange: (id: string) => void;
+  onUseWorktreeChange: (v: boolean) => void;
   onMessageChange: (value: string) => void;
   onSend: () => void;
   onPaste: (e: React.ClipboardEvent) => void;
@@ -39,6 +41,7 @@ export function DraftSessionSetup(props: DraftSessionSetupProps) {
     draftProjectId,
     draftProfileId,
     draftDriverId,
+    draftUseWorktree,
     leadDriverOptions,
     leadProfiles,
     drivers,
@@ -52,6 +55,7 @@ export function DraftSessionSetup(props: DraftSessionSetupProps) {
     onProjectChange,
     onProfileChange,
     onDriverChange,
+    onUseWorktreeChange,
     onMessageChange,
     onSend,
     onPaste,
@@ -111,6 +115,22 @@ export function DraftSessionSetup(props: DraftSessionSetupProps) {
               ))}
             </Select>
           </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={draftUseWorktree}
+            onClick={() => onUseWorktreeChange(!draftUseWorktree)}
+            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${draftUseWorktree ? "bg-blue-600" : "bg-slate-300"}`}
+          >
+            <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${draftUseWorktree ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
+          </button>
+          <div className="flex items-center gap-1.5 text-sm text-slate-600">
+            <GitBranch className="h-3.5 w-3.5" />
+            <span>{t("chat.useWorktree")}</span>
+          </div>
+          <span className="text-xs text-muted-foreground">{t("chat.useWorktreeHint")}</span>
         </div>
         <div className="space-y-3">
           <Textarea

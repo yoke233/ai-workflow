@@ -745,7 +745,9 @@
     "noProfileAvailable": "还没有可用的 Profile，请先到代理页面配置。",
     "noDriverAvailable": "还没有可用的 Driver，请先到代理页面配置。",
     "inputPlaceholderActive": "输入消息，与 Lead Agent 对话...",
-    "inputPlaceholderNew": "输入消息，使用 Lead · {{driver}} 在 {{project}} 下开始会话..."
+    "inputPlaceholderNew": "输入消息，使用 Lead · {{driver}} 在 {{project}} 下开始会话...",
+    "useWorktree": "使用 Worktree",
+    "useWorktreeHint": "关闭后将直接在项目目录中运行，不创建 Git Worktree"
   },
   "mobileHome": {
     "inputPlaceholder": "输入消息，开始与 Lead 对话...",

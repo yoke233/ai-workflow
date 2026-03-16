@@ -321,6 +321,7 @@ func (h *Handler) handleWSChatSend(msg wsMessage, writeJSON func(v any) error) {
 		ProjectName: strings.TrimSpace(req.ProjectName),
 		ProfileID:   strings.TrimSpace(req.ProfileID),
 		DriverID:    strings.TrimSpace(req.DriverID),
+		UseWorktree: req.UseWorktree,
 	})
 	if err != nil {
 		_ = writeJSON(wsOutboundMessage{
@@ -559,6 +560,7 @@ type wsChatSendRequest struct {
 	ProjectName string               `json:"project_name,omitempty"`
 	ProfileID   string               `json:"profile_id,omitempty"`
 	DriverID    string               `json:"driver_id,omitempty"`
+	UseWorktree *bool                `json:"use_worktree,omitempty"`
 }
 
 type wsChatAckPayload struct {
