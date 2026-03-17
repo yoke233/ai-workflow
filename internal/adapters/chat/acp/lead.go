@@ -26,6 +26,8 @@ import (
 	workspacegit "github.com/yoke233/ai-workflow/internal/adapters/workspace/git"
 	chatapp "github.com/yoke233/ai-workflow/internal/application/chat"
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/platform/config"
+	"github.com/yoke233/ai-workflow/internal/platform/profilellm"
 )
 
 const (
@@ -39,10 +41,12 @@ type TextCompleter interface {
 }
 
 type DriverResolver func(ctx context.Context, driverID string) (*core.DriverConfig, error)
+type LLMConfigResolver func(ctx context.Context, llmConfigID string) (*config.RuntimeLLMEntryConfig, error)
 
 type LeadAgentConfig struct {
 	Registry           core.AgentRegistry
 	DriverResolver     DriverResolver
+	LLMConfigResolver  LLMConfigResolver
 	Bus                core.EventBus
 	ResourceSpaceStore core.ResourceSpaceStore
 	LLM                TextCompleter
@@ -1024,9 +1028,33 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 		if err != nil {
 			return nil, nil, nil, nil, nil, "", fmt.Errorf("resolve lead driver %q: %w", requestedDriverID, err)
 		}
+		profile.DriverID = requestedDriverID
 		profile.Driver = cloneLeadDriverConfig(driverCfg)
 		if !profile.Driver.CapabilitiesMax.Covers(profile.EffectiveCapabilities()) {
 			return nil, nil, nil, nil, nil, "", fmt.Errorf("%w: profile %q exceeds selected driver %q capabilities_max", core.ErrCapabilityOverflow, profile.ID, requestedDriverID)
+		}
+		if llmConfigID := strings.TrimSpace(profile.LLMConfigID); llmConfigID != "" {
+			if l.cfg.LLMConfigResolver == nil {
+				return nil, nil, nil, nil, nil, "", fmt.Errorf("resolve llm config %q for profile %q: llm config resolver is not configured", llmConfigID, profile.ID)
+			}
+			llmCfg, err := l.cfg.LLMConfigResolver(ctx, llmConfigID)
+			if err != nil {
+				return nil, nil, nil, nil, nil, "", fmt.Errorf("resolve llm config %q for profile %q: %w", llmConfigID, profile.ID, err)
+			}
+			if err := profilellm.ValidateDriverProviderCompatibility(profile.DriverID, profile.Driver.LaunchCommand, profile.Driver.LaunchArgs, llmCfg.Type); err != nil {
+				return nil, nil, nil, nil, nil, "", fmt.Errorf("profile %q driver %q incompatible with llm config %q: %w", profile.ID, requestedDriverID, llmConfigID, err)
+			}
+			profile.Driver.Env = profilellm.MergeEnv(profilellm.BuildEnv(profilellm.ProviderConfig{
+				ID:                   llmCfg.ID,
+				Type:                 llmCfg.Type,
+				BaseURL:              llmCfg.BaseURL,
+				APIKey:               llmCfg.APIKey,
+				Model:                llmCfg.Model,
+				Temperature:          llmCfg.Temperature,
+				MaxOutputTokens:      llmCfg.MaxOutputTokens,
+				ReasoningEffort:      llmCfg.ReasoningEffort,
+				ThinkingBudgetTokens: llmCfg.ThinkingBudgetTokens,
+			}), profile.Driver.Env)
 		}
 	}
 
@@ -1039,17 +1067,19 @@ func (l *LeadAgent) launchClient(ctx context.Context, workDir, scope, publicSess
 		return nil, nil, nil, nil, nil, "", err
 	}
 
-	sb := l.cfg.Sandbox
-	if sb == nil {
-		sb = v2sandbox.NoopSandbox{}
-	}
-	launchCfg, err = sb.Prepare(ctx, v2sandbox.PrepareInput{
-		Profile: profile,
-		Launch:  launchCfg,
-		Scope:   scope,
-	})
-	if err != nil {
-		return nil, nil, nil, nil, nil, "", fmt.Errorf("prepare sandbox: %w", err)
+	if !acpclient.UsesInProcAdapterProfile(profile) {
+		sb := l.cfg.Sandbox
+		if sb == nil {
+			sb = v2sandbox.NoopSandbox{}
+		}
+		launchCfg, err = sb.Prepare(ctx, v2sandbox.PrepareInput{
+			Profile: profile,
+			Launch:  launchCfg,
+			Scope:   scope,
+		})
+		if err != nil {
+			return nil, nil, nil, nil, nil, "", fmt.Errorf("prepare sandbox: %w", err)
+		}
 	}
 
 	bridge := eventbridge.New(l.cfg.Bus, core.EventChatOutput, eventbridge.Scope{

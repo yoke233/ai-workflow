@@ -211,6 +211,8 @@
     "createProfileDesc": "Create a profile and bind to an existing driver.",
     "profileId": "Profile ID",
     "bindDriver": "Bind Driver",
+    "bindLLMConfig": "Bind LLM Config",
+    "optionalField": "Optional",
     "capabilityTagsComma": "Capability Tags (comma-separated)",
     "allowedActionsComma": "Allowed Actions (comma-separated)",
     "maxTurns": "Max Turns",

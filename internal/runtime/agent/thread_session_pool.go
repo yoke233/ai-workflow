@@ -51,10 +51,11 @@ type TokenGenerator interface {
 // Unlike ACPSessionPool (which is tied to Issue lifecycle), ThreadSessionPool
 // is driven by user invite/remove actions and has no Step/Execution concept.
 type ThreadSessionPool struct {
-	store    core.Store
-	bus      core.EventBus
-	registry core.AgentRegistry
-	dataDir  string
+	store                    core.Store
+	bus                      core.EventBus
+	registry                 core.AgentRegistry
+	dataDir                  string
+	threadSharedBootTemplate string
 
 	// Signal config: injected into agent launch env so skills like task-signal can call back.
 	serverAddr    string
@@ -86,6 +87,15 @@ func (p *ThreadSessionPool) SetSignalConfig(serverAddr string, tokenRegistry Tok
 	}
 	p.serverAddr = strings.TrimSpace(serverAddr)
 	p.tokenRegistry = tokenRegistry
+}
+
+// SetThreadSharedBootTemplate configures a global boot prompt prepended for every
+// agent joining a thread, regardless of profile.
+func (p *ThreadSessionPool) SetThreadSharedBootTemplate(template string) {
+	if p == nil {
+		return
+	}
+	p.threadSharedBootTemplate = strings.TrimSpace(template)
 }
 
 func updateThreadAgentStatus(m *core.ThreadMember, next core.ThreadAgentStatus) error {
@@ -347,6 +357,7 @@ func (p *ThreadSessionPool) buildBootPrompt(ctx context.Context, threadID int64,
 		AgentProfile:   profile,
 		PriorSummary:   priorSummary,
 		Workspace:      workspaceCtx,
+		SharedTemplate: p.threadSharedBootTemplate,
 	}), nil
 }
 

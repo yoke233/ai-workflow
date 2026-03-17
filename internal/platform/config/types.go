@@ -172,12 +172,13 @@ type RuntimeDockerConfig struct {
 // These prompts are used as incremental messages when reusing ACP sessions, so they
 // should be concise to preserve prompt caching and reuse existing context.
 type RuntimePromptsConfig struct {
-	ReworkFollowup        string                         `toml:"rework_followup"        yaml:"rework_followup"`
-	ContinueFollowup      string                         `toml:"continue_followup"      yaml:"continue_followup"`
-	PRImplementObjective  string                         `toml:"pr_implement_objective" yaml:"pr_implement_objective"`
-	PRGateObjective       string                         `toml:"pr_gate_objective"      yaml:"pr_gate_objective"`
-	PRMergeReworkFeedback string                         `toml:"pr_merge_rework_feedback" yaml:"pr_merge_rework_feedback"`
-	PRProviders           RuntimePRPromptProvidersConfig `toml:"pr_providers" yaml:"pr_providers"`
+	ThreadSharedBootTemplate string                         `toml:"thread_shared_boot_template" yaml:"thread_shared_boot_template"`
+	ReworkFollowup           string                         `toml:"rework_followup"        yaml:"rework_followup"`
+	ContinueFollowup         string                         `toml:"continue_followup"      yaml:"continue_followup"`
+	PRImplementObjective     string                         `toml:"pr_implement_objective" yaml:"pr_implement_objective"`
+	PRGateObjective          string                         `toml:"pr_gate_objective"      yaml:"pr_gate_objective"`
+	PRMergeReworkFeedback    string                         `toml:"pr_merge_rework_feedback" yaml:"pr_merge_rework_feedback"`
+	PRProviders              RuntimePRPromptProvidersConfig `toml:"pr_providers" yaml:"pr_providers"`
 }
 
 type RuntimePRPromptProvidersConfig struct {
@@ -250,6 +251,7 @@ type RuntimeProfileConfig struct {
 	ID             string               `toml:"id"              yaml:"id" json:"id"`
 	Name           string               `toml:"name"            yaml:"name" json:"name"`
 	Driver         string               `toml:"driver"          yaml:"driver" json:"driver"`
+	LLMConfigID    string               `toml:"llm_config_id"   yaml:"llm_config_id" json:"llm_config_id"`
 	Role           string               `toml:"role"            yaml:"role" json:"role"`
 	Capabilities   []string             `toml:"capabilities"    yaml:"capabilities" json:"capabilities"`
 	ActionsAllowed []string             `toml:"actions_allowed" yaml:"actions_allowed" json:"actions_allowed"`
@@ -466,8 +468,8 @@ type RuntimeSandboxLayer struct {
 type RuntimeSandboxGCLayer struct {
 	ArchiveCleanup *bool     `toml:"archive_cleanup" yaml:"archive_cleanup"`
 	StartupCleanup *bool     `toml:"startup_cleanup" yaml:"startup_cleanup"`
-	Interval       *Duration `toml:"interval" yaml:"interval"`
-	RepoMaxAge     *Duration `toml:"repo_max_age" yaml:"repo_max_age"`
+	Interval       *Duration `toml:"interval"        yaml:"interval"`
+	RepoMaxAge     *Duration `toml:"repo_max_age"    yaml:"repo_max_age"`
 }
 
 type RuntimeLiteBoxLayer struct {
@@ -491,12 +493,13 @@ type RuntimeDockerLayer struct {
 }
 
 type RuntimePromptsLayer struct {
-	ReworkFollowup        *string                        `toml:"rework_followup"         yaml:"rework_followup"`
-	ContinueFollowup      *string                        `toml:"continue_followup"       yaml:"continue_followup"`
-	PRImplementObjective  *string                        `toml:"pr_implement_objective"  yaml:"pr_implement_objective"`
-	PRGateObjective       *string                        `toml:"pr_gate_objective"       yaml:"pr_gate_objective"`
-	PRMergeReworkFeedback *string                        `toml:"pr_merge_rework_feedback" yaml:"pr_merge_rework_feedback"`
-	PRProviders           *RuntimePRPromptProvidersLayer `toml:"pr_providers" yaml:"pr_providers"`
+	ThreadSharedBootTemplate *string                        `toml:"thread_shared_boot_template" yaml:"thread_shared_boot_template"`
+	ReworkFollowup           *string                        `toml:"rework_followup"         yaml:"rework_followup"`
+	ContinueFollowup         *string                        `toml:"continue_followup"       yaml:"continue_followup"`
+	PRImplementObjective     *string                        `toml:"pr_implement_objective"  yaml:"pr_implement_objective"`
+	PRGateObjective          *string                        `toml:"pr_gate_objective"       yaml:"pr_gate_objective"`
+	PRMergeReworkFeedback    *string                        `toml:"pr_merge_rework_feedback" yaml:"pr_merge_rework_feedback"`
+	PRProviders              *RuntimePRPromptProvidersLayer `toml:"pr_providers" yaml:"pr_providers"`
 }
 
 type RuntimePRPromptProvidersLayer struct {

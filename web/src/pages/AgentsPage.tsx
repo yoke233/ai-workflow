@@ -155,6 +155,10 @@ export function AgentsPage() {
     () => configs.find((item) => item.id === defaultConfigID) ?? configs[0] ?? null,
     [configs, defaultConfigID],
   );
+  const llmConfigMap = useMemo(
+    () => new Map(configs.map((item) => [item.id, item])),
+    [configs],
+  );
 
   const sandboxState = sandboxSupport?.enabled
     ? `${t("sandbox.sandboxOn")} · ${sandboxSupport.current_provider}`
@@ -324,8 +328,14 @@ export function AgentsPage() {
                         </TableCell>
                         <TableCell className="px-3 py-3">
                           <div className="space-y-1">
-                            <div className="text-sm font-medium text-slate-900">{activeConfig?.model || "-"}</div>
-                            <div className="text-xs text-slate-500">{defaultConfigID ? `${defaultConfigID} · default` : t("common.notFilled")}</div>
+                            <div className="text-sm font-medium text-slate-900">
+                              {(profile.llm_config_id ? llmConfigMap.get(profile.llm_config_id)?.model : activeConfig?.model) || "-"}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {profile.llm_config_id
+                                ? `${profile.llm_config_id} · ${llmConfigMap.get(profile.llm_config_id)?.type ?? "custom"}`
+                                : (defaultConfigID ? `${defaultConfigID} · default` : t("common.notFilled"))}
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell className="px-3 py-3">
@@ -628,6 +638,7 @@ export function AgentsPage() {
       <CreateProfileDialog
         open={profileDialogOpen}
         drivers={drivers}
+        llmConfigs={configs}
         onClose={() => setProfileDialogOpen(false)}
         onCreate={async (payload) => {
           await apiClient.createProfile(payload);

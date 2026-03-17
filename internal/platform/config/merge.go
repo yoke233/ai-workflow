@@ -392,6 +392,9 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 			}
 		}
 		if prompts := runtime.Prompts; prompts != nil {
+			if prompts.ThreadSharedBootTemplate != nil {
+				cfg.Runtime.Prompts.ThreadSharedBootTemplate = *prompts.ThreadSharedBootTemplate
+			}
 			if prompts.ReworkFollowup != nil {
 				cfg.Runtime.Prompts.ReworkFollowup = *prompts.ReworkFollowup
 			}

@@ -34,15 +34,20 @@ func buildAPIStack(
 		llmCompleter = flow.llmClient
 	}
 	var driverResolver chatacp.DriverResolver
+	var llmConfigResolver chatacp.LLMConfigResolver
 	if base.runtimeManager != nil {
 		driverResolver = func(_ context.Context, driverID string) (*core.DriverConfig, error) {
 			return base.runtimeManager.ResolveDriverConfig(driverID)
+		}
+		llmConfigResolver = func(_ context.Context, llmConfigID string) (*config.RuntimeLLMEntryConfig, error) {
+			return base.runtimeManager.ResolveLLMConfig(llmConfigID)
 		}
 	}
 	gcCfg := bootstrapCfg.Runtime.Sandbox.GC
 	leadAgent := chatacp.NewLeadAgent(chatacp.LeadAgentConfig{
 		Registry:           base.registry,
 		DriverResolver:     driverResolver,
+		LLMConfigResolver:  llmConfigResolver,
 		Bus:                base.bus,
 		ResourceSpaceStore: base.store,
 		LLM:                llmCompleter,
@@ -74,6 +79,7 @@ func buildAPIStack(
 
 	// Create ThreadSessionPool for real ACP agent sessions in threads.
 	threadPool := agentruntime.NewThreadSessionPool(base.store, base.bus, base.registry, base.dataDir)
+	threadPool.SetThreadSharedBootTemplate(bootstrapCfg.Runtime.Prompts.ThreadSharedBootTemplate)
 	if base.signalCfg != nil {
 		threadPool.SetSignalConfig(base.signalCfg.ServerAddr, base.signalCfg.TokenRegistry)
 	}

@@ -66,13 +66,17 @@ func initBootstrapBase(storePath string, roleResolver *acpclient.RoleResolver, b
 	seedRegistry(context.Background(), store, bootstrapCfg, roleResolver)
 	fmt.Println("[startup] init base: build runtime manager")
 	runtimeManager := buildRuntimeManager(store, runtimeDBPath, bus)
+	registry := configruntime.NewResolvingRegistry(store, nil, nil)
+	if runtimeManager != nil {
+		registry = configruntime.NewResolvingRegistry(store, runtimeManager.ResolveDriverConfig, runtimeManager.ResolveLLMConfig)
+	}
 
 	return &bootstrapBase{
 		runtimeDBPath:  runtimeDBPath,
 		store:          store,
 		bus:            bus,
 		persister:      persister,
-		registry:       store,
+		registry:       registry,
 		runtimeManager: runtimeManager,
 		dataDir:        dataDir,
 	}, nil

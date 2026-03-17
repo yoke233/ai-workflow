@@ -44,6 +44,8 @@ type DriverConfig struct {
 type AgentProfile struct {
 	ID             string        `json:"id"`
 	Name           string        `json:"name,omitempty"`
+	DriverID       string        `json:"driver_id,omitempty"`
+	LLMConfigID    string        `json:"llm_config_id,omitempty"`
 	Driver         DriverConfig  `json:"driver"`
 	Role           AgentRole     `json:"role"`
 	Capabilities   []string      `json:"capabilities,omitempty"`    // capability tags (backend, qa, review, ...)

@@ -55,6 +55,7 @@ func TestBuildAgentsAndResolveDriverConfig(t *testing.T) {
 			ID:             "worker",
 			Name:           "Worker",
 			Driver:         "codex",
+			LLMConfigID:    "openai-response-default",
 			Role:           "worker",
 			Capabilities:   []string{"backend"},
 			ActionsAllowed: []string{"read_context", "terminal"},
@@ -74,10 +75,25 @@ func TestBuildAgentsAndResolveDriverConfig(t *testing.T) {
 			},
 		}},
 	}
+	cfg.Runtime.LLM = config.RuntimeLLMConfig{
+		Configs: []config.RuntimeLLMEntryConfig{{
+			ID:      "openai-response-default",
+			Type:    "openai_response",
+			BaseURL: "https://api.openai.com/v1",
+			APIKey:  "test-key",
+			Model:   "gpt-4.1-mini",
+		}},
+	}
 
 	profiles := BuildAgents(cfg)
 	if len(profiles) != 1 || profiles[0].Driver.LaunchCommand != " codex " {
 		t.Fatalf("BuildAgents() = %#v", profiles)
+	}
+	if profiles[0].DriverID != "codex" || profiles[0].LLMConfigID != "openai-response-default" {
+		t.Fatalf("BuildAgents() profile refs = %#v", profiles[0])
+	}
+	if profiles[0].Driver.Env["AGENTSDK_PROVIDER"] != "openai_response" || profiles[0].Driver.Env["OPENAI_API_KEY"] != "test-key" {
+		t.Fatalf("BuildAgents() llm env = %#v", profiles[0].Driver.Env)
 	}
 	profiles[0].Capabilities[0] = "frontend"
 	profiles[0].Driver.LaunchArgs[0] = "run"
@@ -106,6 +122,20 @@ func TestBuildAgentsAndResolveDriverConfig(t *testing.T) {
 	}
 	if _, err := manager.ResolveDriverConfig("missing"); err == nil {
 		t.Fatalf("ResolveDriverConfig(missing) should fail")
+	}
+	llmCfg, err := manager.ResolveLLMConfig("openai-response-default")
+	if err != nil {
+		t.Fatalf("ResolveLLMConfig() error = %v", err)
+	}
+	llmCfg.Model = "changed"
+	if cfg.Runtime.LLM.Configs[0].Model != "gpt-4.1-mini" {
+		t.Fatalf("ResolveLLMConfig should clone value")
+	}
+	if _, err := manager.ResolveLLMConfig(""); err == nil {
+		t.Fatalf("ResolveLLMConfig(empty) should fail")
+	}
+	if _, err := manager.ResolveLLMConfig("missing"); err == nil {
+		t.Fatalf("ResolveLLMConfig(missing) should fail")
 	}
 }
 

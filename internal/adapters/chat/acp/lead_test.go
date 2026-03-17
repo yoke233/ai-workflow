@@ -10,6 +10,7 @@ import (
 	v2sandbox "github.com/yoke233/ai-workflow/internal/adapters/sandbox"
 	chatapp "github.com/yoke233/ai-workflow/internal/application/chat"
 	"github.com/yoke233/ai-workflow/internal/core"
+	"github.com/yoke233/ai-workflow/internal/platform/config"
 )
 
 type fakeLeadRegistry struct {
@@ -20,6 +21,11 @@ type fakeLeadRegistry struct {
 type fakeLeadDriverResolver struct {
 	drivers      map[string]*core.DriverConfig
 	lastDriverID string
+}
+
+type fakeLeadLLMResolver struct {
+	configs      map[string]*config.RuntimeLLMEntryConfig
+	lastConfigID string
 }
 
 func (f *fakeLeadDriverResolver) Resolve(_ context.Context, driverID string) (*core.DriverConfig, error) {
@@ -38,6 +44,16 @@ func (f *fakeLeadDriverResolver) Resolve(_ context.Context, driverID string) (*c
 			cloned.Env[k] = v
 		}
 	}
+	return &cloned, nil
+}
+
+func (f *fakeLeadLLMResolver) Resolve(_ context.Context, llmConfigID string) (*config.RuntimeLLMEntryConfig, error) {
+	f.lastConfigID = llmConfigID
+	item, ok := f.configs[llmConfigID]
+	if !ok {
+		return nil, core.ErrProfileNotFound
+	}
+	cloned := *item
 	return &cloned, nil
 }
 
@@ -245,9 +261,11 @@ func TestLeadAgentPersistsProjectAndProfileSelection(t *testing.T) {
 func TestLeadAgentUsesSelectedDriverForCreateAndReload(t *testing.T) {
 	registry := &fakeLeadRegistry{
 		profile: &core.AgentProfile{
-			ID:   "lead-alt",
-			Name: "Claude Lead",
-			Role: core.RoleLead,
+			ID:          "lead-alt",
+			Name:        "Claude Lead",
+			DriverID:    "claude-acp",
+			LLMConfigID: "openai-response-default",
+			Role:        core.RoleLead,
 			Driver: core.DriverConfig{
 				LaunchCommand: "default-driver",
 			},
@@ -263,6 +281,17 @@ func TestLeadAgentUsesSelectedDriverForCreateAndReload(t *testing.T) {
 					FSWrite:  true,
 					Terminal: true,
 				},
+			},
+		},
+	}
+	llmResolver := &fakeLeadLLMResolver{
+		configs: map[string]*config.RuntimeLLMEntryConfig{
+			"openai-response-default": {
+				ID:      "openai-response-default",
+				Type:    "openai_response",
+				BaseURL: "https://api.openai.com/v1",
+				APIKey:  "test-key",
+				Model:   "gpt-4.1-mini",
 			},
 		},
 	}
@@ -285,12 +314,13 @@ func TestLeadAgentUsesSelectedDriverForCreateAndReload(t *testing.T) {
 	}
 
 	cfg := LeadAgentConfig{
-		Registry:       registry,
-		DriverResolver: driverResolver.Resolve,
-		Bus:            membus.NewBus(),
-		Sandbox:        v2sandbox.NoopSandbox{},
-		DataDir:        t.TempDir(),
-		NewClient:      newClient,
+		Registry:          registry,
+		DriverResolver:    driverResolver.Resolve,
+		LLMConfigResolver: llmResolver.Resolve,
+		Bus:               membus.NewBus(),
+		Sandbox:           v2sandbox.NoopSandbox{},
+		DataDir:           t.TempDir(),
+		NewClient:         newClient,
 	}
 
 	agent := NewLeadAgent(cfg)
@@ -308,8 +338,14 @@ func TestLeadAgentUsesSelectedDriverForCreateAndReload(t *testing.T) {
 	if driverResolver.lastDriverID != "codex-cli" {
 		t.Fatalf("resolved driver = %q, want codex-cli", driverResolver.lastDriverID)
 	}
+	if llmResolver.lastConfigID != "openai-response-default" {
+		t.Fatalf("resolved llm config = %q, want openai-response-default", llmResolver.lastConfigID)
+	}
 	if len(launches) != 1 || launches[0].Command != "codex" {
 		t.Fatalf("launch command = %+v, want codex", launches)
+	}
+	if launches[0].Env["AGENTSDK_PROVIDER"] != "openai_response" || launches[0].Env["OPENAI_API_KEY"] != "test-key" {
+		t.Fatalf("launch env = %#v, want llm env injected", launches[0].Env)
 	}
 
 	detail, err := agent.GetSession(context.Background(), resp.SessionID)

@@ -18,7 +18,7 @@ var _ core.AgentRegistry = (*Store)(nil)
 
 func (s *Store) GetProfile(ctx context.Context, id string) (*core.AgentProfile, error) {
 	return s.scanProfile(s.db.QueryRowContext(ctx,
-		`SELECT id, name, driver_config, role, capabilities, actions_allowed,
+		`SELECT id, name, driver_id, llm_config_id, driver_config, role, capabilities, actions_allowed,
 		        prompt_template, session_reuse, session_max_turns, session_idle_ttl_ms,
 		        mcp_enabled, mcp_tools, skills
 		 FROM agent_profiles WHERE id = ?`, id))
@@ -26,7 +26,7 @@ func (s *Store) GetProfile(ctx context.Context, id string) (*core.AgentProfile, 
 
 func (s *Store) ListProfiles(ctx context.Context) ([]*core.AgentProfile, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, driver_config, role, capabilities, actions_allowed,
+		`SELECT id, name, driver_id, llm_config_id, driver_config, role, capabilities, actions_allowed,
 		        prompt_template, session_reuse, session_max_turns, session_idle_ttl_ms,
 		        mcp_enabled, mcp_tools, skills
 		 FROM agent_profiles ORDER BY id`)
@@ -82,13 +82,13 @@ func (s *Store) UpdateProfile(ctx context.Context, p *core.AgentProfile) error {
 	skills, _ := marshalJSON(p.Skills)
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE agent_profiles SET name = ?, driver_config = ?, role = ?,
+		`UPDATE agent_profiles SET name = ?, driver_id = ?, llm_config_id = ?, driver_config = ?, role = ?,
 		        capabilities = ?, actions_allowed = ?, prompt_template = ?,
 		        skills = ?,
 		        session_reuse = ?, session_max_turns = ?, session_idle_ttl_ms = ?,
 		        mcp_enabled = ?, mcp_tools = ?, updated_at = ?
 		 WHERE id = ?`,
-		p.Name, driverCfg, string(p.Role),
+		p.Name, p.DriverID, p.LLMConfigID, driverCfg, string(p.Role),
 		caps, actions, p.PromptTemplate,
 		skills,
 		p.Session.Reuse, p.Session.MaxTurns, p.Session.IdleTTL.Milliseconds(),
@@ -159,11 +159,11 @@ func (s *Store) insertProfile(ctx context.Context, p *core.AgentProfile) error {
 	skills, _ := marshalJSON(p.Skills)
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO agent_profiles (id, name, driver_config, role, capabilities, actions_allowed,
+		`INSERT INTO agent_profiles (id, name, driver_id, llm_config_id, driver_config, role, capabilities, actions_allowed,
 		        prompt_template, skills, session_reuse, session_max_turns, session_idle_ttl_ms,
 		        mcp_enabled, mcp_tools, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, driverCfg, string(p.Role),
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.DriverID, p.LLMConfigID, driverCfg, string(p.Role),
 		caps, actions, p.PromptTemplate, skills,
 		p.Session.Reuse, p.Session.MaxTurns, p.Session.IdleTTL.Milliseconds(),
 		p.MCP.Enabled, mcpTools, now, now)
@@ -179,7 +179,7 @@ func (s *Store) scanProfile(row *sql.Row) (*core.AgentProfile, error) {
 	var driverCfg, caps, actions, mcpTools, skills sql.NullString
 	var role string
 	var idleTTLMs int64
-	err := row.Scan(&p.ID, &p.Name, &driverCfg, &role,
+	err := row.Scan(&p.ID, &p.Name, &p.DriverID, &p.LLMConfigID, &driverCfg, &role,
 		&caps, &actions, &p.PromptTemplate,
 		&p.Session.Reuse, &p.Session.MaxTurns, &idleTTLMs,
 		&p.MCP.Enabled, &mcpTools, &skills)
@@ -207,7 +207,7 @@ func (s *Store) scanProfileRow(rows *sql.Rows) (*core.AgentProfile, error) {
 	var driverCfg, caps, actions, mcpTools, skills sql.NullString
 	var role string
 	var idleTTLMs int64
-	if err := rows.Scan(&p.ID, &p.Name, &driverCfg, &role,
+	if err := rows.Scan(&p.ID, &p.Name, &p.DriverID, &p.LLMConfigID, &driverCfg, &role,
 		&caps, &actions, &p.PromptTemplate,
 		&p.Session.Reuse, &p.Session.MaxTurns, &idleTTLMs,
 		&p.MCP.Enabled, &mcpTools, &skills); err != nil {
@@ -237,12 +237,14 @@ func (s *Store) UpsertProfile(ctx context.Context, p *core.AgentProfile) error {
 	skills, _ := marshalJSON(p.Skills)
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO agent_profiles (id, name, driver_config, role, capabilities, actions_allowed,
+		`INSERT INTO agent_profiles (id, name, driver_id, llm_config_id, driver_config, role, capabilities, actions_allowed,
 		        prompt_template, skills, session_reuse, session_max_turns, session_idle_ttl_ms,
 		        mcp_enabled, mcp_tools, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		    name = excluded.name,
+		    driver_id = excluded.driver_id,
+		    llm_config_id = excluded.llm_config_id,
 		    driver_config = excluded.driver_config,
 		    role = excluded.role,
 		    capabilities = excluded.capabilities,
@@ -255,7 +257,7 @@ func (s *Store) UpsertProfile(ctx context.Context, p *core.AgentProfile) error {
 		    mcp_enabled = excluded.mcp_enabled,
 		    mcp_tools = excluded.mcp_tools,
 		    updated_at = excluded.updated_at`,
-		p.ID, p.Name, driverCfg, string(p.Role),
+		p.ID, p.Name, p.DriverID, p.LLMConfigID, driverCfg, string(p.Role),
 		caps, actions, p.PromptTemplate, skills,
 		p.Session.Reuse, p.Session.MaxTurns, p.Session.IdleTTL.Milliseconds(),
 		p.MCP.Enabled, mcpTools, now, now)

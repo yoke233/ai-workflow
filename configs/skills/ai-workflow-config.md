@@ -38,9 +38,8 @@ max_project_runs = 2
 
 ```toml
 [[runtime.agents.drivers]]
-id = "codex-acp"
-launch_command = "npx"
-launch_args = ["-y", "@zed-industries/codex-acp"]
+id = "agentsdk-go"
+launch_command = "agentsdk-go"
   [runtime.agents.drivers.capabilities_max]
   fs_read = true
   fs_write = true
@@ -48,8 +47,8 @@ launch_args = ["-y", "@zed-industries/codex-acp"]
 
 [[runtime.agents.profiles]]
 id = "worker"
-name = "Worker (Codex)"
-driver = "codex-acp"
+name = "Worker (AgentSDK)"
+driver = "agentsdk-go"
 role = "worker"
 capabilities = ["backend", "frontend", "test"]
 actions_allowed = ["read_context", "search_files", "fs_write", "terminal", "submit"]

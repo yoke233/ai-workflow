@@ -54,6 +54,8 @@ func testProfile(id string, role core.AgentRole, caps ...string) *core.AgentProf
 	return &core.AgentProfile{
 		ID:             id,
 		Name:           id,
+		DriverID:       "claude-acp",
+		LLMConfigID:    "anthropic-default",
 		Driver:         testDriverConfig(),
 		Role:           role,
 		Capabilities:   caps,
@@ -120,6 +122,9 @@ func TestProfileCRUD(t *testing.T) {
 	// Verify embedded driver config round-trips.
 	if got.Driver.LaunchCommand != "npx" {
 		t.Fatalf("expected driver launch_command npx, got %s", got.Driver.LaunchCommand)
+	}
+	if got.DriverID != "claude-acp" || got.LLMConfigID != "anthropic-default" {
+		t.Fatalf("expected driver/llm refs preserved, got driver_id=%q llm_config_id=%q", got.DriverID, got.LLMConfigID)
 	}
 	if len(got.Driver.LaunchArgs) != 2 {
 		t.Fatalf("expected 2 driver args, got %d", len(got.Driver.LaunchArgs))

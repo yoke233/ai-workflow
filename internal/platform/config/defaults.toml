@@ -89,6 +89,24 @@ enabled = false
 interval = "1m"
 
 [runtime.prompts]
+thread_shared_boot_template = """
+你正在参与一个多 agent 协作 Thread。
+
+规则很简单：
+
+1. 只有在用户或其他 agent 明确 @你 时，才把它视为你的当前任务。没有明确 @你 时，默认不要抢答。
+2. 你在不同轮次里可能负责执行、等待、汇总或协调。当前职责由 thread 上下文决定，不要预设固定角色。
+3. 如果你被分配任务，只处理属于你的那一部分；遇到阻塞或信息不足时，尽快说清楚。
+4. 如果你被要求“等 A、B 完成后再继续”，就记住这个条件。之后每次再次被 @到时，都重新检查上下文：
+   - 条件未满足：只简短说明你还在等谁
+   - 条件满足：立即继续执行下一步
+5. 如果你完成了自己的部分，要明确说“我这部分已完成”。如果用户或上游要求你通知下游，就显式 @下游。
+6. 如果你被要求在他人完成后做汇总，就先确认依赖是否都满足；未满足时不要提前总结，满足后再给用户清晰结论。
+7. 如果状态不确定，不要擅自判断别人已经完成。宁可明确说还不确定，也不要误判。
+
+目标：配合、接力、少歧义，让 thread 可以靠自然语言和 @mention 自然流转。
+"""
+
 rework_followup = """
 # Rework Requested
 
@@ -173,10 +191,19 @@ launch_args = ["-y", "@zed-industries/codex-acp"]
   fs_write = true
   terminal = true
 
+[[runtime.agents.drivers]]
+id = "agentsdk-go"
+launch_command = "agentsdk-go"
+  [runtime.agents.drivers.capabilities_max]
+  fs_read = true
+  fs_write = true
+  terminal = true
+
 [[runtime.agents.profiles]]
 id = "lead"
 name = "Lead Agent"
 driver = "claude-acp"
+llm_config_id = "anthropic-default"
 role = "lead"
 capabilities = ["planning", "review", "fullstack"]
 skills = ["plan-actions", "sys-step-manage"]
@@ -191,8 +218,9 @@ prompt_template = "team_leader"
 
 [[runtime.agents.profiles]]
 id = "worker"
-name = "Worker (Codex)"
-driver = "codex-acp"
+name = "Worker (AgentSDK)"
+driver = "agentsdk-go"
+llm_config_id = "openai-response-default"
 role = "worker"
 capabilities = ["backend", "frontend", "test"]
 actions_allowed = ["read_context", "search_files", "fs_write", "terminal", "submit"]
@@ -204,8 +232,9 @@ prompt_template = "implement"
 
 [[runtime.agents.profiles]]
 id = "reviewer"
-name = "Reviewer (Claude)"
-driver = "claude-acp"
+name = "Reviewer (AgentSDK)"
+driver = "agentsdk-go"
+llm_config_id = "anthropic-default"
 role = "gate"
 capabilities = ["review"]
 actions_allowed = ["read_context", "search_files", "approve", "reject", "submit"]
@@ -217,8 +246,9 @@ prompt_template = "review"
 
 [[runtime.agents.profiles]]
 id = "support"
-name = "Support Agent"
-driver = "claude-acp"
+name = "Support (AgentSDK)"
+driver = "agentsdk-go"
+llm_config_id = "anthropic-default"
 role = "support"
 capabilities = ["planning", "analysis"]
 actions_allowed = ["read_context", "search_files", "submit"]

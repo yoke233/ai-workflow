@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/yoke233/ai-workflow/internal/platform/profilellm"
 )
 
 func Validate(cfg *Config) error {
@@ -23,6 +25,9 @@ func validateConfig(cfg *Config) error {
 		return err
 	}
 	if err := validateRuntimeLLMConfig(cfg); err != nil {
+		return err
+	}
+	if err := validateRuntimeAgentBindings(cfg); err != nil {
 		return err
 	}
 	if err := validateAuditConfig(cfg); err != nil {
@@ -147,6 +152,67 @@ func validateRuntimeMCPConfig(cfg *Config) error {
 		}
 		if hasDuplicateStrings(binding.Tools) {
 			return fmt.Errorf("runtime.mcp.profile_bindings for profile %q and server %q contains duplicate tools", profile, server)
+		}
+	}
+
+	return nil
+}
+
+func validateRuntimeAgentBindings(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+
+	driverMap := make(map[string]RuntimeDriverConfig, len(cfg.Runtime.Agents.Drivers))
+	for _, driver := range cfg.Runtime.Agents.Drivers {
+		id := strings.TrimSpace(driver.ID)
+		if id == "" {
+			return fmt.Errorf("runtime.agents.drivers.id is required")
+		}
+		if _, exists := driverMap[id]; exists {
+			return fmt.Errorf("duplicate runtime.agents.drivers id %q", id)
+		}
+		driverMap[id] = driver
+	}
+
+	llmMap := make(map[string]RuntimeLLMEntryConfig, len(cfg.Runtime.LLM.Configs))
+	for _, item := range cfg.Runtime.LLM.Configs {
+		id := strings.TrimSpace(item.ID)
+		if id != "" {
+			llmMap[id] = item
+		}
+	}
+
+	seenProfiles := make(map[string]struct{}, len(cfg.Runtime.Agents.Profiles))
+	for _, profile := range cfg.Runtime.Agents.Profiles {
+		profileID := strings.TrimSpace(profile.ID)
+		if profileID == "" {
+			return fmt.Errorf("runtime.agents.profiles.id is required")
+		}
+		if _, exists := seenProfiles[profileID]; exists {
+			return fmt.Errorf("duplicate runtime.agents.profiles id %q", profileID)
+		}
+		seenProfiles[profileID] = struct{}{}
+
+		driverID := strings.TrimSpace(profile.Driver)
+		if driverID == "" {
+			return fmt.Errorf("runtime.agents.profiles[%q].driver is required", profileID)
+		}
+		driver, ok := driverMap[driverID]
+		if !ok {
+			return fmt.Errorf("runtime.agents.profiles[%q].driver %q not found in runtime.agents.drivers", profileID, driverID)
+		}
+
+		llmConfigID := strings.TrimSpace(profile.LLMConfigID)
+		if llmConfigID == "" {
+			continue
+		}
+		llmCfg, ok := llmMap[llmConfigID]
+		if !ok {
+			return fmt.Errorf("runtime.agents.profiles[%q].llm_config_id %q not found in runtime.llm.configs", profileID, llmConfigID)
+		}
+		if err := profilellm.ValidateDriverProviderCompatibility(driverID, driver.LaunchCommand, driver.LaunchArgs, llmCfg.Type); err != nil {
+			return fmt.Errorf("runtime.agents.profiles[%q].llm_config_id %q: %w", profileID, llmConfigID, err)
 		}
 	}
 

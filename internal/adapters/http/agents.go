@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -11,11 +12,14 @@ import (
 	"github.com/yoke233/ai-workflow/internal/core"
 	"github.com/yoke233/ai-workflow/internal/platform/config"
 	"github.com/yoke233/ai-workflow/internal/platform/configruntime"
+	"github.com/yoke233/ai-workflow/internal/platform/profilellm"
 	skillset "github.com/yoke233/ai-workflow/internal/skills"
 )
 
 type DriverConfigService interface {
 	ListDriverConfigs() []config.RuntimeDriverConfig
+	ResolveDriverConfig(driverID string) (*core.DriverConfig, error)
+	ResolveLLMConfig(llmConfigID string) (*config.RuntimeLLMEntryConfig, error)
 	CreateDriverConfig(ctx context.Context, driver config.RuntimeDriverConfig) (*configruntime.Snapshot, error)
 	UpdateDriverConfig(ctx context.Context, driverID string, driver config.RuntimeDriverConfig) (*configruntime.Snapshot, error)
 	DeleteDriverConfig(ctx context.Context, driverID string) (*configruntime.Snapshot, error)
@@ -60,6 +64,10 @@ func (a *agentsHandler) createProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id is required", http.StatusBadRequest)
 		return
 	}
+	if err := a.normalizeProfileConfig(&p); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := a.registry.CreateProfile(r.Context(), &p); err != nil {
 		writeRegistryError(w, err)
 		return
@@ -98,6 +106,10 @@ func (a *agentsHandler) updateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.ID = id
+	if err := a.normalizeProfileConfig(&p); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if err := a.registry.UpdateProfile(r.Context(), &p); err != nil {
 		writeRegistryError(w, err)
 		return
@@ -216,6 +228,43 @@ func unwrapError(err error) error {
 	type unwrapper interface{ Unwrap() error }
 	if u, ok := err.(unwrapper); ok {
 		return u.Unwrap()
+	}
+	return nil
+}
+
+func (a *agentsHandler) normalizeProfileConfig(p *core.AgentProfile) error {
+	if p == nil || a.drivers == nil {
+		return nil
+	}
+
+	if driverID := strings.TrimSpace(p.DriverID); driverID != "" {
+		driverCfg, err := a.drivers.ResolveDriverConfig(driverID)
+		if err != nil {
+			return fmt.Errorf("resolve driver %q: %w", driverID, err)
+		}
+		p.Driver = *driverCfg
+	}
+
+	llmConfigID := strings.TrimSpace(p.LLMConfigID)
+	if llmConfigID == "" {
+		return nil
+	}
+	llmCfg, err := a.drivers.ResolveLLMConfig(llmConfigID)
+	if err != nil {
+		return fmt.Errorf("resolve llm config %q: %w", llmConfigID, err)
+	}
+	if err := profileCompatibleWithRuntimeLLM(p, llmCfg); err != nil {
+		return err
+	}
+	return nil
+}
+
+func profileCompatibleWithRuntimeLLM(p *core.AgentProfile, llmCfg *config.RuntimeLLMEntryConfig) error {
+	if p == nil || llmCfg == nil {
+		return nil
+	}
+	if err := profilellm.ValidateDriverProviderCompatibility(p.DriverID, p.Driver.LaunchCommand, p.Driver.LaunchArgs, llmCfg.Type); err != nil {
+		return fmt.Errorf("profile %q llm_config_id %q incompatible with driver: %w", p.ID, llmCfg.ID, err)
 	}
 	return nil
 }

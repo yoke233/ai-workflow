@@ -95,19 +95,23 @@ func (m *LocalSessionManager) Acquire(ctx context.Context, in runtimeapp.Session
 	if sb == nil {
 		sb = v2sandbox.NoopSandbox{}
 	}
-	scope := fmt.Sprintf("workitem-%d", in.WorkItemID)
-	if !in.Reuse {
-		scope = fmt.Sprintf("workitem-%d-run-%d", in.WorkItemID, in.ExecID)
-	}
-	sandboxedLaunch, err := sb.Prepare(ctx, v2sandbox.PrepareInput{
-		Profile:         in.Profile,
-		Launch:          in.Launch,
-		Scope:           scope,
-		ExtraSkills:     in.ExtraSkills,
-		EphemeralSkills: in.EphemeralSkills,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("prepare sandbox: %w", err)
+	sandboxedLaunch := in.Launch
+	var err error
+	if !acpclient.UsesInProcAdapterProfile(in.Profile) {
+		scope := fmt.Sprintf("workitem-%d", in.WorkItemID)
+		if !in.Reuse {
+			scope = fmt.Sprintf("workitem-%d-run-%d", in.WorkItemID, in.ExecID)
+		}
+		sandboxedLaunch, err = sb.Prepare(ctx, v2sandbox.PrepareInput{
+			Profile:         in.Profile,
+			Launch:          in.Launch,
+			Scope:           scope,
+			ExtraSkills:     in.ExtraSkills,
+			EphemeralSkills: in.EphemeralSkills,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("prepare sandbox: %w", err)
+		}
 	}
 
 	m.mu.Lock()

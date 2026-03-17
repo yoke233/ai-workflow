@@ -211,6 +211,8 @@
     "createProfileDesc": "创建 profile 并绑定到现有 driver。",
     "profileId": "配置 ID",
     "bindDriver": "绑定驱动",
+    "bindLLMConfig": "绑定 LLM 配置",
+    "optionalField": "可选",
     "capabilityTagsComma": "能力标签（逗号分隔）",
     "allowedActionsComma": "允许动作（逗号分隔）",
     "maxTurns": "最大轮次",

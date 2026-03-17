@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,28 +11,42 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import type { AgentDriver, AgentProfile } from "@/types/apiV2";
+import type { LLMConfigItem } from "@/types/system";
 
 interface Props {
   open: boolean;
   drivers: AgentDriver[];
+  llmConfigs: LLMConfigItem[];
   onClose: () => void;
   onCreate: (payload: AgentProfile) => Promise<void>;
 }
 
-export function CreateProfileDialog({ open, drivers, onClose, onCreate }: Props) {
+export function CreateProfileDialog({ open, drivers, llmConfigs, onClose, onCreate }: Props) {
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [role, setRole] = useState("worker");
   const [driverId, setDriverId] = useState(() => drivers[0]?.id ?? "");
+  const [llmConfigID, setLLMConfigID] = useState(() => llmConfigs[0]?.id ?? "");
   const [caps, setCaps] = useState("backend,frontend");
   const [actions, setActions] = useState("read_context,search_files,fs_write,terminal,submit,mark_blocked,request_help");
   const [maxTurns, setMaxTurns] = useState("12");
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (!open) return;
+    if (!driverId && drivers[0]?.id) {
+      setDriverId(drivers[0].id);
+    }
+    if (!llmConfigID && llmConfigs[0]?.id) {
+      setLLMConfigID(llmConfigs[0].id);
+    }
+  }, [open, driverId, drivers, llmConfigID, llmConfigs]);
+
   const handleClose = () => {
     setName("");
     setRole("worker");
     setDriverId(drivers[0]?.id ?? "");
+    setLLMConfigID(llmConfigs[0]?.id ?? "");
     setCaps("backend,frontend");
     setActions("read_context,search_files,fs_write,terminal,submit,mark_blocked,request_help");
     setMaxTurns("12");
@@ -50,6 +64,7 @@ export function CreateProfileDialog({ open, drivers, onClose, onCreate }: Props)
         id: name.trim(),
         name: name.trim(),
         driver_id: driverId,
+        llm_config_id: llmConfigID || undefined,
         driver: {
           launch_command: selectedDriver.launch_command,
           launch_args: selectedDriver.launch_args,
@@ -102,6 +117,22 @@ export function CreateProfileDialog({ open, drivers, onClose, onCreate }: Props)
           >
             {drivers.map((d) => (
               <option key={d.id} value={d.id}>{d.id}</option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">
+            {t("agents.bindLLMConfig")}
+            <span className="ml-1 text-xs font-normal text-muted-foreground">({t("agents.optionalField")})</span>
+          </label>
+          <select
+            className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
+            value={llmConfigID}
+            onChange={(e) => setLLMConfigID(e.target.value)}
+          >
+            <option value="">-</option>
+            {llmConfigs.map((item) => (
+              <option key={item.id} value={item.id}>{item.id}</option>
             ))}
           </select>
         </div>

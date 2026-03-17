@@ -291,13 +291,16 @@ func (w *ExecutorWorker) executeRun(ctx context.Context, invocation *natsInvocat
 	if sb == nil {
 		sb = v2sandbox.NoopSandbox{}
 	}
-	sandboxedLaunch, err := sb.Prepare(ctx, v2sandbox.PrepareInput{
-		Profile: profile,
-		Launch:  launchCfg,
-		Scope:   fmt.Sprintf("workitem-%d-run-%d", invocation.WorkItemID, invocation.ExecID),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("prepare sandbox: %w", err)
+	sandboxedLaunch := launchCfg
+	if !acpclient.UsesInProcAdapterProfile(profile) {
+		sandboxedLaunch, err = sb.Prepare(ctx, v2sandbox.PrepareInput{
+			Profile: profile,
+			Launch:  launchCfg,
+			Scope:   fmt.Sprintf("workitem-%d-run-%d", invocation.WorkItemID, invocation.ExecID),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("prepare sandbox: %w", err)
+		}
 	}
 
 	caps := profile.EffectiveCapabilities()

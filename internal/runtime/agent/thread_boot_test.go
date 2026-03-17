@@ -185,6 +185,31 @@ func TestBuildBootPrompt_CustomBootTemplate(t *testing.T) {
 	}
 }
 
+func TestBuildBootPrompt_SharedTemplatePrepended(t *testing.T) {
+	sharedTemplate := "Shared thread collaboration rules."
+	customTemplate := "Profile-specific review policy."
+	profile := newProfile("reviewer-1", core.RoleGate)
+	profile.Session.ThreadBootTemplate = customTemplate
+
+	out := BuildBootPrompt(ThreadBootInput{
+		Thread:         newThread("Shared template test", core.ThreadActive),
+		AgentProfile:   profile,
+		SharedTemplate: sharedTemplate,
+	})
+
+	if !strings.HasPrefix(out, sharedTemplate) {
+		t.Fatalf("shared template should be prepended at the top.\nOutput:\n%s", out)
+	}
+	sharedIdx := strings.Index(out, sharedTemplate)
+	customIdx := strings.Index(out, customTemplate)
+	if sharedIdx < 0 || customIdx < 0 {
+		t.Fatalf("output should contain both shared and custom templates.\nOutput:\n%s", out)
+	}
+	if customIdx <= sharedIdx {
+		t.Fatalf("custom template should appear after shared template.\nOutput:\n%s", out)
+	}
+}
+
 func TestBuildBootPrompt_WorkspaceContext(t *testing.T) {
 	out := BuildBootPrompt(ThreadBootInput{
 		Thread:       newThread("Workspace thread", core.ThreadActive),

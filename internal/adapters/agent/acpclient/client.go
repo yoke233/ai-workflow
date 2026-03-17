@@ -60,11 +60,14 @@ type Client struct {
 }
 
 func New(cfg LaunchConfig, h acpproto.Client, opts ...Option) (*Client, error) {
-	if strings.TrimSpace(cfg.Command) == "" {
-		return nil, errors.New("launch command is required")
-	}
 	if h == nil {
 		h = &NopHandler{}
+	}
+	if UsesInProcAdapterLaunch(cfg) {
+		return newInProcAgentSDKClient(cfg, h, opts...)
+	}
+	if strings.TrimSpace(cfg.Command) == "" {
+		return nil, errors.New("launch command is required")
 	}
 
 	cmd := exec.Command(cfg.Command, cfg.Args...)

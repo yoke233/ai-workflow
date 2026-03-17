@@ -158,6 +158,7 @@ func TestManager_UpdateRuntimeWritesLLMConfig(t *testing.T) {
 	manager, _ := newManagerForTest(t)
 
 	current := manager.GetRuntime()
+	current.Agents.Profiles = []config.RuntimeProfileConfig{}
 	current.LLM = config.RuntimeLLMConfig{
 		DefaultConfigID: "anthropic-main",
 		Configs: []config.RuntimeLLMEntryConfig{

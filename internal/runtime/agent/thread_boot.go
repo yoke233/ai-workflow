@@ -18,6 +18,7 @@ type ThreadBootInput struct {
 	AgentProfile   *core.AgentProfile
 	PriorSummary   string // progress_summary from a previous session (if resuming)
 	Workspace      *core.ThreadWorkspaceContext
+	SharedTemplate string
 }
 
 // BuildBootPrompt assembles a Markdown system prompt that orients an agent
@@ -26,7 +27,12 @@ type ThreadBootInput struct {
 func BuildBootPrompt(in ThreadBootInput) string {
 	var b strings.Builder
 
-	// Custom template takes precedence.
+	if strings.TrimSpace(in.SharedTemplate) != "" {
+		b.WriteString(strings.TrimSpace(in.SharedTemplate))
+		b.WriteString("\n\n")
+	}
+
+	// Profile-specific template augments the shared thread collaboration rules.
 	if in.AgentProfile != nil && strings.TrimSpace(in.AgentProfile.Session.ThreadBootTemplate) != "" {
 		b.WriteString(strings.TrimSpace(in.AgentProfile.Session.ThreadBootTemplate))
 		b.WriteString("\n\n")

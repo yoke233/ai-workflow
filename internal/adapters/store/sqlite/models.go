@@ -166,6 +166,8 @@ func (EventModel) TableName() string { return "event_log" }
 type AgentProfileModel struct {
 	ID               string                        `gorm:"column:id;primaryKey"`
 	Name             string                        `gorm:"column:name;not null"`
+	DriverID         string                        `gorm:"column:driver_id;not null;default:''"`
+	LLMConfigID      string                        `gorm:"column:llm_config_id;not null;default:''"`
 	DriverConfig     JSONField[core.DriverConfig]  `gorm:"column:driver_config;type:text"`
 	Role             string                        `gorm:"column:role;not null"`
 	Capabilities     JSONField[[]string]           `gorm:"column:capabilities;type:text"`

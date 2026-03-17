@@ -32,7 +32,7 @@ func TestMergeHierarchy_RuntimeAndGitHub(t *testing.T) {
 		Runtime: &RuntimeLayer{
 			Agents: &RuntimeAgentsLayerCfg{
 				Profiles: &[]RuntimeProfileConfig{
-					{ID: "worker", Driver: "claude-acp", Role: "worker", PromptTemplate: "implement"},
+					{ID: "worker", Driver: "codex-acp", Role: "worker", PromptTemplate: "implement"},
 				},
 			},
 		},

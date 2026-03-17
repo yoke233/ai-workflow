@@ -41,13 +41,16 @@ func TestLoadDefaults(t *testing.T) {
 	if strings.TrimSpace(cfg.Runtime.Prompts.PRMergeReworkFeedback) == "" {
 		t.Fatal("expected runtime.prompts.pr_merge_rework_feedback default to be set")
 	}
+	if strings.TrimSpace(cfg.Runtime.Prompts.ThreadSharedBootTemplate) == "" {
+		t.Fatal("expected runtime.prompts.thread_shared_boot_template default to be set")
+	}
 }
 
 func TestLoadDefaults_RuntimeAgents(t *testing.T) {
 	cfg := Defaults()
 
-	if len(cfg.Runtime.Agents.Drivers) != 2 {
-		t.Fatalf("expected 2 runtime drivers, got %d", len(cfg.Runtime.Agents.Drivers))
+	if len(cfg.Runtime.Agents.Drivers) != 3 {
+		t.Fatalf("expected 3 runtime drivers, got %d", len(cfg.Runtime.Agents.Drivers))
 	}
 	if len(cfg.Runtime.Agents.Profiles) != 4 {
 		t.Fatalf("expected 4 runtime profiles, got %d", len(cfg.Runtime.Agents.Profiles))
@@ -76,6 +79,30 @@ func TestLoadDefaults_RuntimeAgents(t *testing.T) {
 		if lead.Skills[i] != s {
 			t.Fatalf("expected lead.skills[%d]=%s, got %s", i, s, lead.Skills[i])
 		}
+	}
+
+	worker, ok := byID["worker"]
+	if !ok {
+		t.Fatal("expected worker profile")
+	}
+	if worker.Driver != "agentsdk-go" {
+		t.Fatalf("expected worker.driver=agentsdk-go, got %q", worker.Driver)
+	}
+
+	reviewer, ok := byID["reviewer"]
+	if !ok {
+		t.Fatal("expected reviewer profile")
+	}
+	if reviewer.Driver != "agentsdk-go" {
+		t.Fatalf("expected reviewer.driver=agentsdk-go, got %q", reviewer.Driver)
+	}
+
+	support, ok := byID["support"]
+	if !ok {
+		t.Fatal("expected support profile")
+	}
+	if support.Driver != "agentsdk-go" {
+		t.Fatalf("expected support.driver=agentsdk-go, got %q", support.Driver)
 	}
 }
 

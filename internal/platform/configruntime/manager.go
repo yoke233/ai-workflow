@@ -204,6 +204,25 @@ func (m *Manager) ResolveDriverConfig(driverID string) (*core.DriverConfig, erro
 	return nil, fmt.Errorf("driver %q not found", driverID)
 }
 
+func (m *Manager) ResolveLLMConfig(llmConfigID string) (*config.RuntimeLLMEntryConfig, error) {
+	llmConfigID = strings.TrimSpace(llmConfigID)
+	if llmConfigID == "" {
+		return nil, fmt.Errorf("llm config id is required")
+	}
+	snap := m.Current()
+	if snap == nil || snap.Config == nil {
+		return nil, fmt.Errorf("runtime config unavailable")
+	}
+	for _, item := range snap.Config.Runtime.LLM.Configs {
+		if strings.TrimSpace(item.ID) != llmConfigID {
+			continue
+		}
+		cfg := item
+		return &cfg, nil
+	}
+	return nil, fmt.Errorf("llm config %q not found", llmConfigID)
+}
+
 func (m *Manager) ListDriverConfigs() []config.RuntimeDriverConfig {
 	current := m.GetRuntime()
 	items := current.Agents.Drivers
@@ -370,6 +389,12 @@ func buildRuntimeSandboxLayer(in config.RuntimeSandboxConfig) *config.RuntimeSan
 	return &config.RuntimeSandboxLayer{
 		Enabled:  boolPtr(in.Enabled),
 		Provider: stringPtr(in.Provider),
+		GC: &config.RuntimeSandboxGCLayer{
+			ArchiveCleanup: boolPtr(in.GC.ArchiveCleanup),
+			StartupCleanup: boolPtr(in.GC.StartupCleanup),
+			Interval:       durationPtr(in.GC.Interval),
+			RepoMaxAge:     durationPtr(in.GC.RepoMaxAge),
+		},
 		LiteBox: &config.RuntimeLiteBoxLayer{
 			BridgeCommand: stringPtr(in.LiteBox.BridgeCommand),
 			BridgeArgs:    cloneStringSlicePtr(in.LiteBox.BridgeArgs),
@@ -660,6 +685,10 @@ func stringPtr(v string) *string {
 }
 
 func boolPtr(v bool) *bool {
+	return &v
+}
+
+func durationPtr(v config.Duration) *config.Duration {
 	return &v
 }
 

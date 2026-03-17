@@ -338,6 +338,7 @@ export interface AgentProfile {
   id: string;
   name?: string;
   driver_id?: string;
+  llm_config_id?: string;
   driver?: DriverConfig;
   role: "lead" | "worker" | "gate" | "support" | string;
   capabilities?: string[];
