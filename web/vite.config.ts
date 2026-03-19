@@ -41,6 +41,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
+      crossOriginLoading: false,
       rollupOptions: {
         output: {
           manualChunks(id) {

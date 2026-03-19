@@ -18,6 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectItem } from "@/components/ui/select";
 import {
   Dialog,
   DialogHeader,
@@ -618,13 +619,6 @@ export function WorkItemDetailPage() {
 
 const FIELD_CLS = "flex flex-col gap-1.5";
 const LABEL_CLS = "text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70";
-const SELECT_WRAP = "relative";
-const SELECT_CLS = [
-  "w-full appearance-none rounded-lg border border-border/60 bg-muted/30 px-3 py-2",
-  "text-sm text-foreground shadow-none transition",
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-  "hover:border-border",
-].join(" ");
 
 function EditWorkItemDialog({
   open,
@@ -672,33 +666,19 @@ function EditWorkItemDialog({
         <div className="grid grid-cols-2 gap-3">
           <div className={FIELD_CLS}>
             <label className={LABEL_CLS}>{t("common.status")}</label>
-            <div className={SELECT_WRAP}>
-              <select
-                value={form.status ?? ""}
-                onChange={(event) => onChange({ status: event.target.value as WorkItemStatus })}
-                className={SELECT_CLS}
-              >
-                {(["open", "accepted", "running", "blocked", "done", "closed", "cancelled"] as WorkItemStatus[]).map((status) => (
-                  <option key={status} value={status}>{statusConfig[status]?.label ?? status}</option>
-                ))}
-              </select>
-              <ChevronRight className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 rotate-90 text-muted-foreground/60" />
-            </div>
+            <Select value={form.status ?? ""} onValueChange={(v) => onChange({ status: v as WorkItemStatus })}>
+              {(["open", "accepted", "running", "blocked", "done", "closed", "cancelled"] as WorkItemStatus[]).map((status) => (
+                <SelectItem key={status} value={status}>{statusConfig[status]?.label ?? status}</SelectItem>
+              ))}
+            </Select>
           </div>
           <div className={FIELD_CLS}>
             <label className={LABEL_CLS}>{t("workItemDetail.priority")}</label>
-            <div className={SELECT_WRAP}>
-              <select
-                value={form.priority ?? ""}
-                onChange={(event) => onChange({ priority: event.target.value as WorkItemPriority })}
-                className={SELECT_CLS}
-              >
-                {(["urgent", "high", "medium", "low"] as WorkItemPriority[]).map((priority) => (
-                  <option key={priority} value={priority}>{priorityConfig[priority]?.label ?? priority}</option>
-                ))}
-              </select>
-              <ChevronRight className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 rotate-90 text-muted-foreground/60" />
-            </div>
+            <Select value={form.priority ?? ""} onValueChange={(v) => onChange({ priority: v as WorkItemPriority })}>
+              {(["urgent", "high", "medium", "low"] as WorkItemPriority[]).map((priority) => (
+                <SelectItem key={priority} value={priority}>{priorityConfig[priority]?.label ?? priority}</SelectItem>
+              ))}
+            </Select>
           </div>
         </div>
 

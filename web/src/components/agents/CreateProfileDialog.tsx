@@ -10,6 +10,7 @@ import {
   DialogBody,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Select, SelectItem } from "@/components/ui/select";
 import type { AgentDriver, AgentProfile } from "@/types/apiV2";
 import type { LLMConfigItem } from "@/types/system";
 
@@ -96,45 +97,33 @@ export function CreateProfileDialog({ open, drivers, llmConfigs, onClose, onCrea
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">{t("agents.role")}</label>
-            <select
-              className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-            >
-              <option value="lead">lead</option>
-              <option value="worker">worker</option>
-              <option value="gate">gate</option>
-              <option value="support">support</option>
-            </select>
+            <Select value={role} onValueChange={setRole}>
+              <SelectItem value="lead">lead</SelectItem>
+              <SelectItem value="worker">worker</SelectItem>
+              <SelectItem value="gate">gate</SelectItem>
+              <SelectItem value="support">support</SelectItem>
+            </Select>
           </div>
         </div>
         <div className="space-y-1.5">
           <label className="text-sm font-medium">{t("agents.bindDriver")}</label>
-          <select
-            className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
-            value={driverId}
-            onChange={(e) => setDriverId(e.target.value)}
-          >
+          <Select value={driverId} onValueChange={setDriverId}>
             {drivers.map((d) => (
-              <option key={d.id} value={d.id}>{d.id}</option>
+              <SelectItem key={d.id} value={d.id}>{d.id}</SelectItem>
             ))}
-          </select>
+          </Select>
         </div>
         <div className="space-y-1.5">
           <label className="text-sm font-medium">
             {t("agents.bindLLMConfig")}
             <span className="ml-1 text-xs font-normal text-muted-foreground">({t("agents.optionalField")})</span>
           </label>
-          <select
-            className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
-            value={llmConfigID}
-            onChange={(e) => setLLMConfigID(e.target.value)}
-          >
-            <option value="">-</option>
+          <Select value={llmConfigID} onValueChange={setLLMConfigID}>
+            <SelectItem value="">-</SelectItem>
             {llmConfigs.map((item) => (
-              <option key={item.id} value={item.id}>{item.id}</option>
+              <SelectItem key={item.id} value={item.id}>{item.id}</SelectItem>
             ))}
-          </select>
+          </Select>
         </div>
         <div className="space-y-1.5">
           <label className="text-sm font-medium">{t("agents.capabilityTagsComma")}</label>

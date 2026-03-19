@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectItem } from "@/components/ui/select";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { detectScmProviderFromBinding } from "@/lib/scm";
 import { getErrorMessage } from "@/lib/v2Workbench";
@@ -239,14 +240,10 @@ export function CreateProjectPage() {
 
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">{t("createProject.projectType")}</label>
-                <select
-                  className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
-                  value={kind}
-                  onChange={(event) => setKind(event.target.value as "dev" | "general")}
-                >
-                  <option value="dev">dev</option>
-                  <option value="general">general</option>
-                </select>
+                <Select value={kind} onValueChange={(v) => setKind(v as "dev" | "general")}>
+                  <SelectItem value="dev">dev</SelectItem>
+                  <SelectItem value="general">general</SelectItem>
+                </Select>
               </div>
 
               <div className="space-y-1.5">
@@ -277,15 +274,11 @@ export function CreateProjectPage() {
               {resources.map((resource, index) => (
                 <div key={`${resource.kind}-${index}`} className="rounded-lg border p-4">
                   <div className="grid gap-3 md:grid-cols-[120px_minmax(0,1fr)_120px_40px]">
-                    <select
-                      className="h-10 rounded-md border bg-background px-3 text-sm"
-                      value={resource.kind}
-                      onChange={(event) => updateResource(index, { kind: event.target.value })}
-                    >
-                      <option value="local_fs">local_fs</option>
-                      <option value="git">git</option>
-                      <option value="s3">s3</option>
-                    </select>
+                    <Select value={resource.kind} onValueChange={(v) => updateResource(index, { kind: v })}>
+                      <SelectItem value="local_fs">local_fs</SelectItem>
+                      <SelectItem value="git">git</SelectItem>
+                      <SelectItem value="s3">s3</SelectItem>
+                    </Select>
                     <Input
                       placeholder={resource.kind === "local_fs"
                         ? t("createProject.localFsPlaceholder", "D:/project/my-repo")
@@ -397,17 +390,17 @@ export function CreateProjectPage() {
                           <div className="grid gap-3 md:grid-cols-3">
                             <div className="space-y-1.5">
                               <label className="text-xs font-medium text-muted-foreground">Provider</label>
-                              <select
-                                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                              <Select
+                                className="h-9"
                                 value={resource.git.provider}
-                                onChange={(event) => updateGitResource(index, {
-                                  provider: event.target.value as GitResourceDraftConfig["provider"],
+                                onValueChange={(v) => updateGitResource(index, {
+                                  provider: v as GitResourceDraftConfig["provider"],
                                 })}
                               >
-                                <option value="">{t("createProject.autoDetect")}</option>
-                                <option value="github">github</option>
-                                <option value="codeup">codeup</option>
-                              </select>
+                                <SelectItem value="">{t("createProject.autoDetect")}</SelectItem>
+                                <SelectItem value="github">github</SelectItem>
+                                <SelectItem value="codeup">codeup</SelectItem>
+                              </Select>
                             </div>
                             {scmProvider ? (
                               <>
@@ -445,15 +438,11 @@ export function CreateProjectPage() {
                                 </div>
                                 <div className="space-y-1.5">
                                   <label className="text-xs font-medium text-muted-foreground">Merge Method</label>
-                                  <select
-                                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                                    value={resource.git.mergeMethod}
-                                    onChange={(event) => updateGitResource(index, { mergeMethod: event.target.value })}
-                                  >
-                                    <option value="squash">squash</option>
-                                    <option value="merge">merge</option>
-                                    <option value="rebase">rebase</option>
-                                  </select>
+                                  <Select className="h-9" value={resource.git.mergeMethod} onValueChange={(v) => updateGitResource(index, { mergeMethod: v })}>
+                                    <SelectItem value="squash">squash</SelectItem>
+                                    <SelectItem value="merge">merge</SelectItem>
+                                    <SelectItem value="rebase">rebase</SelectItem>
+                                  </Select>
                                 </div>
                               </div>
                             </div>

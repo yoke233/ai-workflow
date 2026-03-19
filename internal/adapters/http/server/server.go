@@ -25,6 +25,9 @@ type Config struct {
 	// SkipAuth disables token authentication entirely.
 	// Used when the server listens on localhost only (desktop / local dev).
 	SkipAuth bool
+	// APIOnly skips the SPA fallback and browser security headers.
+	// Used when the handler is embedded inside Wails AssetServer.
+	APIOnly bool
 }
 
 type Server struct {
@@ -40,18 +43,13 @@ func NewServer(cfg Config) *Server {
 	if cfg.Addr == "" {
 		cfg.Addr = ":8080"
 	}
-	frontendFS := cfg.Frontend
-	if frontendFS == nil {
-		if embeddedFS, err := webassets.DistFS(); err == nil {
-			frontendFS = embeddedFS
-		}
-	}
-
 	r := chi.NewRouter()
 	r.Use(RecoveryMiddleware(logger))
 	r.Use(LoggingMiddleware(logger))
-	r.Use(SecurityHeadersMiddleware())
-	r.Use(HSTSMiddleware(0))
+	if !cfg.APIOnly {
+		r.Use(SecurityHeadersMiddleware())
+		r.Use(HSTSMiddleware(0))
+	}
 	r.Use(CORSMiddleware(cfg.AllowedOrigins))
 	r.Use(MaxBodySizeMiddleware(0))
 	authRequired := !cfg.SkipAuth && cfg.Auth != nil && !cfg.Auth.IsEmpty()
@@ -72,9 +70,17 @@ func NewServer(cfg Config) *Server {
 			cfg.RouteRegistrar(r)
 		})
 	}
-	if frontendFS != nil {
-		spa := newSPAFallbackHandler(frontendFS)
-		r.NotFound(spa.ServeHTTP)
+	if !cfg.APIOnly {
+		frontendFS := cfg.Frontend
+		if frontendFS == nil {
+			if embeddedFS, err := webassets.DistFS(); err == nil {
+				frontendFS = embeddedFS
+			}
+		}
+		if frontendFS != nil {
+			spa := newSPAFallbackHandler(frontendFS)
+			r.NotFound(spa.ServeHTTP)
+		}
 	}
 	return &Server{
 		router: r,

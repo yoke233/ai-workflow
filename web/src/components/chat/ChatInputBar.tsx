@@ -5,6 +5,7 @@ import type { ConfigOption, SessionModeState, SlashCommand } from "@/types/apiV2
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectItem } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { SessionRecord } from "./chatTypes";
 import { FilePreviewList } from "./FilePreviewList";
@@ -203,18 +204,17 @@ export function ChatInputBar(props: ChatInputBarProps) {
                   return (
                     <span key={opt.id} className="inline-flex items-center gap-0.5 text-[11px]">
                       <span className="text-muted-foreground">{opt.name}:</span>
-                      <select
-                        className="cursor-pointer appearance-none rounded bg-transparent px-0.5 py-0.5 text-[11px] font-medium text-foreground outline-none hover:bg-muted"
+                      <Select
+                        className="h-auto border-0 bg-transparent px-0.5 py-0.5 text-[11px] font-medium shadow-none hover:bg-muted"
                         value={opt.current_value}
-                        title={opt.description || opt.name}
-                        onChange={(e) => onSetConfigOption?.(opt.id, e.target.value)}
+                        onValueChange={(v) => onSetConfigOption?.(opt.id, v)}
                       >
                         {opt.options.map((v) => (
-                          <option key={v.value} value={v.value}>
+                          <SelectItem key={v.value} value={v.value}>
                             {v.name}
-                          </option>
+                          </SelectItem>
                         ))}
-                      </select>
+                      </Select>
                     </span>
                   );
                 })}

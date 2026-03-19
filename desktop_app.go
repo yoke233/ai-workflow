@@ -1,5 +1,3 @@
-//go:build desktop
-
 package main
 
 import (
@@ -76,6 +74,7 @@ func (a *DesktopApp) Startup(ctx context.Context) {
 		Auth:           tokenRegistry,
 		RouteRegistrar: registrar,
 		SkipAuth:       skipAuth,
+		APIOnly:        true,
 	})
 	a.apiHandler = srv.Handler()
 	a.token = secrets.AdminToken()

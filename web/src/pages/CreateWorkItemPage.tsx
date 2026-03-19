@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectItem } from "@/components/ui/select";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { getScmFlowProviderFromBindings } from "@/lib/scm";
@@ -372,18 +373,17 @@ export function CreateWorkItemPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">{t("createWorkItem.project")}</label>
-                  <select
-                    className="flex h-10 w-full rounded-md border bg-background px-3 text-sm"
-                    value={projectId ?? ""}
-                    onChange={(event) => setProjectId(event.target.value ? Number.parseInt(event.target.value, 10) : null)}
+                  <Select
+                    value={projectId != null ? String(projectId) : ""}
+                    onValueChange={(v) => setProjectId(v ? Number.parseInt(v, 10) : null)}
                   >
-                    <option value="">{t("createWorkItem.allProjects")}</option>
+                    <SelectItem value="">{t("createWorkItem.allProjects")}</SelectItem>
                     {projects.map((project) => (
-                      <option key={project.id} value={project.id}>
+                      <SelectItem key={project.id} value={String(project.id)}>
                         {project.name}
-                      </option>
+                      </SelectItem>
                     ))}
-                  </select>
+                  </Select>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">{t("createWorkItem.draftStatus")}</label>

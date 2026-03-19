@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectItem } from "@/components/ui/select";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { formatRelativeTime, getErrorMessage } from "@/lib/v2Workbench";
 import { cn } from "@/lib/utils";
@@ -237,30 +238,30 @@ export function WorkItemsPage() {
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
             </div>
           ) : null}
-          <select
-            className="h-9 rounded-md border bg-background px-3 text-[13px]"
+          <Select
+            className="h-9 text-[13px]"
             value={priorityFilter}
-            onChange={(event) => setPriorityFilter(event.target.value as WorkItemPriority | "all")}
+            onValueChange={(v) => setPriorityFilter(v as WorkItemPriority | "all")}
           >
-            <option value="all">{t("workItems.allPriorities")}</option>
-            <option value="urgent">{t("workItems.priorityUrgent")}</option>
-            <option value="high">{t("workItems.priorityHigh")}</option>
-            <option value="medium">{t("workItems.priorityMedium")}</option>
-            <option value="low">{t("workItems.priorityLow")}</option>
-          </select>
+            <SelectItem value="all">{t("workItems.allPriorities")}</SelectItem>
+            <SelectItem value="urgent">{t("workItems.priorityUrgent")}</SelectItem>
+            <SelectItem value="high">{t("workItems.priorityHigh")}</SelectItem>
+            <SelectItem value="medium">{t("workItems.priorityMedium")}</SelectItem>
+            <SelectItem value="low">{t("workItems.priorityLow")}</SelectItem>
+          </Select>
           {allLabels.length > 0 ? (
             <div className="flex items-center gap-1.5">
               <Tag className="h-3.5 w-3.5 text-muted-foreground" />
-              <select
-                className="h-9 rounded-md border bg-background px-3 text-[13px]"
+              <Select
+                className="h-9 text-[13px]"
                 value={labelFilter}
-                onChange={(event) => setLabelFilter(event.target.value)}
+                onValueChange={setLabelFilter}
               >
-                <option value="all">{t("workItems.allLabels")}</option>
+                <SelectItem value="all">{t("workItems.allLabels")}</SelectItem>
                 {allLabels.map((label) => (
-                  <option key={label} value={label}>{label}</option>
+                  <SelectItem key={label} value={label}>{label}</SelectItem>
                 ))}
-              </select>
+              </Select>
             </div>
           ) : null}
         </div>

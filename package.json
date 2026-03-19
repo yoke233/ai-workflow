@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "wails:dev": "wails dev -tags desktop",
-    "wails:build": "wails build -tags desktop"
+    "wails:dev": "wails dev",
+    "wails:build": "wails build"
   }
 }
