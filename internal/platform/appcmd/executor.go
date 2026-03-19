@@ -29,7 +29,7 @@ func RunExecutor(args []string) error {
 	if err != nil {
 		return err
 	}
-	closeLog, err := initAppLogger(dataDir, "executor")
+	closeLog, err := InitAppLogger(dataDir, "executor")
 	if err != nil {
 		return err
 	}

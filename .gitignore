@@ -30,6 +30,6 @@ bin/
 .env
 web/.env
 
-# Tauri
-src-tauri/target/
-src-tauri/binaries/ai-flow-*
+# Wails
+build/bin/
+src-tauri/

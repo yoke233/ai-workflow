@@ -1,23 +1,20 @@
 export interface DesktopBootstrap {
   token: string;
-  // Legacy compatibility base URL retained for legacy API integrations.
-  api_v1_base_url: string;
-  api_base_url: string;
-  // Compatibility field: desktop websocket still points at the legacy v1 endpoint.
-  ws_base_url: string;
 }
 
-export const isTauri = (): boolean => {
+export const isDesktop = (): boolean => {
   if (typeof window === "undefined") {
     return false;
   }
   const w = window as unknown as {
-    __TAURI__?: unknown;
-    __TAURI_INTERNALS__?: unknown;
-    __TAURI_IPC__?: unknown;
+    go?: unknown;
+    runtime?: unknown;
   };
-  return Boolean(w.__TAURI__ || w.__TAURI_INTERNALS__ || w.__TAURI_IPC__);
+  return Boolean(w.go || w.runtime);
 };
+
+/** @deprecated Use isDesktop() instead. */
+export const isTauri = isDesktop;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,8 +23,8 @@ export const fetchDesktopBootstrap = async (options?: {
   timeoutMs?: number;
   retryIntervalMs?: number;
 }): Promise<DesktopBootstrap> => {
-  if (!isTauri()) {
-    throw new Error("not running in Tauri");
+  if (!isDesktop()) {
+    throw new Error("not running in desktop mode");
   }
 
   const timeoutMs = options?.timeoutMs ?? 8000;
@@ -37,10 +34,22 @@ export const fetchDesktopBootstrap = async (options?: {
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const result = await invoke<DesktopBootstrap>("desktop_bootstrap");
+      const w = window as unknown as {
+        go?: {
+          main?: {
+            DesktopApp?: {
+              GetBootstrap?: () => Promise<DesktopBootstrap>;
+            };
+          };
+        };
+      };
+      const fn = w.go?.main?.DesktopApp?.GetBootstrap;
+      if (!fn) {
+        throw new Error("Wails bindings not ready");
+      }
+      const result = await fn();
       if (!result || typeof result.token !== "string" || result.token.trim().length === 0) {
-        throw new Error("desktop_bootstrap returned empty token");
+        throw new Error("GetBootstrap returned empty token");
       }
       return result;
     } catch (err) {
@@ -54,4 +63,3 @@ export const fetchDesktopBootstrap = async (options?: {
   }
   throw new Error("desktop bootstrap timed out");
 };
-

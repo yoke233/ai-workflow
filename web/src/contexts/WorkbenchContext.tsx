@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { createApiClient, type ApiClient } from "@/lib/apiClient";
-import { fetchDesktopBootstrap, isTauri } from "@/lib/desktopBridge";
+import { fetchDesktopBootstrap, isDesktop } from "@/lib/desktopBridge";
 import { getErrorMessage } from "@/lib/v2Workbench";
 import { createWsClient, type WsClient } from "@/lib/wsClient";
 import type { Project } from "@/types/apiV2";
@@ -193,7 +193,7 @@ export function WorkbenchProvider({ children }: ProviderProps) {
   useEffect(() => {
     const resolvedToken = resolveTokenFromLocation();
     let cancelled = false;
-    const runningInTauri = isTauri();
+    const runningInDesktop = isDesktop();
 
     const checkAuthRequired = async (baseUrl: string): Promise<boolean> => {
       try {
@@ -214,7 +214,7 @@ export function WorkbenchProvider({ children }: ProviderProps) {
       let effectiveApiBaseUrl = apiBaseUrl;
       let effectiveWsBaseUrl = wsBaseUrl;
 
-      if (runningInTauri) {
+      if (runningInDesktop) {
         try {
           const desktop = await fetchDesktopBootstrap();
           if (cancelled) {
@@ -222,10 +222,6 @@ export function WorkbenchProvider({ children }: ProviderProps) {
           }
           token = desktop.token;
           tokenSource = "storage";
-          effectiveApiBaseUrl = desktop.api_base_url;
-          effectiveWsBaseUrl = desktop.api_base_url;
-          setApiBaseUrl(desktop.api_base_url);
-          setWsBaseUrl(desktop.api_base_url);
           persistTokenToStorage(desktop.token);
         } catch (error) {
           if (!cancelled) {

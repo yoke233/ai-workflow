@@ -28,7 +28,7 @@ func RunServer(args []string) error {
 		return err
 	}
 	fmt.Printf("[startup] data dir: %s\n", dataDir)
-	closeLog, err := initAppLogger(dataDir, "server")
+	closeLog, err := InitAppLogger(dataDir, "server")
 	if err != nil {
 		return err
 	}

@@ -11,9 +11,9 @@ import (
 func TestInitAppLoggerWritesFile(t *testing.T) {
 	dataDir := t.TempDir()
 
-	closeFn, err := initAppLogger(dataDir, "server")
+	closeFn, err := InitAppLogger(dataDir, "server")
 	if err != nil {
-		t.Fatalf("initAppLogger error: %v", err)
+		t.Fatalf("InitAppLogger error: %v", err)
 	}
 	defer closeFn()
 

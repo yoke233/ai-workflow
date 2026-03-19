@@ -1,0 +1,13 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "ai-workflow-desktop",
+  "outputfilename": "ai-workflow-desktop",
+  "frontend:install": "npm --prefix web ci",
+  "frontend:build": "npm --prefix web run build",
+  "frontend:dev:watcher": "npm --prefix web run dev -- --strictPort",
+  "frontend:dev:serverUrl": "auto",
+  "wailsjsdir": "web/src",
+  "author": {
+    "name": "yoke233"
+  }
+}

@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// initAppLogger configures the default slog logger to write to both stderr and
+// InitAppLogger configures the default slog logger to write to both stderr and
 // a log file under <dataDir>/logs.
-func initAppLogger(dataDir string, command string) (func() error, error) {
+func InitAppLogger(dataDir string, command string) (func() error, error) {
 	dataDir = strings.TrimSpace(dataDir)
 	command = strings.TrimSpace(command)
 	if dataDir == "" || command == "" {

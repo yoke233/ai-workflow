@@ -1,0 +1,58 @@
+name: Wails Windows Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wails-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  GOFLAGS: -buildvcs=false
+
+jobs:
+  build:
+    name: Build Windows Desktop
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Build Wails desktop
+        run: wails build -tags desktop -platform windows/amd64
+
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wails-windows-amd64
+          path: build/bin/*
+          if-no-files-found: error

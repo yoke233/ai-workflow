@@ -21,7 +21,7 @@ import (
 func RunMCPServe(args []string) error {
 	dataDir, err := appdata.ResolveDataDir()
 	if err == nil {
-		closeLog, logErr := initAppLogger(dataDir, "mcp-serve")
+		closeLog, logErr := InitAppLogger(dataDir, "mcp-serve")
 		if logErr != nil {
 			return logErr
 		}

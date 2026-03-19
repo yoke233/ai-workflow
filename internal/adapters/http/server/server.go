@@ -85,6 +85,9 @@ func NewServer(cfg Config) *Server {
 	}
 }
 
+// Handler returns the underlying HTTP handler (chi router).
+func (s *Server) Handler() http.Handler { return s.router }
+
 func (s *Server) Start() error {
 	err := s.httpServer.ListenAndServe()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
