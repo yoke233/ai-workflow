@@ -127,7 +127,7 @@ func BuildBootPrompt(in ThreadBootInput) string {
 
 	// Instructions.
 	b.WriteString("## Instructions\n")
-	b.WriteString("You are joining this thread. Review the context above and respond when addressed.\n")
+	b.WriteString("You are joining this thread. Review the context above, keep track of dependencies or hand-offs mentioned in the thread, and act directly whenever the runtime routes work to you.\n")
 
 	return b.String()
 }

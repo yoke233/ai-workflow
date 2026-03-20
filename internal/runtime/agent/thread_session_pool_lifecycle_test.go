@@ -698,3 +698,65 @@ done:
 		t.Error("expected context budget warning event")
 	}
 }
+
+func TestThreadPoolPromptAgentRecoversPersistedSession(t *testing.T) {
+	server := &fakeACPServer{replyText: "recovered reply"}
+	profile := newTestProfile("agent-recover")
+
+	store := newThreadSessionPoolTestStore(t)
+	bus := membus.NewBus()
+	dataDir := t.TempDir()
+	ctx := context.Background()
+
+	baseBootstrap := testBootstrapFn(server, "persisted-session")
+	var priorSessionID string
+
+	pool := NewThreadSessionPool(store, bus, &mockRegistry{
+		profiles: map[string]*core.AgentProfile{profile.ID: profile},
+	}, dataDir)
+	pool.bootstrapFn = func(ctx context.Context, cfg acpclient.BootstrapConfig) (*acpclient.BootstrapResult, error) {
+		if cfg.Session != nil {
+			priorSessionID = strings.TrimSpace(cfg.Session.PriorSessionID)
+		}
+		result, err := baseBootstrap(ctx, cfg)
+		if err == nil {
+			result.Session.Loaded = priorSessionID != ""
+		}
+		return result, err
+	}
+	defer pool.Close()
+
+	threadID, _ := store.CreateThread(ctx, &core.Thread{
+		Title: "Recovered Thread", OwnerID: "owner-1", Status: core.ThreadActive,
+	})
+
+	if _, err := store.AddThreadMember(ctx, &core.ThreadMember{
+		ThreadID:       threadID,
+		Kind:           core.ThreadMemberKindAgent,
+		UserID:         profile.ID,
+		AgentProfileID: profile.ID,
+		Role:           "agent",
+		Status:         core.ThreadAgentActive,
+		AgentData: map[string]any{
+			"acp_session_id": "persisted-session",
+		},
+	}); err != nil {
+		t.Fatalf("add active member: %v", err)
+	}
+
+	reply, err := pool.PromptAgent(ctx, threadID, profile.ID, "请继续处理")
+	if err != nil {
+		t.Fatalf("PromptAgent: %v", err)
+	}
+	if reply == nil || reply.Content != "recovered reply" {
+		t.Fatalf("reply = %+v, want recovered reply", reply)
+	}
+	if priorSessionID != "persisted-session" {
+		t.Fatalf("priorSessionID = %q, want persisted-session", priorSessionID)
+	}
+
+	prompts := server.getPrompts()
+	if len(prompts) != 1 || prompts[0] != "请继续处理" {
+		t.Fatalf("prompts = %v, want only direct user prompt", prompts)
+	}
+}

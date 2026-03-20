@@ -1017,6 +1017,75 @@ func TestAPI_WebSocket_ThreadSend_TargetAgentUnavailable(t *testing.T) {
 	}
 }
 
+func TestAPI_WebSocket_ThreadSend_TargetAgentUsesPersistedParticipantWhenRuntimeSetCold(t *testing.T) {
+	h, ts := setupAPI(t)
+	threadPool := &stubThreadAgentRuntime{}
+	h.threadPool = threadPool
+
+	resp, err := post(ts, "/threads", map[string]any{
+		"title": "ws-target-persisted-thread",
+	})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	var thread core.Thread
+	if err := decodeJSON(resp, &thread); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if _, err := h.store.AddThreadMember(context.Background(), &core.ThreadMember{
+		ThreadID:       thread.ID,
+		Kind:           core.ThreadMemberKindAgent,
+		UserID:         "worker-a",
+		AgentProfileID: "worker-a",
+		Role:           "agent",
+		Status:         core.ThreadAgentActive,
+	}); err != nil {
+		t.Fatalf("add thread member: %v", err)
+	}
+
+	wsURL := "ws" + ts.URL[4:] + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "thread.send",
+		"data": map[string]any{
+			"request_id":      "req-target-persisted",
+			"thread_id":       thread.ID,
+			"message":         "请继续处理上次的任务",
+			"target_agent_id": "worker-a",
+		},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var ack struct {
+		Type string `json:"type"`
+	}
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if ack.Type != "thread.ack" {
+		t.Fatalf("ack type = %q, want thread.ack", ack.Type)
+	}
+
+	waitForThreadCondition(t, 2*time.Second, func() error {
+		sendCalls := threadPool.snapshotSendCalls()
+		if len(sendCalls) != 1 {
+			return fmt.Errorf("send calls = %d, want 1", len(sendCalls))
+		}
+		if sendCalls[0].profileID != "worker-a" {
+			return fmt.Errorf("profile_id = %q, want worker-a", sendCalls[0].profileID)
+		}
+		return nil
+	})
+}
+
 func TestAPI_WebSocket_ThreadSend_InvalidThread(t *testing.T) {
 	_, ts := setupAPI(t)
 

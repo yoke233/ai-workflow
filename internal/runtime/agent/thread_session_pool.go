@@ -167,6 +167,7 @@ func (p *ThreadSessionPool) InviteAgent(ctx context.Context, threadID int64, pro
 	if p == nil {
 		return nil, fmt.Errorf("thread session pool is nil")
 	}
+	key := threadSessionKey{threadID: threadID, agentID: profileID}
 
 	// Resolve profile.
 	profile, err := p.registry.ResolveByID(ctx, profileID)
@@ -176,6 +177,7 @@ func (p *ThreadSessionPool) InviteAgent(ctx context.Context, threadID int64, pro
 
 	// Check for existing paused agent member (for resume with prior summary).
 	var priorSummary string
+	var priorSessionID string
 	existingMembers, _ := p.store.ListThreadMembers(ctx, threadID)
 	for _, m := range existingMembers {
 		if m.Kind != "agent" || m.AgentProfileID != profileID {
@@ -183,15 +185,22 @@ func (p *ThreadSessionPool) InviteAgent(ctx context.Context, threadID int64, pro
 		}
 		if m.Status == core.ThreadAgentPaused {
 			priorSummary = memberGetString(m, "progress_summary")
+			priorSessionID = memberGetString(m, "acp_session_id")
 			if err := updateThreadAgentStatus(m, core.ThreadAgentBooting); err != nil {
 				return nil, err
 			}
 			_ = p.store.UpdateThreadMember(ctx, m)
-			go p.bootSessionBackground(m, profile, priorSummary)
+			go p.bootSessionBackground(m, profile, priorSummary, priorSessionID)
 			return m, nil
 		}
 		if m.Status == core.ThreadAgentActive || m.Status == core.ThreadAgentBooting {
-			return m, nil // already active
+			if p.sessionReady(key) {
+				return m, nil
+			}
+			priorSummary = memberGetString(m, "progress_summary")
+			priorSessionID = memberGetString(m, "acp_session_id")
+			go p.bootSessionBackground(m, profile, priorSummary, priorSessionID)
+			return m, nil
 		}
 	}
 
@@ -210,22 +219,22 @@ func (p *ThreadSessionPool) InviteAgent(ctx context.Context, threadID int64, pro
 	}
 	member.ID = id
 
-	go p.bootSessionBackground(member, profile, priorSummary)
+	go p.bootSessionBackground(member, profile, priorSummary, priorSessionID)
 	return member, nil
 }
 
 // bootSessionBackground runs the full ACP boot sequence in a background
 // goroutine and publishes success/failure events via the EventBus.
-func (p *ThreadSessionPool) bootSessionBackground(member *core.ThreadMember, profile *core.AgentProfile, priorSummary string) {
+func (p *ThreadSessionPool) bootSessionBackground(member *core.ThreadMember, profile *core.AgentProfile, priorSummary string, priorSessionID string) {
 	bootCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if _, err := p.bootSession(bootCtx, member, profile, priorSummary); err != nil {
+	if _, err := p.bootSession(bootCtx, member, profile, priorSummary, priorSessionID); err != nil {
 		slog.Warn("thread pool: background boot failed",
 			"thread_id", member.ThreadID, "profile", profile.ID, "error", err)
 	}
 }
 
-func (p *ThreadSessionPool) bootSession(ctx context.Context, member *core.ThreadMember, profile *core.AgentProfile, priorSummary string) (*core.ThreadMember, error) {
+func (p *ThreadSessionPool) bootSession(ctx context.Context, member *core.ThreadMember, profile *core.AgentProfile, priorSummary string, priorSessionID string) (*core.ThreadMember, error) {
 	key := threadSessionKey{threadID: member.ThreadID, agentID: profile.ID}
 	workspaceDir, scopeCfg, err := p.prepareThreadWorkspace(ctx, member.ThreadID)
 	if err != nil {
@@ -274,7 +283,9 @@ func (p *ThreadSessionPool) bootSession(ctx context.Context, member *core.Thread
 		ExtraEnv:     extraEnv,
 		Handler:      handler,
 		EventHandler: switcher,
-		Session:      &acpclient.BootstrapSessionConfig{},
+		Session: &acpclient.BootstrapSessionConfig{
+			PriorSessionID: strings.TrimSpace(priorSessionID),
+		},
 	})
 	if err != nil {
 		_ = updateThreadAgentStatus(member, core.ThreadAgentFailed)
@@ -294,7 +305,7 @@ func (p *ThreadSessionPool) bootSession(ctx context.Context, member *core.Thread
 	}
 
 	// Send boot prompt.
-	if strings.TrimSpace(bootPrompt) != "" {
+	if strings.TrimSpace(bootPrompt) != "" && !(bootResult.Session.Loaded && strings.TrimSpace(priorSummary) == "") {
 		bootCtx, bootCancel := context.WithTimeout(ctx, 60*time.Second)
 		defer bootCancel()
 		_, err = client.PromptText(bootCtx, acpSessionID, bootPrompt)
@@ -412,6 +423,15 @@ func (p *ThreadSessionPool) sessionReady(key threadSessionKey) bool {
 	return p.sessions[key] != nil
 }
 
+func (p *ThreadSessionPool) sessionForKey(key threadSessionKey) *threadPooledSession {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.sessions[key]
+}
+
 func (p *ThreadSessionPool) agentReadyState(ctx context.Context, key threadSessionKey, profileID string) error {
 	if p.sessionReady(key) {
 		return nil
@@ -437,6 +457,51 @@ func (p *ThreadSessionPool) agentReadyState(ctx context.Context, key threadSessi
 		}
 	}
 	return nil
+}
+
+func (p *ThreadSessionPool) recoverSession(ctx context.Context, key threadSessionKey, profileID string) error {
+	if p == nil || p.store == nil {
+		return fmt.Errorf("agent %q is not available in thread %d", profileID, key.threadID)
+	}
+	if p.sessionReady(key) {
+		return nil
+	}
+
+	members, err := p.store.ListThreadMembers(ctx, key.threadID)
+	if err != nil {
+		return err
+	}
+
+	var member *core.ThreadMember
+	for _, candidate := range members {
+		if candidate == nil || candidate.Kind != core.ThreadMemberKindAgent || candidate.AgentProfileID != profileID {
+			continue
+		}
+		switch candidate.Status {
+		case core.ThreadAgentActive, core.ThreadAgentBooting, core.ThreadAgentPaused:
+			member = candidate
+		}
+	}
+	if member == nil {
+		return fmt.Errorf("no active session for profile %q in thread %d", profileID, key.threadID)
+	}
+
+	profile, err := p.registry.ResolveByID(ctx, profileID)
+	if err != nil {
+		return fmt.Errorf("resolve profile %q: %w", profileID, err)
+	}
+
+	priorSummary := memberGetString(member, "progress_summary")
+	priorSessionID := memberGetString(member, "acp_session_id")
+	if member.Status == core.ThreadAgentPaused {
+		if err := updateThreadAgentStatus(member, core.ThreadAgentBooting); err != nil {
+			return err
+		}
+		_ = p.store.UpdateThreadMember(ctx, member)
+	}
+
+	_, err = p.bootSession(ctx, member, profile, priorSummary, priorSessionID)
+	return err
 }
 
 func eventTypeMatchesThreadAgent(event core.Event, threadID int64, profileID string) bool {
@@ -465,10 +530,14 @@ func (p *ThreadSessionPool) PromptAgent(ctx context.Context, threadID int64, pro
 	}
 
 	key := threadSessionKey{threadID: threadID, agentID: profileID}
+	pooled := p.sessionForKey(key)
 
-	p.mu.Lock()
-	pooled := p.sessions[key]
-	p.mu.Unlock()
+	if pooled == nil {
+		if err := p.recoverSession(ctx, key, profileID); err != nil {
+			return nil, err
+		}
+		pooled = p.sessionForKey(key)
+	}
 
 	if pooled == nil {
 		return nil, fmt.Errorf("no active session for profile %q in thread %d", profileID, threadID)

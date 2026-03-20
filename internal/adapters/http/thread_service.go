@@ -136,13 +136,21 @@ func (h *Handler) resolveThreadMessageRecipients(ctx context.Context, thread *co
 		return nil, err
 	}
 	useParticipantFilter := len(agentParticipants) > 0
+	candidateProfileIDs := append([]string(nil), activeProfileIDs...)
+	for profileID := range agentParticipants {
+		candidateProfileIDs = append(candidateProfileIDs, profileID)
+	}
+	candidateProfileIDs = uniqueSortedProfileIDs(candidateProfileIDs)
 
 	if len(normalizedTargetIDs) > 0 {
 		for _, profileID := range normalizedTargetIDs {
-			if !activeSet[profileID] {
-				return nil, &threadMessageAPIError{Code: "TARGET_AGENT_UNAVAILABLE", Message: "target agent is not active in this thread"}
+			if useParticipantFilter {
+				if !agentParticipants[profileID] {
+					return nil, &threadMessageAPIError{Code: "TARGET_AGENT_UNAVAILABLE", Message: "target agent is not active in this thread"}
+				}
+				continue
 			}
-			if useParticipantFilter && !agentParticipants[profileID] {
+			if !activeSet[profileID] {
 				return nil, &threadMessageAPIError{Code: "TARGET_AGENT_UNAVAILABLE", Message: "target agent is not active in this thread"}
 			}
 		}
@@ -153,7 +161,7 @@ func (h *Handler) resolveThreadMessageRecipients(ctx context.Context, thread *co
 
 	if routingMode == "auto" {
 		// Auto-routing: match message content against agent capabilities/name/role.
-		matched := h.autoRouteMessage(ctx, strings.TrimSpace(message), activeProfileIDs, agentParticipants, useParticipantFilter)
+		matched := h.autoRouteMessage(ctx, strings.TrimSpace(message), candidateProfileIDs, agentParticipants, useParticipantFilter)
 		if len(matched) > 0 {
 			return matched, nil
 		}
@@ -171,13 +179,9 @@ func (h *Handler) resolveThreadMessageRecipients(ctx context.Context, thread *co
 	// (async) are not missed. If a session doesn't exist yet, SendMessage
 	// will fail gracefully and publish EventThreadAgentFailed.
 	if useParticipantFilter {
-		recipients := make([]string, 0, len(agentParticipants))
-		for profileID := range agentParticipants {
-			recipients = append(recipients, profileID)
-		}
-		return recipients, nil
+		return uniqueSortedProfileIDs(candidateProfileIDs), nil
 	}
-	return activeProfileIDs, nil
+	return uniqueSortedProfileIDs(activeProfileIDs), nil
 }
 
 // autoRouteMessage picks the best-fit agent(s) based on keyword matching
