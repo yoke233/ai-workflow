@@ -108,6 +108,9 @@ func TestServiceCreateThreadCreatesRefsAndNormalizesConfig(t *testing.T) {
 	if got := result.Thread.Metadata["meeting_mode"]; got != "group_chat" {
 		t.Fatalf("meeting_mode = %v", got)
 	}
+	if _, exists := result.Thread.Metadata["skip_default_context_refs"]; exists {
+		t.Fatalf("internal metadata leaked: %+v", result.Thread.Metadata)
+	}
 	if got := result.Thread.Metadata["meeting_max_rounds"]; got != 12 {
 		t.Fatalf("meeting_max_rounds = %v, want 12", got)
 	}

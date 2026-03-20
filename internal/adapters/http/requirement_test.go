@@ -164,4 +164,7 @@ func TestAPI_CreateThreadFromRequirement(t *testing.T) {
 	if got := got.Thread.Metadata["meeting_mode"]; got != "group_chat" {
 		t.Fatalf("meeting_mode metadata = %v", got)
 	}
+	if _, exists := got.Thread.Metadata["skip_default_context_refs"]; exists {
+		t.Fatalf("internal metadata leaked: %+v", got.Thread.Metadata)
+	}
 }

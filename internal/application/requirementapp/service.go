@@ -93,6 +93,14 @@ func (s *Service) CreateThread(ctx context.Context, input CreateThreadInput) (*C
 	}
 
 	thread := createResult.Thread
+	if thread != nil && thread.Metadata != nil {
+		if _, exists := thread.Metadata["skip_default_context_refs"]; exists {
+			delete(thread.Metadata, "skip_default_context_refs")
+			if err := s.store.UpdateThread(ctx, thread); err != nil {
+				return nil, err
+			}
+		}
+	}
 	existingRefs, err := s.store.ListThreadContextRefs(ctx, thread.ID)
 	if err != nil {
 		return nil, err
