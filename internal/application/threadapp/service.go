@@ -24,6 +24,10 @@ type Service struct {
 	workspace WorkspaceManager
 }
 
+type projectLister interface {
+	ListProjects(ctx context.Context, limit, offset int) ([]*core.Project, error)
+}
+
 func New(cfg Config) *Service {
 	return &Service{
 		store:     cfg.Store,
@@ -46,6 +50,10 @@ func (s *Service) CreateThread(ctx context.Context, input CreateThreadInput) (*C
 
 	participants := buildParticipants(thread.OwnerID, input.ParticipantUserIDs)
 	if err := s.createThreadAggregate(ctx, thread, participants); err != nil {
+		return nil, err
+	}
+	if err := s.attachDefaultThreadContextRefs(ctx, thread.ID); err != nil {
+		_ = s.deleteThreadAggregate(ctx, thread.ID)
 		return nil, err
 	}
 	if err := s.syncThreadWorkspace(ctx, thread.ID); err != nil {
@@ -576,4 +584,58 @@ func (s *Service) syncThreadWorkspace(ctx context.Context, threadID int64) error
 		return err
 	}
 	return s.workspace.SyncThreadWorkspaceContext(ctx, threadID)
+}
+
+func (s *Service) attachDefaultThreadContextRefs(ctx context.Context, threadID int64) error {
+	if s == nil || s.store == nil {
+		return nil
+	}
+	lister, ok := s.store.(projectLister)
+	if !ok {
+		return nil
+	}
+
+	const batchSize = 200
+	offset := 0
+	var focusProjectID int64
+
+	for {
+		projects, err := lister.ListProjects(ctx, batchSize, offset)
+		if err != nil {
+			return err
+		}
+		if len(projects) == 0 {
+			break
+		}
+		for _, project := range projects {
+			if project == nil || project.ID <= 0 {
+				continue
+			}
+			ref := &core.ThreadContextRef{
+				ThreadID:  threadID,
+				ProjectID: project.ID,
+				Access:    core.ContextAccessRead,
+			}
+			if _, err := threadctx.ResolveMount(ctx, s.store, ref); err != nil {
+				continue
+			}
+			refID, err := s.store.CreateThreadContextRef(ctx, ref)
+			if err != nil {
+				return err
+			}
+			ref.ID = refID
+			if focusProjectID == 0 {
+				focusProjectID = project.ID
+			}
+		}
+		if len(projects) < batchSize {
+			break
+		}
+		offset += len(projects)
+	}
+
+	if focusProjectID > 0 {
+		return s.ensureThreadFocus(ctx, threadID, focusProjectID)
+	}
+	return nil
 }

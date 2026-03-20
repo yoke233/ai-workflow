@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -16,6 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { ThreadSidebar } from "@/components/threads/ThreadSidebar";
 import { ThreadMessageList } from "@/components/threads/ThreadMessageList";
 import { InvitePickerDialog } from "@/components/threads/InvitePickerDialog";
+import type { ChatActivityView } from "@/components/chat/chatTypes";
+import { applyActivityPayload } from "@/components/chat/chatUtils";
 import { cn } from "@/lib/utils";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { formatRelativeTime, getErrorMessage } from "@/lib/v2Workbench";
@@ -48,6 +50,20 @@ function readTargetAgentID(
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : null;
+}
+
+function readTargetAgentIDs(
+  metadata: Record<string, unknown> | undefined,
+): string[] {
+  const value = metadata?.target_agent_ids;
+  if (!Array.isArray(value)) {
+    const single = readTargetAgentID(metadata);
+    return single ? [single] : [];
+  }
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
 }
 
 function readAutoRoutedTo(
@@ -233,6 +249,10 @@ function agentStatusColor(status: string): string {
   }
 }
 
+function canStartDiscussionWithAgent(status: string): boolean {
+  return status === "active";
+}
+
 // Invite intent detection: match phrases like "把 XX 拉进来", "invite XX", "加个 XX" etc.
 const INVITE_PATTERNS = [
   // Chinese patterns
@@ -311,6 +331,17 @@ type ThreadAgentSessionWithProfileID = ThreadAgentSession & {
 
 const THREAD_TASK_GROUPS_STORAGE_KEY = "thread-task-groups-enabled";
 
+type ThreadAgentLiveOutput = {
+  thought?: string;
+  message?: string;
+  updatedAt: string;
+};
+
+type ThreadAgentChunkBuffer = {
+  thought?: string;
+  message?: string;
+};
+
 function readThreadTaskGroupsEnabled(): boolean {
   try {
     return localStorage.getItem(THREAD_TASK_GROUPS_STORAGE_KEY) === "true";
@@ -352,6 +383,9 @@ export function ThreadDetailPage() {
   const [selectedInviteIDs, setSelectedInviteIDs] = useState<Set<string>>(
     new Set(),
   );
+  const [selectedDiscussionAgentIDs, setSelectedDiscussionAgentIDs] = useState<
+    Set<string>
+  >(new Set());
   const [invitingAgent, setInvitingAgent] = useState(false);
   const [removingAgentID, setRemovingAgentID] = useState<number | null>(null);
   const [savingRoutingMode, setSavingRoutingMode] = useState(false);
@@ -388,11 +422,23 @@ export function ThreadDetailPage() {
     new Set(),
   );
   const [invitePickerBusy, setInvitePickerBusy] = useState(false);
+  const [agentActivitiesByID, setAgentActivitiesByID] = useState<
+    Record<string, ChatActivityView[]>
+  >({});
+  const [liveAgentOutputsByID, setLiveAgentOutputsByID] = useState<
+    Record<string, ThreadAgentLiveOutput>
+  >({});
+  const [collapsedAgentActivityPanels, setCollapsedAgentActivityPanels] =
+    useState<Record<string, boolean>>({});
   const pendingThreadRequestIdRef = useRef<string | null>(null);
   const syntheticMessageIDRef = useRef(-1);
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const agentCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const pendingAgentChunkBuffersRef = useRef<
+    Record<string, ThreadAgentChunkBuffer>
+  >({});
+  const agentChunkFlushFrameRef = useRef<number | null>(null);
 
   const id = Number(threadId);
   const agentSessionsWithProfileID = agentSessions.filter(
@@ -421,6 +467,9 @@ export function ThreadDetailPage() {
       session.agent_profile_id,
       session,
     ]),
+  );
+  const selectedDiscussionAgents = activeAgentProfileIDs.filter((profileID) =>
+    selectedDiscussionAgentIDs.has(profileID),
   );
   const committedMentionTargetID = readCommittedMentionTarget(
     newMessage,
@@ -470,11 +519,47 @@ export function ThreadDetailPage() {
     return a.is_primary ? -1 : 1;
   });
   const orderedTaskGroups = [...taskGroups].sort((a, b) => b.id - a.id);
+  const visibleAgentActivityIDs = [
+    ...new Set([
+      ...Object.keys(liveAgentOutputsByID),
+      ...Object.keys(agentActivitiesByID),
+      ...thinkingAgentIDs,
+    ]),
+  ]
+    .filter((profileID) => {
+      const live = liveAgentOutputsByID[profileID];
+      const hasLive = Boolean(live?.thought?.trim() || live?.message?.trim());
+      const hasActivities = (agentActivitiesByID[profileID] ?? []).length > 0;
+      return hasLive || hasActivities || thinkingAgentIDs.has(profileID);
+    })
+    .sort((left, right) => {
+      const leftTime =
+        liveAgentOutputsByID[left]?.updatedAt ??
+        agentActivitiesByID[left]?.at(-1)?.at ??
+        "";
+      const rightTime =
+        liveAgentOutputsByID[right]?.updatedAt ??
+        agentActivitiesByID[right]?.at(-1)?.at ??
+        "";
+      return new Date(rightTime).getTime() - new Date(leftTime).getTime();
+    });
 
   /* ── auto-scroll to bottom on new messages ── */
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
+
+  useEffect(() => {
+    setThinkingAgentIDs(new Set());
+    setAgentActivitiesByID({});
+    setLiveAgentOutputsByID({});
+    setCollapsedAgentActivityPanels({});
+    pendingAgentChunkBuffersRef.current = {};
+    if (agentChunkFlushFrameRef.current != null) {
+      cancelAnimationFrame(agentChunkFlushFrameRef.current);
+      agentChunkFlushFrameRef.current = null;
+    }
+  }, [id]);
 
   useEffect(() => {
     try {
@@ -551,6 +636,22 @@ export function ThreadDetailPage() {
   }, [inviteableProfiles]);
 
   useEffect(() => {
+    setSelectedDiscussionAgentIDs((prev) => {
+      const selectable = new Set(
+        agentSessionsWithProfileID
+          .filter((session) =>
+            canStartDiscussionWithAgent(session.status ?? ""),
+          )
+          .map((session) => session.agent_profile_id),
+      );
+      const next = new Set(
+        [...prev].filter((profileID) => selectable.has(profileID)),
+      );
+      return next.size === prev.size ? prev : next;
+    });
+  }, [agentSessionsWithProfileID]);
+
+  useEffect(() => {
     if (mentionCandidates.length === 0) {
       setSelectedMentionIndex(0);
       return;
@@ -564,6 +665,92 @@ export function ThreadDetailPage() {
     if (!id || isNaN(id)) {
       return;
     }
+
+    const clearAgentActivityState = (profileID: string) => {
+      setAgentActivitiesByID((prev) => {
+        if (!(profileID in prev)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[profileID];
+        return next;
+      });
+      setLiveAgentOutputsByID((prev) => {
+        if (!(profileID in prev)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[profileID];
+        return next;
+      });
+    };
+
+    const clearLiveAgentOutputField = (
+      profileID: string,
+      field: keyof ThreadAgentChunkBuffer,
+    ) => {
+      setLiveAgentOutputsByID((prev) => {
+        const current = prev[profileID];
+        if (!current || !current[field]) {
+          return prev;
+        }
+        const nextEntry = { ...current };
+        delete nextEntry[field];
+        if (!nextEntry.thought && !nextEntry.message) {
+          const next = { ...prev };
+          delete next[profileID];
+          return next;
+        }
+        return {
+          ...prev,
+          [profileID]: nextEntry,
+        };
+      });
+    };
+
+    const flushAgentChunkBuffers = () => {
+      if (agentChunkFlushFrameRef.current != null) {
+        cancelAnimationFrame(agentChunkFlushFrameRef.current);
+        agentChunkFlushFrameRef.current = null;
+      }
+      const pending = pendingAgentChunkBuffersRef.current;
+      const profileIDs = Object.keys(pending);
+      if (profileIDs.length === 0) {
+        return;
+      }
+      pendingAgentChunkBuffersRef.current = {};
+      const nowISO = new Date().toISOString();
+      startTransition(() => {
+        setLiveAgentOutputsByID((prev) => {
+          const next = { ...prev };
+          for (const profileID of profileIDs) {
+            const chunk = pending[profileID];
+            if (!chunk) {
+              continue;
+            }
+            const current = next[profileID];
+            next[profileID] = {
+              thought:
+                `${current?.thought ?? ""}${chunk.thought ?? ""}` || undefined,
+              message:
+                `${current?.message ?? ""}${chunk.message ?? ""}` || undefined,
+              updatedAt: nowISO,
+            };
+          }
+          return next;
+        });
+      });
+    };
+
+    const scheduleAgentChunkFlush = () => {
+      if (agentChunkFlushFrameRef.current != null) {
+        return;
+      }
+      agentChunkFlushFrameRef.current = requestAnimationFrame(() => {
+        agentChunkFlushFrameRef.current = null;
+        flushAgentChunkBuffers();
+      });
+    };
 
     const appendRealtimeMessage = (
       payload: ThreadEventPayload,
@@ -595,6 +782,12 @@ export function ThreadDetailPage() {
       const msgMetadata: Record<string, unknown> = {};
       if (payload.target_agent_id) {
         msgMetadata.target_agent_id = payload.target_agent_id;
+      }
+      if (
+        Array.isArray(payload.target_agent_ids) &&
+        payload.target_agent_ids.length > 0
+      ) {
+        msgMetadata.target_agent_ids = payload.target_agent_ids;
       }
       if (
         Array.isArray(payload.auto_routed_to) &&
@@ -670,15 +863,62 @@ export function ThreadDetailPage() {
       "thread.agent_output",
       (payload) => {
         if (payload.thread_id !== id) return;
-        // Clear thinking state for this agent since it has responded.
         const agentID = payload.profile_id?.trim() || payload.sender_id?.trim();
+        const updateType =
+          typeof payload.type === "string" ? payload.type.trim() : "";
+        const content =
+          typeof payload.content === "string" ? payload.content : "";
+
+        if (agentID && updateType) {
+          if (
+            updateType === "agent_message_chunk" ||
+            updateType === "agent_thought_chunk"
+          ) {
+            const field =
+              updateType === "agent_message_chunk" ? "message" : "thought";
+            const existing = pendingAgentChunkBuffersRef.current[agentID] ?? {};
+            pendingAgentChunkBuffersRef.current[agentID] = {
+              ...existing,
+              [field]: `${existing[field] ?? ""}${content}`,
+            };
+            scheduleAgentChunkFlush();
+            return;
+          }
+
+          flushAgentChunkBuffers();
+          if (updateType === "agent_message") {
+            clearLiveAgentOutputField(agentID, "message");
+          }
+          if (updateType === "agent_thought") {
+            clearLiveAgentOutputField(agentID, "thought");
+          }
+          startTransition(() => {
+            setAgentActivitiesByID((prev) => ({
+              ...prev,
+              [agentID]: applyActivityPayload(
+                prev[agentID] ?? [],
+                `thread-${id}-${agentID}`,
+                {
+                  ...payload,
+                  session_id: `thread-${id}-${agentID}`,
+                },
+                new Date().toISOString(),
+                t,
+              ),
+            }));
+          });
+          return;
+        }
+
         if (agentID) {
+          flushAgentChunkBuffers();
           setThinkingAgentIDs((prev) => {
             if (!prev.has(agentID)) return prev;
             const next = new Set(prev);
             next.delete(agentID);
             return next;
           });
+          clearAgentActivityState(agentID);
         }
         appendRealtimeMessage(payload, "agent");
       },
@@ -738,15 +978,16 @@ export function ThreadDetailPage() {
       "thread.agent_failed",
       (payload) => {
         if (payload.thread_id !== id) return;
-        // Clear thinking state for failed agent.
         const failedID = payload.profile_id?.trim();
         if (failedID) {
+          flushAgentChunkBuffers();
           setThinkingAgentIDs((prev) => {
             if (!prev.has(failedID)) return prev;
             const next = new Set(prev);
             next.delete(failedID);
             return next;
           });
+          clearAgentActivityState(failedID);
         }
         setError(
           payload.error?.trim() ||
@@ -762,6 +1003,12 @@ export function ThreadDetailPage() {
           if (payload.thread_id !== id) return;
           const thinkingID = payload.profile_id?.trim();
           if (thinkingID) {
+            pendingAgentChunkBuffersRef.current[thinkingID] = {};
+            clearAgentActivityState(thinkingID);
+            setCollapsedAgentActivityPanels((prev) => ({
+              ...prev,
+              [thinkingID]: false,
+            }));
             setThinkingAgentIDs((prev) => {
               if (prev.has(thinkingID)) return prev;
               const next = new Set(prev);
@@ -827,12 +1074,25 @@ export function ThreadDetailPage() {
       unsubscribeTaskCompleted();
       unsubscribeStatus();
       pendingThreadRequestIdRef.current = null;
+      flushAgentChunkBuffers();
+      pendingAgentChunkBuffersRef.current = {};
+      if (agentChunkFlushFrameRef.current != null) {
+        cancelAnimationFrame(agentChunkFlushFrameRef.current);
+        agentChunkFlushFrameRef.current = null;
+      }
       setThinkingAgentIDs(new Set());
       if (wsClient.getStatus() === "open") {
         sendThreadSubscription("unsubscribe_thread");
       }
     };
   }, [apiClient, id, t, threadTaskGroupsEnabled, wsClient]);
+
+  const toggleAgentActivityPanel = (profileID: string) => {
+    setCollapsedAgentActivityPanels((prev) => ({
+      ...prev,
+      [profileID]: !prev[profileID],
+    }));
+  };
 
   /* ── handlers (unchanged) ── */
 
@@ -923,6 +1183,25 @@ export function ThreadDetailPage() {
     setSelectedFileRefs([]);
   };
 
+  const toggleDiscussionAgentSelection = (profileID: string) => {
+    setSelectedDiscussionAgentIDs((prev) => {
+      const next = new Set(prev);
+      if (next.has(profileID)) {
+        next.delete(profileID);
+      } else {
+        next.add(profileID);
+      }
+      return next;
+    });
+  };
+
+  const startDiscussionWithSelectedAgents = () => {
+    if (selectedDiscussionAgentIDs.size === 0) return;
+    requestAnimationFrame(() => {
+      messageInputRef.current?.focus();
+    });
+  };
+
   const handleSend = async () => {
     if (!newMessage.trim() || !id) return;
 
@@ -970,6 +1249,12 @@ export function ThreadDetailPage() {
       setError(mention.error);
       return;
     }
+    const discussionTargets =
+      mention.targetAgentID || mention.broadcast
+        ? []
+        : activeAgentProfileIDs.filter((profileID) =>
+            selectedDiscussionAgentIDs.has(profileID),
+          );
     setSending(true);
     setError(null);
     try {
@@ -991,11 +1276,22 @@ export function ThreadDetailPage() {
             ? newMessage.trim().replace(/^@all\s+/i, "")
             : newMessage.trim(),
           sender_id: thread?.owner_id || "human",
-          target_agent_id: mention.targetAgentID ?? undefined,
+          target_agent_ids:
+            mention.targetAgentID == null &&
+            !mention.broadcast &&
+            discussionTargets.length > 1
+              ? discussionTargets
+              : undefined,
+          target_agent_id:
+            mention.targetAgentID ??
+            (discussionTargets.length === 1 ? discussionTargets[0] : undefined),
           metadata:
             Object.keys(sendMetadata).length > 0 ? sendMetadata : undefined,
         },
       });
+      if (discussionTargets.length > 0) {
+        setSelectedDiscussionAgentIDs(new Set());
+      }
     } catch (e) {
       pendingThreadRequestIdRef.current = null;
       setSending(false);
@@ -1545,15 +1841,21 @@ export function ThreadDetailPage() {
         <div className="flex min-w-0 flex-1 flex-col">
           {/* ── Messages ── */}
           <div className="flex-1 overflow-y-auto px-5 py-4">
-            <ThreadMessageList
-              messages={messages}
-              profileByID={profileByID}
-              thinkingAgentIDs={thinkingAgentIDs}
-              sending={sending}
-              messagesEndRef={messagesEndRef}
-              renderMessageContent={renderMessageContent}
-              focusAgentProfile={focusAgentProfile}
-              readTargetAgentID={readTargetAgentID}
+              <ThreadMessageList
+                messages={messages}
+                profileByID={profileByID}
+                thinkingAgentIDs={thinkingAgentIDs}
+                visibleAgentActivityIDs={visibleAgentActivityIDs}
+                agentActivitiesByID={agentActivitiesByID}
+                liveAgentOutputsByID={liveAgentOutputsByID}
+                collapsedAgentActivityPanels={collapsedAgentActivityPanels}
+                sending={sending}
+                messagesEndRef={messagesEndRef}
+                renderMessageContent={renderMessageContent}
+                onToggleAgentActivityPanel={toggleAgentActivityPanel}
+                focusAgentProfile={focusAgentProfile}
+                readTargetAgentID={readTargetAgentID}
+                readTargetAgentIDs={readTargetAgentIDs}
               readAutoRoutedTo={readAutoRoutedTo}
               readTaskGroupID={readTaskGroupID}
               readMetadataType={readMetadataType}
@@ -1701,6 +2003,27 @@ export function ThreadDetailPage() {
                 ) : null}
 
                 <div className="flex flex-wrap items-center gap-1.5 rounded-xl border bg-muted/30 px-3 py-2 transition-colors focus-within:border-blue-300 focus-within:bg-background focus-within:ring-2 focus-within:ring-blue-100">
+                  {selectedDiscussionAgents.map((profileID) => {
+                    const profile = profileByID.get(profileID);
+                    return (
+                      <span
+                        key={profileID}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700"
+                      >
+                        <Bot className="h-3 w-3" />
+                        {profile?.name ?? profileID}
+                        <button
+                          type="button"
+                          className="ml-0.5 rounded-sm hover:bg-emerald-200"
+                          onClick={() =>
+                            toggleDiscussionAgentSelection(profileID)
+                          }
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    );
+                  })}
                   {selectedFileRefs.map((ref) => (
                     <span
                       key={ref.path}
@@ -1723,6 +2046,11 @@ export function ThreadDetailPage() {
                     placeholder={
                       thread.status !== "active"
                         ? t("threads.threadClosed", "Thread is closed")
+                        : selectedDiscussionAgents.length > 0
+                          ? t(
+                              "threads.messagePlaceholderSelectedAgents",
+                              "Type a message (will send to selected agents)...",
+                            )
                         : meetingMode === "concurrent"
                           ? t(
                               "threads.messagePlaceholderConcurrent",
@@ -1905,20 +2233,25 @@ export function ThreadDetailPage() {
                   </Button>
                 </div>
                 <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  {agentRoutingMode === "auto"
+                  {selectedDiscussionAgents.length > 0
                     ? t(
-                        "threads.mentionHintAuto",
-                        "Auto mode: messages are automatically routed to the best-fit agent based on content analysis.",
+                        "threads.selectedDiscussionHint",
+                        "This message will be sent to the selected agents. Sending clears the selection.",
                       )
-                    : agentRoutingMode === "broadcast"
+                    : agentRoutingMode === "auto"
                       ? t(
-                          "threads.mentionHintBroadcast",
-                          "Broadcast mode: messages go to all active agents. Use @agent-id for targeting.",
+                          "threads.mentionHintAuto",
+                          "Auto mode: messages are automatically routed to the best-fit agent based on content analysis.",
                         )
-                      : t(
-                          "threads.mentionHintMentionOnly",
-                          "Mention-only mode: use @agent-id to direct messages to specific agents.",
-                        )}
+                      : agentRoutingMode === "broadcast"
+                        ? t(
+                            "threads.mentionHintBroadcast",
+                            "Broadcast mode: messages go to all active agents. Use @agent-id for targeting.",
+                          )
+                        : t(
+                            "threads.mentionHintMentionOnly",
+                            "Mention-only mode: use @agent-id to direct messages to specific agents.",
+                          )}
                 </p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   {meetingMode === "concurrent"
@@ -1955,6 +2288,7 @@ export function ThreadDetailPage() {
             }}
             onClearInviteSelection={() => setSelectedInviteIDs(new Set())}
             agentSessionsWithProfileID={agentSessionsWithProfileID}
+            selectedDiscussionAgentIDs={selectedDiscussionAgentIDs}
             profileByID={profileByID}
             highlightedAgentProfileID={highlightedAgentProfileID}
             agentCardRefs={agentCardRefs}
@@ -1962,6 +2296,12 @@ export function ThreadDetailPage() {
             onRemoveAgent={(id) => {
               void handleRemoveAgent(id);
             }}
+            onToggleDiscussionAgentSelection={toggleDiscussionAgentSelection}
+            onStartDiscussionWithAgents={startDiscussionWithSelectedAgents}
+            onClearDiscussionAgents={() =>
+              setSelectedDiscussionAgentIDs(new Set())
+            }
+            canStartDiscussionWithAgent={canStartDiscussionWithAgent}
             agentStatusColor={agentStatusColor}
             participants={participants}
             threadTaskGroupsEnabled={threadTaskGroupsEnabled}

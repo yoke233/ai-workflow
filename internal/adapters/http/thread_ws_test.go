@@ -254,8 +254,11 @@ func TestAPI_WebSocket_ThreadSend_TargetAgent(t *testing.T) {
 	if threadPool.sendCalls[0].profileID != "worker-a" {
 		t.Fatalf("profile_id = %q, want worker-a", threadPool.sendCalls[0].profileID)
 	}
-	if threadPool.sendCalls[0].message != "请处理这个问题" {
-		t.Fatalf("message = %q, want mention-stripped content", threadPool.sendCalls[0].message)
+	if !strings.Contains(threadPool.sendCalls[0].message, "@worker-a 请处理这个问题") {
+		t.Fatalf("message = %q, want original mention content", threadPool.sendCalls[0].message)
+	}
+	if !strings.Contains(threadPool.sendCalls[0].message, "明确 @了你") {
+		t.Fatalf("message = %q, want explicit targeted dispatch prompt", threadPool.sendCalls[0].message)
 	}
 
 	msgs, err := h.store.ListThreadMessages(context.Background(), thread.ID, 10, 0)
@@ -267,6 +270,77 @@ func TestAPI_WebSocket_ThreadSend_TargetAgent(t *testing.T) {
 	}
 	if got := msgs[0].Metadata["target_agent_id"]; got != "worker-a" {
 		t.Fatalf("message metadata target_agent_id = %v, want worker-a", got)
+	}
+}
+
+func TestAPI_WebSocket_ThreadSend_TargetAgentIDs(t *testing.T) {
+	h, ts := setupAPI(t)
+	threadPool := &stubThreadAgentRuntime{
+		activeProfileIDs: []string{"worker-a", "worker-b", "worker-c"},
+	}
+	h.threadPool = threadPool
+
+	resp, err := post(ts, "/threads", map[string]any{
+		"title":    "ws-targets-thread",
+		"owner_id": "user-1",
+	})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	var thread core.Thread
+	if err := decodeJSON(resp, &thread); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	wsURL := "ws" + ts.URL[4:] + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "thread.send",
+		"data": map[string]any{
+			"request_id":       "req-targets",
+			"thread_id":        thread.ID,
+			"message":          "请你们一起评审这个方案",
+			"sender_id":        "user-1",
+			"target_agent_ids": []string{"worker-a", "worker-b"},
+		},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var ack struct {
+		Type string `json:"type"`
+	}
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if ack.Type != "thread.ack" {
+		t.Fatalf("ack type = %q, want thread.ack", ack.Type)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if len(threadPool.sendCalls) != 2 {
+		t.Fatalf("send calls = %d, want 2", len(threadPool.sendCalls))
+	}
+	if threadPool.sendCalls[0].profileID != "worker-a" || threadPool.sendCalls[1].profileID != "worker-b" {
+		t.Fatalf("profile_ids = %+v, want worker-a + worker-b", threadPool.sendCalls)
+	}
+
+	msgs, err := h.store.ListThreadMessages(context.Background(), thread.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %d, want 1", len(msgs))
+	}
+	targets, ok := msgs[0].Metadata["target_agent_ids"].([]any)
+	if !ok || len(targets) != 2 {
+		t.Fatalf("message metadata target_agent_ids = %#v, want 2 items", msgs[0].Metadata["target_agent_ids"])
 	}
 }
 

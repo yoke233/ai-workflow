@@ -128,9 +128,16 @@ describe("ThreadDetailPage", () => {
       configurable: true,
       value: vi.fn(),
     });
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) =>
+      window.setTimeout(() => cb(performance.now()), 0),
+    );
+    vi.stubGlobal("cancelAnimationFrame", (id: number) =>
+      window.clearTimeout(id),
+    );
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     cleanup();
   });
 
@@ -247,6 +254,62 @@ describe("ThreadDetailPage", () => {
     });
   });
 
+  it("把 agent 流式思考渲染到可折叠工作区，不再混入正式消息", async () => {
+    const wsClient = createWsClientMock();
+    const apiClient = {
+      getThread: vi.fn().mockResolvedValue(buildThread("已有摘要")),
+      listThreadMessages: vi.fn().mockResolvedValue([]),
+      listThreadParticipants: vi.fn().mockResolvedValue([]),
+      listWorkItemsByThread: vi.fn().mockResolvedValue([]),
+      listThreadTaskGroups: vi.fn().mockResolvedValue([]),
+      listThreadAgents: vi
+        .fn()
+        .mockResolvedValue([buildAgentSession(11, "worker-a")]),
+      listThreadAttachments: vi.fn().mockResolvedValue([]),
+      listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    renderPage();
+
+    await screen.findByText("worker-a");
+
+    wsClient.emit("thread.agent_thinking", {
+      thread_id: 1,
+      profile_id: "worker-a",
+    });
+    wsClient.emit("thread.agent_output", {
+      thread_id: 1,
+      profile_id: "worker-a",
+      type: "agent_thought_chunk",
+      content: "先查看项目目录",
+    });
+
+    expect(await screen.findByText("Agent workspace")).toBeTruthy();
+    expect(await screen.findByText("Live thought")).toBeTruthy();
+    expect((await screen.findAllByText("先查看项目目录")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /Agent workspace/ }));
+    await waitFor(() => {
+      expect(screen.queryByText("Live thought")).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Agent workspace/ }));
+    expect(await screen.findByText("Live thought")).toBeTruthy();
+
+    wsClient.emit("thread.agent_output", {
+      thread_id: 1,
+      profile_id: "worker-a",
+      content: "最终回复",
+    });
+
+    expect(await screen.findByText("最终回复")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByText("Live thought")).toBeNull();
+      expect(screen.queryByText("先查看项目目录")).toBeNull();
+    });
+  });
+
   it("支持用 @agent-id 定向发送消息", async () => {
     const wsClient = createWsClientMock();
     const apiClient = {
@@ -303,6 +366,57 @@ describe("ThreadDetailPage", () => {
       await screen.findByRole("button", { name: "@worker-a" }),
     ).toBeTruthy();
     expect(await screen.findByText("请处理这个问题")).toBeTruthy();
+  });
+
+  it("支持勾选多个 agent 后开始讨论", async () => {
+    const wsClient = createWsClientMock();
+    const apiClient = {
+      getThread: vi.fn().mockResolvedValue(buildThread("已有摘要")),
+      listThreadMessages: vi.fn().mockResolvedValue([]),
+      listThreadParticipants: vi.fn().mockResolvedValue([]),
+      listWorkItemsByThread: vi.fn().mockResolvedValue([]),
+      listThreadTaskGroups: vi.fn().mockResolvedValue([]),
+      listThreadAgents: vi
+        .fn()
+        .mockResolvedValue([
+          buildAgentSession(11, "worker-a"),
+          buildAgentSession(12, "worker-b"),
+        ]),
+      listThreadAttachments: vi.fn().mockResolvedValue([]),
+      listProfiles: vi
+        .fn()
+        .mockResolvedValue([
+          buildProfile("worker-a"),
+          buildProfile("worker-b"),
+        ]),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    renderPage();
+
+    const input = await screen.findByPlaceholderText(
+      DEFAULT_MESSAGE_PLACEHOLDER,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Select worker-a for discussion" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Select worker-b for discussion" }),
+    );
+    fireEvent.click(await screen.findByText("开始讨论"));
+    fireEvent.change(input, { target: { value: "一起讨论这个方案" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(wsClient.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "thread.send",
+        data: expect.objectContaining({
+          thread_id: 1,
+          message: "一起讨论这个方案",
+          target_agent_ids: ["worker-a", "worker-b"],
+        }),
+      }),
+    );
   });
 
   it("默认仅 @ 激活，普通消息不会携带 target_agent_id", async () => {

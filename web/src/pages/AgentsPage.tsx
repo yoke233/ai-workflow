@@ -20,7 +20,7 @@ import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage } from "@/lib/v2Workbench";
 import { CreateProfileDialog } from "@/components/agents/CreateProfileDialog";
 import { CreateDriverDialog } from "@/components/agents/CreateDriverDialog";
-import type { AgentDriver, AgentProfile } from "@/types/apiV2";
+import type { AgentDriver, AgentProfile, SkillInfo } from "@/types/apiV2";
 import type { LLMConfigItem, LLMConfigResponse, SandboxSupportResponse } from "@/types/system";
 import type { RuntimeConfigReloadedPayload } from "@/types/ws";
 
@@ -73,6 +73,7 @@ export function AgentsPage() {
   const { apiClient, wsClient } = useWorkbench();
   const [drivers, setDrivers] = useState<AgentDriver[]>([]);
   const [profiles, setProfiles] = useState<AgentProfile[]>([]);
+  const [availableSkills, setAvailableSkills] = useState<SkillInfo[]>([]);
   const [llmData, setLLMData] = useState<LLMConfigResponse | null>(null);
   const [defaultConfigID, setDefaultConfigID] = useState("");
   const [configs, setConfigs] = useState<LLMConfigItem[]>([]);
@@ -84,8 +85,11 @@ export function AgentsPage() {
   const [llmError, setLLMError] = useState<string | null>(null);
   const [sandboxError, setSandboxError] = useState<string | null>(null);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [editingProfile, setEditingProfile] = useState<AgentProfile | null>(null);
   const [driverDialogOpen, setDriverDialogOpen] = useState(false);
   const [editingDriver, setEditingDriver] = useState<AgentDriver | null>(null);
+  const [pendingDeleteProfile, setPendingDeleteProfile] = useState<AgentProfile | null>(null);
+  const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
   const [pendingDeleteDriver, setPendingDeleteDriver] = useState<AgentDriver | null>(null);
   const [deletingDriverId, setDeletingDriverId] = useState<string | null>(null);
 
@@ -99,13 +103,15 @@ export function AgentsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [driverResp, profileResp, llmResp] = await Promise.all([
+      const [driverResp, profileResp, llmResp, skillResp] = await Promise.all([
         apiClient.listDrivers(),
         apiClient.listProfiles(),
         apiClient.getLLMConfig(),
+        apiClient.listSkills(),
       ]);
       setDrivers(driverResp);
       setProfiles(profileResp);
+      setAvailableSkills(skillResp);
       hydrateLLM(llmResp);
     } catch (e) {
       setError(getErrorMessage(e));
@@ -219,6 +225,24 @@ export function AgentsPage() {
     }
   };
 
+  const handleDeleteProfile = async (profileId: string) => {
+    setDeletingProfileId(profileId);
+    setError(null);
+    try {
+      await apiClient.deleteProfile(profileId);
+      await load();
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setDeletingProfileId((current) => (current === profileId ? null : current));
+    }
+  };
+
+  const openProfileDialog = (profile?: AgentProfile | null) => {
+    setEditingProfile(profile ?? null);
+    setProfileDialogOpen(true);
+  };
+
   return (
     <div className="min-h-full flex-1 bg-[linear-gradient(180deg,#f8fafc_0%,#eef2ff_46%,#ffffff_100%)] p-6 md:p-8">
       <div className="mx-auto max-w-[1440px] space-y-5">
@@ -233,7 +257,7 @@ export function AgentsPage() {
           {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
         </div>
 
-        <div className="grid gap-3 xl:grid-cols-[1.25fr_1.05fr_1fr]">
+        <div className="grid gap-3">
           <Card className="border-slate-200/80 bg-white/90 shadow-[0_20px_60px_-42px_rgba(15,23,42,0.32)] backdrop-blur">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-3">
@@ -277,7 +301,7 @@ export function AgentsPage() {
         {llmError ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{llmError}</p> : null}
         {sandboxError ? <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{sandboxError}</p> : null}
 
-        <div className="grid gap-5 xl:grid-cols-[1.15fr_1fr_1.15fr]">
+        <div className="grid gap-5">
           <Card className="overflow-hidden border-slate-200/80 bg-white/92 shadow-[0_18px_48px_-40px_rgba(15,23,42,0.55)]">
             <CardHeader className="border-b border-slate-100 bg-slate-50/70 pb-4">
               <div className="flex items-start justify-between gap-3">
@@ -288,7 +312,7 @@ export function AgentsPage() {
                   </CardTitle>
                   <CardDescription>{t("agents.profilesDesc")}</CardDescription>
                 </div>
-                <Button size="sm" onClick={() => setProfileDialogOpen(true)}>
+                <Button size="sm" onClick={() => openProfileDialog()}>
                   <Plus className="mr-1.5 h-3.5 w-3.5" />
                   {t("agents.newProfile")}
                 </Button>
@@ -304,16 +328,21 @@ export function AgentsPage() {
                     <TableHead className="h-10 px-3 text-[11px] uppercase tracking-[0.16em]">{t("agents.model")}</TableHead>
                     <TableHead className="h-10 px-3 text-[11px] uppercase tracking-[0.16em]">{t("agents.skills")}</TableHead>
                     <TableHead className="h-10 px-3 text-[11px] uppercase tracking-[0.16em]">{t("common.status")}</TableHead>
+                    <TableHead className="h-10 px-3 text-right text-[11px] uppercase tracking-[0.16em]">{t("common.operations")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {profiles.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="px-3 py-10 text-center text-muted-foreground">{t("agents.noProfiles")}</TableCell>
+                      <TableCell colSpan={7} className="px-3 py-10 text-center text-muted-foreground">{t("agents.noProfiles")}</TableCell>
                     </TableRow>
                   ) : (
                     profiles.map((profile) => (
-                      <TableRow key={profile.id}>
+                      <TableRow
+                        key={profile.id}
+                        className="cursor-pointer transition-colors hover:bg-slate-50/80"
+                        onClick={() => openProfileDialog(profile)}
+                      >
                         <TableCell className="px-3 py-3">
                           <div className="space-y-1">
                             <div className="font-medium text-slate-900">{profile.name || profile.id}</div>
@@ -329,12 +358,14 @@ export function AgentsPage() {
                         <TableCell className="px-3 py-3">
                           <div className="space-y-1">
                             <div className="text-sm font-medium text-slate-900">
-                              {(profile.llm_config_id ? llmConfigMap.get(profile.llm_config_id)?.model : activeConfig?.model) || "-"}
+                              {profile.llm_config_id
+                                ? (llmConfigMap.get(profile.llm_config_id)?.model || "-")
+                                : t("agents.systemEnvMode")}
                             </div>
                             <div className="text-xs text-slate-500">
                               {profile.llm_config_id
                                 ? `${profile.llm_config_id} · ${llmConfigMap.get(profile.llm_config_id)?.type ?? "custom"}`
-                                : (defaultConfigID ? `${defaultConfigID} · default` : t("common.notFilled"))}
+                                : t("agents.systemEnvHint")}
                             </div>
                           </div>
                         </TableCell>
@@ -356,6 +387,35 @@ export function AgentsPage() {
                         </TableCell>
                         <TableCell className="px-3 py-3">
                           <Badge variant="outline">{profile.session?.reuse === false ? t("agents.ephemeral") : t("agents.activeState")}</Badge>
+                        </TableCell>
+                        <TableCell className="px-3 py-3 text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openProfileDialog(profile);
+                              }}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={deletingProfileId === profile.id}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setPendingDeleteProfile(profile);
+                              }}
+                            >
+                              {deletingProfileId === profile.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))
@@ -637,12 +697,23 @@ export function AgentsPage() {
       </div>
       <CreateProfileDialog
         open={profileDialogOpen}
+        profile={editingProfile}
         drivers={drivers}
         llmConfigs={configs}
-        onClose={() => setProfileDialogOpen(false)}
-        onCreate={async (payload) => {
-          await apiClient.createProfile(payload);
+        availableSkills={availableSkills}
+        onClose={() => {
+          setProfileDialogOpen(false);
+          setEditingProfile(null);
+        }}
+        onSubmit={async (payload) => {
+          if (editingProfile) {
+            await apiClient.updateProfile(editingProfile.id, payload);
+          } else {
+            await apiClient.createProfile(payload);
+          }
           await load();
+          setProfileDialogOpen(false);
+          setEditingProfile(null);
         }}
       />
       <CreateDriverDialog
@@ -663,6 +734,44 @@ export function AgentsPage() {
           setEditingDriver(null);
         }}
       />
+      <Dialog
+        open={pendingDeleteProfile != null}
+        onClose={() => {
+          if (deletingProfileId == null) {
+            setPendingDeleteProfile(null);
+          }
+        }}
+        className="max-w-md"
+      >
+        <DialogHeader>
+          <DialogTitle>{t("common.confirm")}</DialogTitle>
+          <DialogDescription>
+            确定要删除 profile <strong>{pendingDeleteProfile?.id}</strong> 吗？此操作不可撤销。
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setPendingDeleteProfile(null)}
+            disabled={deletingProfileId != null}
+          >
+            {t("common.cancel")}
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={pendingDeleteProfile == null || deletingProfileId != null}
+            onClick={() => {
+              if (!pendingDeleteProfile) return;
+              void handleDeleteProfile(pendingDeleteProfile.id).then(() => {
+                setPendingDeleteProfile(null);
+              });
+            }}
+          >
+            {deletingProfileId != null ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+            删除
+          </Button>
+        </DialogFooter>
+      </Dialog>
       <Dialog
         open={pendingDeleteDriver != null}
         onClose={() => {

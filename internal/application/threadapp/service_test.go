@@ -665,6 +665,81 @@ func TestServiceCreateThreadSyncsWorkspace(t *testing.T) {
 	}
 }
 
+func TestServiceCreateThreadAutoMountsResolvableProjects(t *testing.T) {
+	store := newThreadAppTestStore(t)
+	workspace := &workspaceStub{}
+	svc := newSQLiteThreadAppServiceWithWorkspace(store, newSQLiteTxAdapter(store, nil), nil, workspace)
+	ctx := context.Background()
+
+	projectA := &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral}
+	if _, err := store.CreateProject(ctx, projectA); err != nil {
+		t.Fatalf("create project A: %v", err)
+	}
+	if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
+		ProjectID: projectA.ID,
+		Kind:      core.ResourceKindLocalFS,
+		RootURI:   t.TempDir(),
+		Label:     "workspace",
+	}); err != nil {
+		t.Fatalf("create resource space A: %v", err)
+	}
+
+	projectB := &core.Project{Name: "Project Beta", Kind: core.ProjectGeneral}
+	if _, err := store.CreateProject(ctx, projectB); err != nil {
+		t.Fatalf("create project B: %v", err)
+	}
+	if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
+		ProjectID: projectB.ID,
+		Kind:      core.ResourceKindLocalFS,
+		RootURI:   t.TempDir(),
+		Label:     "workspace",
+	}); err != nil {
+		t.Fatalf("create resource space B: %v", err)
+	}
+
+	projectNoMount := &core.Project{Name: "Project No Mount", Kind: core.ProjectGeneral}
+	if _, err := store.CreateProject(ctx, projectNoMount); err != nil {
+		t.Fatalf("create project without mount: %v", err)
+	}
+
+	result, err := svc.CreateThread(ctx, CreateThreadInput{
+		Title:   "auto-mount-thread",
+		OwnerID: "owner-1",
+	})
+	if err != nil {
+		t.Fatalf("CreateThread: %v", err)
+	}
+
+	refs, err := store.ListThreadContextRefs(ctx, result.Thread.ID)
+	if err != nil {
+		t.Fatalf("list context refs: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("expected 2 auto-mounted refs, got %+v", refs)
+	}
+	projectIDs := map[int64]bool{}
+	for _, ref := range refs {
+		projectIDs[ref.ProjectID] = true
+		if ref.Access != core.ContextAccessRead {
+			t.Fatalf("expected read access, got %+v", ref)
+		}
+	}
+	if !projectIDs[projectA.ID] || !projectIDs[projectB.ID] {
+		t.Fatalf("expected projects %d and %d to be mounted, got %+v", projectA.ID, projectB.ID, refs)
+	}
+	if projectIDs[projectNoMount.ID] {
+		t.Fatalf("project without resolvable mount should be skipped, refs=%+v", refs)
+	}
+
+	thread, err := store.GetThread(ctx, result.Thread.ID)
+	if err != nil {
+		t.Fatalf("get thread: %v", err)
+	}
+	if focusProjectID, ok := core.ReadThreadFocusProjectID(thread); !ok || focusProjectID != projectB.ID {
+		t.Fatalf("expected focus project %d, got (%d, %v)", projectB.ID, focusProjectID, ok)
+	}
+}
+
 func TestServiceCreateThreadRollsBackWhenWorkspaceSyncFails(t *testing.T) {
 	store := newThreadAppTestStore(t)
 	workspace := &workspaceStub{err: errors.New("sync failed")}

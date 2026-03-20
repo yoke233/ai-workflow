@@ -22,6 +22,7 @@ type threadMessageInput struct {
 	ReplyToMessageID *int64
 	Metadata         map[string]any
 	TargetAgentID    string
+	TargetAgentIDs   []string
 }
 
 type threadMessageAPIError struct {
@@ -93,10 +94,32 @@ func (h *Handler) validateReplyToThreadMessage(ctx context.Context, threadID int
 	return &threadMessageAPIError{Code: "REPLY_TO_NOT_FOUND", Message: "reply_to_msg_id not found"}
 }
 
-func (h *Handler) resolveThreadMessageRecipients(ctx context.Context, thread *core.Thread, message string, targetAgentID string) ([]string, error) {
-	targetAgentID = strings.TrimSpace(targetAgentID)
+func normalizeTargetAgentIDs(targetAgentID string, targetAgentIDs []string) []string {
+	seen := make(map[string]struct{}, len(targetAgentIDs)+1)
+	normalized := make([]string, 0, len(targetAgentIDs)+1)
+	appendID := func(raw string) {
+		profileID := strings.TrimSpace(raw)
+		if profileID == "" {
+			return
+		}
+		if _, exists := seen[profileID]; exists {
+			return
+		}
+		seen[profileID] = struct{}{}
+		normalized = append(normalized, profileID)
+	}
+
+	appendID(targetAgentID)
+	for _, profileID := range targetAgentIDs {
+		appendID(profileID)
+	}
+	return normalized
+}
+
+func (h *Handler) resolveThreadMessageRecipients(ctx context.Context, thread *core.Thread, message string, targetAgentID string, targetAgentIDs []string) ([]string, error) {
+	normalizedTargetIDs := normalizeTargetAgentIDs(targetAgentID, targetAgentIDs)
 	if h.threadPool == nil {
-		if targetAgentID != "" {
+		if len(normalizedTargetIDs) > 0 {
 			return nil, &threadMessageAPIError{Code: "TARGET_AGENT_UNAVAILABLE", Message: "thread agent runtime is not configured"}
 		}
 		return nil, nil
@@ -114,14 +137,16 @@ func (h *Handler) resolveThreadMessageRecipients(ctx context.Context, thread *co
 	}
 	useParticipantFilter := len(agentParticipants) > 0
 
-	if targetAgentID != "" {
-		if !activeSet[targetAgentID] {
-			return nil, &threadMessageAPIError{Code: "TARGET_AGENT_UNAVAILABLE", Message: "target agent is not active in this thread"}
+	if len(normalizedTargetIDs) > 0 {
+		for _, profileID := range normalizedTargetIDs {
+			if !activeSet[profileID] {
+				return nil, &threadMessageAPIError{Code: "TARGET_AGENT_UNAVAILABLE", Message: "target agent is not active in this thread"}
+			}
+			if useParticipantFilter && !agentParticipants[profileID] {
+				return nil, &threadMessageAPIError{Code: "TARGET_AGENT_UNAVAILABLE", Message: "target agent is not active in this thread"}
+			}
 		}
-		if useParticipantFilter && !agentParticipants[targetAgentID] {
-			return nil, &threadMessageAPIError{Code: "TARGET_AGENT_UNAVAILABLE", Message: "target agent is not active in this thread"}
-		}
-		return []string{targetAgentID}, nil
+		return normalizedTargetIDs, nil
 	}
 
 	routingMode := readThreadAgentRoutingMode(thread)
@@ -261,7 +286,7 @@ func (h *Handler) createThreadMessageAndRoute(ctx context.Context, input threadM
 		if isBroadcast && h.threadPool != nil {
 			recipients = h.threadPool.ActiveAgentProfileIDs(thread.ID)
 		} else {
-			recipients, err = h.resolveThreadMessageRecipients(ctx, thread, content, input.TargetAgentID)
+			recipients, err = h.resolveThreadMessageRecipients(ctx, thread, content, input.TargetAgentID, input.TargetAgentIDs)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -270,11 +295,25 @@ func (h *Handler) createThreadMessageAndRoute(ctx context.Context, input threadM
 
 	metadata := cloneAnyMap(input.Metadata)
 	targetAgentID := strings.TrimSpace(input.TargetAgentID)
+	targetAgentIDs := normalizeTargetAgentIDs(targetAgentID, input.TargetAgentIDs)
 	if targetAgentID != "" {
 		if metadata == nil {
 			metadata = map[string]any{}
 		}
 		metadata["target_agent_id"] = targetAgentID
+	}
+	if len(targetAgentIDs) > 0 {
+		if metadata == nil {
+			metadata = map[string]any{}
+		}
+		if len(targetAgentIDs) == 1 {
+			metadata["target_agent_id"] = targetAgentIDs[0]
+		}
+		targetIDs := make([]any, len(targetAgentIDs))
+		for i, profileID := range targetAgentIDs {
+			targetIDs[i] = profileID
+		}
+		metadata["target_agent_ids"] = targetIDs
 	}
 
 	// For auto-routing, record which agents were selected so the frontend can show routing tags.
@@ -318,6 +357,13 @@ func (h *Handler) createThreadMessageAndRoute(ctx context.Context, input threadM
 	}
 	if targetAgentID != "" {
 		eventData["target_agent_id"] = targetAgentID
+	}
+	if len(targetAgentIDs) > 0 {
+		targetIDs := make([]any, len(targetAgentIDs))
+		for i, profileID := range targetAgentIDs {
+			targetIDs[i] = profileID
+		}
+		eventData["target_agent_ids"] = targetIDs
 	}
 	if isAutoRouted {
 		routedIDs := make([]any, len(recipients))

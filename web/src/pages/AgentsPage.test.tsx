@@ -81,6 +81,14 @@ describe("AgentsPage", () => {
           },
         ],
       }),
+      listSkills: vi.fn().mockResolvedValue([
+        {
+          name: "planner",
+          has_skill_md: true,
+          valid: true,
+          metadata: { name: "planner", description: "Plan tasks" },
+        },
+      ]),
       getSandboxSupport: vi.fn().mockResolvedValue({
         os: "windows",
         arch: "amd64",
@@ -160,6 +168,7 @@ describe("AgentsPage", () => {
           },
         ],
       }),
+      listSkills: vi.fn().mockResolvedValue([]),
       getSandboxSupport: vi.fn().mockResolvedValue({
         os: "linux",
         arch: "amd64",
@@ -181,6 +190,7 @@ describe("AgentsPage", () => {
     expect(apiClient.listDrivers).toHaveBeenCalledTimes(1);
     expect(apiClient.listProfiles).toHaveBeenCalledTimes(1);
     expect(apiClient.getLLMConfig).toHaveBeenCalledTimes(1);
+    expect(apiClient.listSkills).toHaveBeenCalledTimes(1);
     expect(apiClient.getSandboxSupport).toHaveBeenCalledTimes(1);
 
     wsClient.emit("runtime.config_reloaded", {});
@@ -189,7 +199,107 @@ describe("AgentsPage", () => {
       expect(apiClient.listDrivers).toHaveBeenCalledTimes(2);
       expect(apiClient.listProfiles).toHaveBeenCalledTimes(2);
       expect(apiClient.getLLMConfig).toHaveBeenCalledTimes(2);
+      expect(apiClient.listSkills).toHaveBeenCalledTimes(2);
       expect(apiClient.getSandboxSupport).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("支持点击 profile 打开弹窗并从系统列表选择 skill", async () => {
+    const wsClient = createWsClientMock();
+    const apiClient = {
+      listDrivers: vi.fn().mockResolvedValue([
+        {
+          id: "codex-acp",
+          launch_command: "npx",
+          launch_args: ["-y", "@zed-industries/codex-acp"],
+          capabilities_max: { fs_read: true, fs_write: true, terminal: true },
+        },
+      ]),
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: "lead",
+          name: "Lead Agent",
+          role: "lead",
+          driver_id: "codex-acp",
+          skills: ["plan-actions"],
+          actions_allowed: ["read_context", "submit"],
+          capabilities: ["planning"],
+          session: { reuse: true, max_turns: 8 },
+        },
+      ]),
+      getLLMConfig: vi.fn().mockResolvedValue({
+        default_config_id: "openai-prod",
+        configs: [
+          {
+            id: "openai-prod",
+            type: "openai_response",
+            model: "gpt-5.4",
+          },
+          {
+            id: "anthropic-prod",
+            type: "anthropic",
+            model: "claude-opus-4-6",
+          },
+        ],
+      }),
+      listSkills: vi.fn().mockResolvedValue([
+        {
+          name: "plan-actions",
+          has_skill_md: true,
+          valid: true,
+          metadata: { name: "plan-actions", description: "Planning helpers" },
+        },
+        {
+          name: "strict-review",
+          has_skill_md: true,
+          valid: true,
+          metadata: { name: "strict-review", description: "Review helpers" },
+        },
+      ]),
+      getSandboxSupport: vi.fn().mockResolvedValue({
+        os: "windows",
+        arch: "amd64",
+        enabled: true,
+        configured_provider: "docker",
+        current_provider: "docker",
+        current_supported: true,
+        providers: {},
+      }),
+      updateLLMConfig: vi.fn(),
+      updateProfile: vi.fn().mockResolvedValue({}),
+      createProfile: vi.fn(),
+      createDriver: vi.fn(),
+      updateDriver: vi.fn(),
+      deleteDriver: vi.fn(),
+      deleteProfile: vi.fn(),
+    };
+
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    renderPage();
+
+    fireEvent.click(await screen.findByText("Lead Agent"));
+
+    expect(await screen.findByText("编辑配置")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText(/strict-review/i));
+    fireEvent.click(screen.getAllByRole("button", { name: "保存配置" }).at(-1)!);
+
+    await waitFor(() => {
+      expect(apiClient.updateProfile).toHaveBeenCalledWith(
+        "lead",
+        expect.objectContaining({
+          id: "lead",
+          name: "Lead Agent",
+          driver_id: "codex-acp",
+          role: "lead",
+          skills: ["plan-actions", "strict-review"],
+          llm_config_id: undefined,
+          session: expect.objectContaining({
+            reuse: true,
+            max_turns: 8,
+          }),
+        }),
+      );
     });
   });
 });

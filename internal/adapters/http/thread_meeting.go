@@ -114,11 +114,32 @@ func (h *Handler) runDirectThreadDispatch(thread *core.Thread, message *core.Thr
 	}
 	ctx := context.Background()
 	h.publishThreadThinking(ctx, message.ThreadID, profileID, message.ID)
-	routedMessage := stripLeadingThreadMention(message.Content, profileID, targetAgentID)
-	routedMessage = enrichMessageWithFileRefs(routedMessage, message.Metadata)
+	routedMessage := buildDirectThreadDispatchPrompt(message, profileID, targetAgentID)
 	if sendErr := h.threadPool.SendMessage(ctx, message.ThreadID, profileID, routedMessage); sendErr != nil {
 		h.publishThreadAgentFailure(ctx, message.ThreadID, profileID, sendErr)
 	}
+}
+
+func buildDirectThreadDispatchPrompt(message *core.ThreadMessage, profileID string, targetAgentID string) string {
+	if message == nil {
+		return ""
+	}
+
+	trimmedContent := strings.TrimSpace(message.Content)
+	strippedContent := strings.TrimSpace(stripLeadingThreadMention(message.Content, profileID, targetAgentID))
+	if targetAgentID == "" || profileID != targetAgentID {
+		return enrichMessageWithFileRefs(strippedContent, message.Metadata)
+	}
+
+	var b strings.Builder
+	b.WriteString("下面这条消息在 thread 中明确 @了你，请把它视为当前任务并直接执行，不要等待额外分配。\n\n")
+	b.WriteString("用户原始消息：\n")
+	b.WriteString(enrichMessageWithFileRefs(trimmedContent, message.Metadata))
+	if strippedContent != "" && strippedContent != trimmedContent {
+		b.WriteString("\n\n去掉 @mention 后你需要处理的内容：\n")
+		b.WriteString(enrichMessageWithFileRefs(strippedContent, message.Metadata))
+	}
+	return b.String()
 }
 
 func (h *Handler) runConcurrentMeeting(ctx context.Context, thread *core.Thread, source *core.ThreadMessage, profileIDs []string) {

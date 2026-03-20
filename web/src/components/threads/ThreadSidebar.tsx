@@ -99,11 +99,16 @@ export interface ThreadSidebarProps {
   onInviteAgent: () => void;
   onClearInviteSelection?: () => void;
   agentSessionsWithProfileID: AgentSessionWithProfileID[];
+  selectedDiscussionAgentIDs: Set<string>;
   profileByID: Map<string, AgentProfile>;
   highlightedAgentProfileID: string | null;
   agentCardRefs: MutableRefObject<Record<string, HTMLDivElement | null>>;
   removingAgentID: number | null;
   onRemoveAgent: (agentSessionID: number) => void;
+  onToggleDiscussionAgentSelection: (profileID: string) => void;
+  onStartDiscussionWithAgents: () => void;
+  onClearDiscussionAgents: () => void;
+  canStartDiscussionWithAgent: (status: string) => boolean;
   agentStatusColor: (status: string) => string;
 
   // Members: participants
@@ -243,11 +248,16 @@ export function ThreadSidebar(props: ThreadSidebarProps) {
 
 function MembersSection({
   agentSessionsWithProfileID,
+  selectedDiscussionAgentIDs,
   profileByID,
   highlightedAgentProfileID,
   agentCardRefs,
   removingAgentID,
   onRemoveAgent,
+  onToggleDiscussionAgentSelection,
+  onStartDiscussionWithAgents,
+  onClearDiscussionAgents,
+  canStartDiscussionWithAgent,
   agentStatusColor,
   participants,
   inviteableProfiles,
@@ -268,9 +278,45 @@ function MembersSection({
 
   return (
     <div className="space-y-3">
+      {selectedDiscussionAgentIDs.size > 0 && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50/70 p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-medium text-blue-700">
+              {t("threads.selectedDiscussionAgents", {
+                defaultValue: "已选择 {{count}} 个 agent 参与讨论",
+                count: selectedDiscussionAgentIDs.size,
+              })}
+            </span>
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                className="h-6 px-2 text-[10px]"
+                onClick={onStartDiscussionWithAgents}
+              >
+                {t("threads.startDiscussion", {
+                  defaultValue: "开始讨论",
+                })}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-[10px]"
+                onClick={onClearDiscussionAgents}
+              >
+                {t("common.clear", { defaultValue: "清空" })}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Agent list */}
       {agentSessionsWithProfileID.map((session) => {
         const profile = profileByID.get(session.agent_profile_id);
+        const selectable = canStartDiscussionWithAgent(session.status ?? "unknown");
+        const selectedForDiscussion = selectedDiscussionAgentIDs.has(
+          session.agent_profile_id,
+        );
         return (
           <div
             key={session.id}
@@ -282,9 +328,41 @@ function MembersSection({
               "flex items-center gap-2.5 rounded-lg border p-2 transition-all",
               highlightedAgentProfileID === session.agent_profile_id
                 ? "border-blue-300 bg-blue-50 shadow-sm"
-                : "border-border/50",
+                : selectedForDiscussion
+                  ? "border-emerald-300 bg-emerald-50/70"
+                  : "border-border/50",
             )}
           >
+            <button
+              type="button"
+              className={cn(
+                "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors",
+                selectedForDiscussion
+                  ? "border-emerald-500 bg-emerald-500 text-white"
+                  : "border-slate-300 bg-white text-transparent",
+                !selectable && "cursor-not-allowed opacity-40",
+              )}
+              onClick={() =>
+                selectable &&
+                onToggleDiscussionAgentSelection(session.agent_profile_id)
+              }
+              disabled={!selectable}
+              aria-label={t("threads.toggleDiscussionAgentAria", {
+                defaultValue: "Select {{agent}} for discussion",
+                agent: session.agent_profile_id,
+              })}
+              title={
+                selectable
+                  ? t("threads.selectAgentForDiscussion", {
+                      defaultValue: "选择此 agent 参与讨论",
+                    })
+                  : t("threads.agentNotReadyForDiscussion", {
+                      defaultValue: "只有 active 状态的 agent 才能参与讨论",
+                    })
+              }
+            >
+              <Check className="h-3 w-3" />
+            </button>
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
               <Bot className="h-3.5 w-3.5" />
             </div>

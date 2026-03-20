@@ -195,8 +195,34 @@ func PrepareLaunch(_ context.Context, cfg BootstrapConfig) (LaunchConfig, error)
 	for k, v := range cfg.ExtraEnv {
 		launch.Env[k] = v
 	}
+	ensureClaudeCodeEnv(&launch)
 
 	return launch, nil
+}
+
+func ensureClaudeCodeEnv(launch *LaunchConfig) {
+	if launch == nil {
+		return
+	}
+	haystack := strings.ToLower(strings.TrimSpace(launch.Command))
+	for _, arg := range launch.Args {
+		if trimmed := strings.TrimSpace(arg); trimmed != "" {
+			haystack += " " + strings.ToLower(trimmed)
+		}
+	}
+	if !strings.Contains(haystack, "claude-agent-acp") {
+		return
+	}
+	if launch.Env == nil {
+		launch.Env = map[string]string{}
+	}
+	if _, exists := launch.Env["CLAUDECODE"]; exists {
+		return
+	}
+	// Keep Claude ACP on the CLI runtime path used by our acp-probe and
+	// prior successful traces. Without this, thread boot has intermittently
+	// failed during session/new on Windows.
+	launch.Env["CLAUDECODE"] = ""
 }
 
 // InitCapabilities returns the ClientCapabilities derived from a profile.

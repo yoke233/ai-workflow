@@ -289,6 +289,8 @@ export interface ApiClient {
 
   listProfiles(): Promise<AgentProfile[]>;
   createProfile(body: AgentProfile): Promise<AgentProfile>;
+  updateProfile(profileId: string, body: AgentProfile): Promise<AgentProfile>;
+  deleteProfile(profileId: string): Promise<void>;
   listDrivers(): Promise<AgentDriver[]>;
   createDriver(body: AgentDriver): Promise<AgentDriver>;
   updateDriver(driverId: string, body: AgentDriver): Promise<AgentDriver>;
@@ -921,6 +923,17 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: "/agents/profiles",
         method: "POST",
         body,
+      }),
+    updateProfile: (profileId, body) =>
+      request<AgentProfile, AgentProfile>({
+        path: `/agents/profiles/${encodeURIComponent(profileId)}`,
+        method: "PUT",
+        body,
+      }),
+    deleteProfile: (profileId) =>
+      request<void>({
+        path: `/agents/profiles/${encodeURIComponent(profileId)}`,
+        method: "DELETE",
       }),
     listSkills: () =>
       request<SkillInfo[]>({

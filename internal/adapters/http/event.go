@@ -612,6 +612,7 @@ type wsThreadSendRequest struct {
 	Message          string         `json:"message"`
 	SenderID         string         `json:"sender_id,omitempty"`
 	TargetAgentID    string         `json:"target_agent_id,omitempty"`
+	TargetAgentIDs   []string       `json:"target_agent_ids,omitempty"`
 	ReplyToMessageID *int64         `json:"reply_to_msg_id,omitempty"`
 	Metadata         map[string]any `json:"metadata,omitempty"`
 }
@@ -680,6 +681,7 @@ func (h *Handler) handleWSThreadSend(msg wsMessage, writeJSON func(v any) error)
 		Content:          req.Message,
 		ReplyToMessageID: req.ReplyToMessageID,
 		TargetAgentID:    targetAgentID,
+		TargetAgentIDs:   req.TargetAgentIDs,
 		Metadata:         req.Metadata,
 	})
 	if err != nil {
