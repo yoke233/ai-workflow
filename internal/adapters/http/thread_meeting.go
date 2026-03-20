@@ -127,12 +127,11 @@ func buildDirectThreadDispatchPrompt(message *core.ThreadMessage, profileID stri
 
 	trimmedContent := strings.TrimSpace(message.Content)
 	strippedContent := strings.TrimSpace(stripLeadingThreadMention(message.Content, profileID, targetAgentID))
-	if targetAgentID == "" || profileID != targetAgentID {
-		return enrichMessageWithFileRefs(strippedContent, message.Metadata)
-	}
 
 	var b strings.Builder
-	b.WriteString("下面这条消息在 thread 中明确 @了你，请把它视为当前任务并直接执行，不要等待额外分配。\n\n")
+	b.WriteString("下面这条消息已经被 thread runtime 路由给你，请把它视为当前任务并直接执行。\n")
+	b.WriteString("路由来源可能是：明确 @你、用户手动选择你、broadcast、或 auto 匹配。\n")
+	b.WriteString("不要因为消息文本里没有 @你，就等待额外分配。\n\n")
 	b.WriteString("用户原始消息：\n")
 	b.WriteString(enrichMessageWithFileRefs(trimmedContent, message.Metadata))
 	if strippedContent != "" && strippedContent != trimmedContent {

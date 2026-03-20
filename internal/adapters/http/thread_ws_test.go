@@ -257,8 +257,11 @@ func TestAPI_WebSocket_ThreadSend_TargetAgent(t *testing.T) {
 	if !strings.Contains(threadPool.sendCalls[0].message, "@worker-a 请处理这个问题") {
 		t.Fatalf("message = %q, want original mention content", threadPool.sendCalls[0].message)
 	}
-	if !strings.Contains(threadPool.sendCalls[0].message, "明确 @了你") {
-		t.Fatalf("message = %q, want explicit targeted dispatch prompt", threadPool.sendCalls[0].message)
+	if !strings.Contains(threadPool.sendCalls[0].message, "已经被 thread runtime 路由给你") {
+		t.Fatalf("message = %q, want routed dispatch prompt", threadPool.sendCalls[0].message)
+	}
+	if strings.Contains(threadPool.sendCalls[0].message, "明确 @了你") {
+		t.Fatalf("message = %q, should not hardcode explicit mention routing", threadPool.sendCalls[0].message)
 	}
 
 	msgs, err := h.store.ListThreadMessages(context.Background(), thread.ID, 10, 0)
@@ -522,6 +525,9 @@ func TestAPI_WebSocket_ThreadSend_AutoModeRoutesToBestMatchingAgent(t *testing.T
 	}
 	if threadPool.sendCalls[0].profileID != "worker-a" {
 		t.Fatalf("profile_id = %q, want worker-a", threadPool.sendCalls[0].profileID)
+	}
+	if !strings.Contains(threadPool.sendCalls[0].message, "不要因为消息文本里没有 @你") {
+		t.Fatalf("message = %q, want non-mention dispatch instruction", threadPool.sendCalls[0].message)
 	}
 
 	msgs, err := h.store.ListThreadMessages(context.Background(), thread.ID, 10, 0)
