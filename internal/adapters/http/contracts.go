@@ -16,6 +16,7 @@ type Store interface {
 	core.ActionIODeclStore
 	core.WorkItemStore
 	core.InitiativeStore
+	core.ProposalStore
 	core.ThreadStore
 	core.ActionStore
 	core.RunStore

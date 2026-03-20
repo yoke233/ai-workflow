@@ -1169,14 +1169,21 @@ func TestIntegration_GateReworkLimitBlocked(t *testing.T) {
 	}
 
 	// Verify rework limit event was persisted.
-	time.Sleep(100 * time.Millisecond)
-	resp, _ = getJSON(ts, fmt.Sprintf("/work-items/%d/events", issue.ID))
-	events := decode[[]*core.Event](t, resp)
 	hasLimitEvent := false
-	for _, ev := range events {
-		if ev.Type == core.EventGateReworkLimitReached {
-			hasLimitEvent = true
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, _ = getJSON(ts, fmt.Sprintf("/work-items/%d/events", issue.ID))
+		events := decode[[]*core.Event](t, resp)
+		for _, ev := range events {
+			if ev.Type == core.EventGateReworkLimitReached {
+				hasLimitEvent = true
+				break
+			}
 		}
+		if hasLimitEvent {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	if !hasLimitEvent {
 		t.Error("expected gate.rework_limit_reached event")

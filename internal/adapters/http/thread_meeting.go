@@ -290,6 +290,7 @@ func buildGroupChatMeetingPrompt(source *core.ThreadMessage, profileIDs []string
 	b.WriteString("如果你只是承接其中一段，就先完成这一段，不要试图一条消息包办全部讨论。\n")
 	b.WriteString("如果你还在等待某位参与者的前置结果，直接说明你在等谁；如果你认为下一轮最适合由某位参与者接力，也请点名说明原因。\n")
 	b.WriteString("如果你认为讨论已经收敛，可以在回复开头写 [FINAL]。\n\n")
+	b.WriteString("如果讨论已经形成较稳定的方案，请顺手把它收敛成一个可审批提案：给出标题、摘要、涉及项目、WorkItem 草案以及依赖关系。\n\n")
 	b.WriteString("最新消息：\n")
 	b.WriteString(enrichMessageWithFileRefs(source.Content, source.Metadata))
 	if len(turns) > 0 {

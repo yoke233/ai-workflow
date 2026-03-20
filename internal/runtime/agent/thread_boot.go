@@ -128,6 +128,11 @@ func BuildBootPrompt(in ThreadBootInput) string {
 	// Instructions.
 	b.WriteString("## Instructions\n")
 	b.WriteString("You are joining this thread. Review the context above, treat each routed message as the baton currently in your hand, complete the part you own, say clearly when you are waiting on someone or handing off to the next participant, and avoid trying to finish everyone else's work in one turn.\n")
+	if in.Thread != nil && in.AgentProfile != nil {
+		if mode, _ := in.Thread.Metadata["meeting_mode"].(string); mode == "group_chat" && in.AgentProfile.HasAgentAction(core.AgentActionCreateProposal) {
+			b.WriteString("When the discussion has converged, you may crystallize it into a proposal with a clear title, summary, involved projects, work item drafts, and dependency links so a human can review it.\n")
+		}
+	}
 
 	return b.String()
 }

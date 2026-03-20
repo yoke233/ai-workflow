@@ -31,6 +31,7 @@ func autoMigrate(ctx context.Context, orm *gorm.DB) error {
 		&InitiativeModel{},
 		&InitiativeItemModel{},
 		&ThreadInitiativeLinkModel{},
+		&ThreadProposalModel{},
 		&ThreadContextRefModel{},
 		&ThreadAttachmentModel{},
 		&FeatureEntryModel{},

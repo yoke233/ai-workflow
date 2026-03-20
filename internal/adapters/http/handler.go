@@ -166,6 +166,7 @@ func (h *Handler) Register(r chi.Router) {
 	// Work Item public routes.
 	h.registerWorkItemRoutes(r, "/work-items")
 	registerInitiativeRoutes(r, h)
+	registerProposalRoutes(r, h)
 
 	// Resources (files/objects)
 	r.Post("/messages/{messageID}/resources", h.uploadMessageResource)

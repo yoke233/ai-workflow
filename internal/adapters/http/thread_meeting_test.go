@@ -56,6 +56,8 @@ func TestBuildGroupChatMeetingPrompt_EncouragesRelayCollaboration(t *testing.T) 
 		"不要试图一条消息包办全部讨论",
 		"说明你在等谁",
 		"最适合由某位参与者接力",
+		"可审批提案",
+		"WorkItem 草案",
 		"本次会议已有发言",
 	} {
 		if !strings.Contains(out, want) {

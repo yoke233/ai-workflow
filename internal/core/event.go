@@ -50,13 +50,19 @@ const (
 	EventChatPermissionRequest EventType = "chat.permission_request"
 
 	// Thread events for multi-participant discussion.
-	EventThreadMessage       EventType = "thread.message"
-	EventThreadAgentJoined   EventType = "thread.agent_joined"
-	EventThreadAgentLeft     EventType = "thread.agent_left"
-	EventThreadAgentOutput   EventType = "thread.agent_output"
-	EventThreadAgentBooted   EventType = "thread.agent_booted"
-	EventThreadAgentFailed   EventType = "thread.agent_failed"
-	EventThreadAgentThinking EventType = "thread.agent_thinking"
+	EventThreadMessage           EventType = "thread.message"
+	EventThreadAgentJoined       EventType = "thread.agent_joined"
+	EventThreadAgentLeft         EventType = "thread.agent_left"
+	EventThreadAgentOutput       EventType = "thread.agent_output"
+	EventThreadAgentBooted       EventType = "thread.agent_booted"
+	EventThreadAgentFailed       EventType = "thread.agent_failed"
+	EventThreadAgentThinking     EventType = "thread.agent_thinking"
+	EventThreadProposalCreated   EventType = "thread.proposal.created"
+	EventThreadProposalSubmitted EventType = "thread.proposal.submitted"
+	EventThreadProposalApproved  EventType = "thread.proposal.approved"
+	EventThreadProposalRejected  EventType = "thread.proposal.rejected"
+	EventThreadProposalRevised   EventType = "thread.proposal.revised"
+	EventThreadProposalMerged    EventType = "thread.proposal.merged"
 
 	// ThreadTask events for lightweight in-thread DAG execution.
 	EventThreadTaskGroupCreated   EventType = "thread.task_group.created"

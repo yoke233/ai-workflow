@@ -16,17 +16,19 @@ const (
 type AgentAction string
 
 const (
-	AgentActionReadContext AgentAction = "read_context"
-	AgentActionSearchFiles AgentAction = "search_files"
-	AgentActionFSWrite     AgentAction = "fs_write"
-	AgentActionTerminal    AgentAction = "terminal"
-	AgentActionSubmit      AgentAction = "submit"
-	AgentActionMarkBlocked AgentAction = "mark_blocked"
-	AgentActionRequestHelp AgentAction = "request_help"
-	AgentActionApprove     AgentAction = "approve"
-	AgentActionReject      AgentAction = "reject"
-	AgentActionCreateStep  AgentAction = "create_step"
-	AgentActionExpandFlow  AgentAction = "expand_flow"
+	AgentActionReadContext    AgentAction = "read_context"
+	AgentActionSearchFiles    AgentAction = "search_files"
+	AgentActionFSWrite        AgentAction = "fs_write"
+	AgentActionTerminal       AgentAction = "terminal"
+	AgentActionSubmit         AgentAction = "submit"
+	AgentActionMarkBlocked    AgentAction = "mark_blocked"
+	AgentActionRequestHelp    AgentAction = "request_help"
+	AgentActionApprove        AgentAction = "approve"
+	AgentActionReject         AgentAction = "reject"
+	AgentActionCreateStep     AgentAction = "create_step"
+	AgentActionExpandFlow     AgentAction = "expand_flow"
+	AgentActionCreateProposal AgentAction = "create_proposal"
+	AgentActionSubmitProposal AgentAction = "submit_proposal"
 )
 
 // DriverConfig holds process-level launch configuration for an agent profile.
@@ -78,7 +80,7 @@ func DefaultAgentActions(role AgentRole) []AgentAction {
 	common := []AgentAction{AgentActionReadContext, AgentActionSearchFiles, AgentActionSubmit, AgentActionMarkBlocked, AgentActionRequestHelp}
 	switch role {
 	case RoleLead:
-		return append(common, AgentActionFSWrite, AgentActionTerminal, AgentActionCreateStep, AgentActionExpandFlow)
+		return append(common, AgentActionFSWrite, AgentActionTerminal, AgentActionCreateStep, AgentActionExpandFlow, AgentActionCreateProposal, AgentActionSubmitProposal)
 	case RoleWorker:
 		return append(common, AgentActionFSWrite, AgentActionTerminal)
 	case RoleGate:

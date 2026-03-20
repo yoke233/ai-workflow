@@ -497,6 +497,75 @@ func threadInitiativeLinkModelFromCore(link *core.ThreadInitiativeLink) *ThreadI
 	}
 }
 
+type ThreadProposalModel struct {
+	ID              int64                                   `gorm:"column:id;primaryKey;autoIncrement"`
+	ThreadID        int64                                   `gorm:"column:thread_id;not null;index"`
+	Title           string                                  `gorm:"column:title;not null"`
+	Summary         string                                  `gorm:"column:summary;not null;default:''"`
+	Content         string                                  `gorm:"column:content;not null;default:''"`
+	ProposedBy      string                                  `gorm:"column:proposed_by;not null;default:''"`
+	Status          string                                  `gorm:"column:status;not null;index"`
+	ReviewedBy      *string                                 `gorm:"column:reviewed_by"`
+	ReviewedAt      *time.Time                              `gorm:"column:reviewed_at"`
+	ReviewNote      string                                  `gorm:"column:review_note;not null;default:''"`
+	WorkItemDrafts  JSONField[[]core.ProposalWorkItemDraft] `gorm:"column:work_item_drafts;type:text"`
+	SourceMessageID *int64                                  `gorm:"column:source_message_id"`
+	InitiativeID    *int64                                  `gorm:"column:initiative_id"`
+	Metadata        JSONField[map[string]any]               `gorm:"column:metadata;type:text"`
+	CreatedAt       time.Time                               `gorm:"column:created_at"`
+	UpdatedAt       time.Time                               `gorm:"column:updated_at"`
+}
+
+func (ThreadProposalModel) TableName() string { return "thread_proposals" }
+
+func (m *ThreadProposalModel) toCore() *core.ThreadProposal {
+	if m == nil {
+		return nil
+	}
+	return &core.ThreadProposal{
+		ID:              m.ID,
+		ThreadID:        m.ThreadID,
+		Title:           m.Title,
+		Summary:         m.Summary,
+		Content:         m.Content,
+		ProposedBy:      m.ProposedBy,
+		Status:          core.ProposalStatus(m.Status),
+		ReviewedBy:      m.ReviewedBy,
+		ReviewedAt:      m.ReviewedAt,
+		ReviewNote:      m.ReviewNote,
+		WorkItemDrafts:  m.WorkItemDrafts.Data,
+		SourceMessageID: m.SourceMessageID,
+		InitiativeID:    m.InitiativeID,
+		Metadata:        m.Metadata.Data,
+		CreatedAt:       m.CreatedAt,
+		UpdatedAt:       m.UpdatedAt,
+	}
+}
+
+func threadProposalModelFromCore(proposal *core.ThreadProposal) *ThreadProposalModel {
+	if proposal == nil {
+		return nil
+	}
+	return &ThreadProposalModel{
+		ID:              proposal.ID,
+		ThreadID:        proposal.ThreadID,
+		Title:           proposal.Title,
+		Summary:         proposal.Summary,
+		Content:         proposal.Content,
+		ProposedBy:      proposal.ProposedBy,
+		Status:          string(proposal.Status),
+		ReviewedBy:      proposal.ReviewedBy,
+		ReviewedAt:      proposal.ReviewedAt,
+		ReviewNote:      proposal.ReviewNote,
+		WorkItemDrafts:  JSONField[[]core.ProposalWorkItemDraft]{Data: proposal.WorkItemDrafts},
+		SourceMessageID: proposal.SourceMessageID,
+		InitiativeID:    proposal.InitiativeID,
+		Metadata:        JSONField[map[string]any]{Data: proposal.Metadata},
+		CreatedAt:       proposal.CreatedAt,
+		UpdatedAt:       proposal.UpdatedAt,
+	}
+}
+
 type ThreadContextRefModel struct {
 	ID        int64      `gorm:"column:id;primaryKey;autoIncrement"`
 	ThreadID  int64      `gorm:"column:thread_id;not null;uniqueIndex:idx_thread_context_refs_thread_project"`

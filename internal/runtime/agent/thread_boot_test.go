@@ -251,3 +251,22 @@ func TestBuildBootPrompt_InstructionsEncourageRelayCollaboration(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildBootPrompt_GroupChatLeadEncouragesProposalConvergence(t *testing.T) {
+	thread := newThread("Proposal thread", core.ThreadActive)
+	thread.Metadata = map[string]any{"meeting_mode": "group_chat"}
+	out := BuildBootPrompt(ThreadBootInput{
+		Thread:       thread,
+		AgentProfile: newProfile("lead-1", core.RoleLead),
+	})
+
+	for _, want := range []string{
+		"crystallize it into a proposal",
+		"work item drafts",
+		"dependency links",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output should contain %q.\nOutput:\n%s", want, out)
+		}
+	}
+}
