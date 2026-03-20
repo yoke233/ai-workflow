@@ -197,6 +197,79 @@ export interface UpdateProjectRequest {
   metadata?: Record<string, string>;
 }
 
+export interface RequirementMatchedProject {
+  project_id: number;
+  project_name: string;
+  relevance?: "high" | "medium" | "low" | string;
+  reason?: string;
+  suggested_scope?: string;
+}
+
+export interface RequirementSuggestedAgent {
+  profile_id: string;
+  reason?: string;
+}
+
+export interface RequirementAnalysis {
+  summary: string;
+  type: "single_project" | "cross_project" | "new_project" | string;
+  matched_projects?: RequirementMatchedProject[];
+  suggested_agents?: RequirementSuggestedAgent[];
+  complexity?: "low" | "medium" | "high" | string;
+  suggested_meeting_mode?: "direct" | "concurrent" | "group_chat" | string;
+  risks?: string[];
+}
+
+export interface RequirementThreadContextRef {
+  project_id: number;
+  access?: "read" | "check" | "write" | string;
+}
+
+export interface RequirementSuggestedThread {
+  title: string;
+  context_refs?: RequirementThreadContextRef[];
+  agents?: string[];
+  meeting_mode?: "direct" | "concurrent" | "group_chat" | string;
+  meeting_max_rounds?: number;
+}
+
+export interface AnalyzeRequirementRequest {
+  description: string;
+  context?: string;
+}
+
+export interface AnalyzeRequirementResponse {
+  analysis: RequirementAnalysis;
+  suggested_thread: RequirementSuggestedThread;
+}
+
+export interface ThreadContextRef {
+  id: number;
+  thread_id: number;
+  project_id: number;
+  access: "read" | "check" | "write" | string;
+  note?: string;
+  granted_by?: string;
+  created_at: string;
+  expires_at?: string | null;
+}
+
+export interface CreateThreadFromRequirementRequest {
+  description: string;
+  context?: string;
+  owner_id?: string;
+  analysis?: RequirementAnalysis;
+  thread_config: RequirementSuggestedThread;
+}
+
+export interface CreateThreadFromRequirementResponse {
+  thread: Thread;
+  context_refs?: ThreadContextRef[];
+  agents?: string[];
+  message?: ThreadMessage;
+  invite_errors?: Record<string, string>;
+}
+
 export type ResourceSpaceKind = "git" | "local_fs" | "s3" | "http" | "webdav" | string;
 
 export interface ResourceSpace {

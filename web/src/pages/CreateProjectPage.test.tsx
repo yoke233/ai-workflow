@@ -73,8 +73,7 @@ describe("CreateProjectPage", () => {
       target: { value: "用于验证项目与 Git 资源创建" },
     });
 
-    const resourceInputs = screen.getAllByRole("textbox");
-    fireEvent.change(resourceInputs[2], {
+    fireEvent.change(screen.getByPlaceholderText("D:/project/my-repo"), {
       target: { value: "D:/project/alpha" },
     });
 
@@ -90,7 +89,7 @@ describe("CreateProjectPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "切换为 Git 仓库资源" }));
 
     expect(await screen.findByText("启用 PR/CR 流程")).toBeTruthy();
-    expect(screen.getByDisplayValue("github")).toBeTruthy();
+    expect(screen.getAllByText("github").length).toBeGreaterThan(0);
     expect(screen.getByDisplayValue("main")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
@@ -142,5 +141,60 @@ describe("CreateProjectPage", () => {
     expect(await screen.findByText("项目名称不能为空。")).toBeTruthy();
     expect(apiClient.createProject).not.toHaveBeenCalled();
     expect(apiClient.createProjectResource).not.toHaveBeenCalled();
+  });
+
+  it("填写需求路由元数据时会写入 project metadata", async () => {
+    const apiClient = {
+      detectGitInfo: vi.fn(),
+      createProject: vi.fn().mockResolvedValue({ id: 202 }),
+      createProjectResource: vi.fn().mockResolvedValue({}),
+    };
+
+    mockUseWorkbench.mockReturnValue({
+      apiClient,
+      reloadProjects: vi.fn().mockResolvedValue(undefined),
+    });
+
+    renderPage();
+
+    fireEvent.change(screen.getByPlaceholderText("例如：ai-workflow"), {
+      target: { value: "Beta Project" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("例如：负责认证、登录、两步验证和账号安全策略"), {
+      target: { value: "负责认证与登录安全" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("例如：go, gin, postgres"), {
+      target: { value: "go, postgres" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("例如：auth, otp, login"), {
+      target: { value: "auth, otp" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("例如：team-auth"), {
+      target: { value: "team-auth" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("例如：backend-api, infra-sms"), {
+      target: { value: "infra-sms" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("例如：arch-reviewer, backend-dev"), {
+      target: { value: "backend-dev" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "创建项目" }));
+
+    await waitFor(() => {
+      expect(apiClient.createProject).toHaveBeenCalledWith({
+        name: "Beta Project",
+        kind: "dev",
+        description: undefined,
+        metadata: {
+          scope: "负责认证与登录安全",
+          tech_stack: "go, postgres",
+          keywords: "auth, otp",
+          owner: "team-auth",
+          depends_on: "infra-sms",
+          agent_hints: "backend-dev",
+        },
+      });
+    });
   });
 });

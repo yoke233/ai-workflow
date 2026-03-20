@@ -290,7 +290,7 @@ export function CreateProfileDialog({
         session: {
           reuse: sessionReuse,
           max_turns: Number.parseInt(maxTurns, 10) || 0,
-          idle_ttl: parsedIdleTTL ?? undefined,
+          idle_ttl: normalizedIdleTTL || undefined,
         },
       });
       onClose();

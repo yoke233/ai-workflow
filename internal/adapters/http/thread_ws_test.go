@@ -17,6 +17,8 @@ import (
 type stubThreadAgentRuntime struct {
 	mu               sync.Mutex
 	activeProfileIDs []string
+	inviteCalls      []stubThreadSendCall
+	inviteErrs       map[string]error
 	sendCalls        []stubThreadSendCall
 	sendErr          error
 	promptCalls      []stubThreadSendCall
@@ -32,8 +34,34 @@ type stubThreadSendCall struct {
 	message   string
 }
 
-func (s *stubThreadAgentRuntime) InviteAgent(context.Context, int64, string) (*core.ThreadMember, error) {
-	return nil, nil
+func (s *stubThreadAgentRuntime) InviteAgent(_ context.Context, threadID int64, profileID string) (*core.ThreadMember, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.inviteErrs[profileID]; err != nil {
+		return nil, err
+	}
+	s.inviteCalls = append(s.inviteCalls, stubThreadSendCall{
+		threadID:  threadID,
+		profileID: profileID,
+	})
+	found := false
+	for _, id := range s.activeProfileIDs {
+		if id == profileID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.activeProfileIDs = append(s.activeProfileIDs, profileID)
+	}
+	return &core.ThreadMember{
+		ThreadID:       threadID,
+		Kind:           core.ThreadMemberKindAgent,
+		UserID:         profileID,
+		AgentProfileID: profileID,
+		Role:           core.ThreadMemberKindAgent,
+		Status:         core.ThreadAgentJoining,
+	}, nil
 }
 
 func (s *stubThreadAgentRuntime) WaitAgentReady(context.Context, int64, string) error {
@@ -100,6 +128,14 @@ func (s *stubThreadAgentRuntime) snapshotPromptCalls() []stubThreadSendCall {
 	defer s.mu.Unlock()
 	out := make([]stubThreadSendCall, len(s.promptCalls))
 	copy(out, s.promptCalls)
+	return out
+}
+
+func (s *stubThreadAgentRuntime) snapshotInviteCalls() []stubThreadSendCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]stubThreadSendCall, len(s.inviteCalls))
+	copy(out, s.inviteCalls)
 	return out
 }
 

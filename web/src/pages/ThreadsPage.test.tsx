@@ -74,6 +74,7 @@ describe("ThreadsPage", () => {
 
     expect(await screen.findByText("支付问题排查")).toBeTruthy();
     expect(screen.getByText("发布复盘")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "从需求创建" }).getAttribute("href")).toBe("/requirements/new");
 
     fireEvent.change(screen.getByPlaceholderText("Search threads..."), {
       target: { value: "发布" },

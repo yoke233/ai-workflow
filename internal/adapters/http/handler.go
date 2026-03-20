@@ -11,6 +11,7 @@ import (
 	issueapp "github.com/yoke233/zhanggui/internal/application/flow"
 	inspectionapp "github.com/yoke233/zhanggui/internal/application/inspection"
 	probeapp "github.com/yoke233/zhanggui/internal/application/probe"
+	requirementapp "github.com/yoke233/zhanggui/internal/application/requirementapp"
 	"github.com/yoke233/zhanggui/internal/core"
 	skillset "github.com/yoke233/zhanggui/internal/skills"
 )
@@ -32,6 +33,7 @@ type Handler struct {
 	prPrompts           issueapp.PRFlowPromptsProvider
 	gitPAT              string
 	textCompleter       TextCompleter
+	requirementLLM      requirementapp.LLMCompleter
 	threadPool          ThreadAgentRuntime
 	inspectionEngine    *inspectionapp.Engine
 	dataDir             string
@@ -114,6 +116,11 @@ func WithGitPAT(pat string) HandlerOption {
 // WithTextCompleter sets the LLM text completer for title generation, etc.
 func WithTextCompleter(tc TextCompleter) HandlerOption {
 	return func(h *Handler) { h.textCompleter = tc }
+}
+
+// WithRequirementCompleter sets the LLM completer used by requirement analysis.
+func WithRequirementCompleter(completer requirementapp.LLMCompleter) HandlerOption {
+	return func(h *Handler) { h.requirementLLM = completer }
 }
 
 // WithThreadAgentRuntime sets the thread agent runtime for real ACP sessions.
@@ -243,6 +250,7 @@ func (h *Handler) Register(r chi.Router) {
 	// Threads (multi-participant discussion)
 	registerThreadRoutes(r, h)
 	registerThreadTaskRoutes(r, h)
+	registerRequirementRoutes(r, h)
 
 	// User themes (persisted in {dataDir}/themes/)
 	r.Get("/themes", h.listUserThemes)

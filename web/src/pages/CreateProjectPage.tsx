@@ -39,6 +39,14 @@ export function CreateProjectPage() {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"dev" | "general">("dev");
   const [description, setDescription] = useState("");
+  const [metadata, setMetadata] = useState({
+    scope: "",
+    tech_stack: "",
+    keywords: "",
+    owner: "",
+    depends_on: "",
+    agent_hints: "",
+  });
   const [resources, setResources] = useState<ResourceDraft[]>([
     {
       kind: "local_fs",
@@ -167,10 +175,16 @@ export function CreateProjectPage() {
     setSubmitting(true);
     setError(null);
     try {
+      const nextMetadata = Object.fromEntries(
+        Object.entries(metadata)
+          .map(([key, value]) => [key, value.trim()])
+          .filter(([, value]) => value.length > 0),
+      ) as Record<string, string>;
       const project = await apiClient.createProject({
         name: name.trim(),
         kind,
         description: description.trim() || undefined,
+        metadata: Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
       });
 
       const nextResources = resources.filter((resource) => resource.kind.trim() && resource.uri.trim());
@@ -254,6 +268,69 @@ export function CreateProjectPage() {
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
                 />
+              </div>
+
+              <div className="space-y-4 rounded-xl border border-dashed border-slate-200 p-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">需求路由元数据</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    这些字段会进入 Project metadata，供需求分析与智能路由使用。
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">职责范围</label>
+                  <textarea
+                    className="flex min-h-[72px] w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    placeholder="例如：负责认证、登录、两步验证和账号安全策略"
+                    value={metadata.scope}
+                    onChange={(event) => setMetadata((current) => ({ ...current, scope: event.target.value }))}
+                  />
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">技术栈</label>
+                    <Input
+                      placeholder="例如：go, gin, postgres"
+                      value={metadata.tech_stack}
+                      onChange={(event) => setMetadata((current) => ({ ...current, tech_stack: event.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">关键词</label>
+                    <Input
+                      placeholder="例如：auth, otp, login"
+                      value={metadata.keywords}
+                      onChange={(event) => setMetadata((current) => ({ ...current, keywords: event.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">负责人</label>
+                    <Input
+                      placeholder="例如：team-auth"
+                      value={metadata.owner}
+                      onChange={(event) => setMetadata((current) => ({ ...current, owner: event.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">依赖项目</label>
+                    <Input
+                      placeholder="例如：backend-api, infra-sms"
+                      value={metadata.depends_on}
+                      onChange={(event) => setMetadata((current) => ({ ...current, depends_on: event.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">推荐 Agent Profiles</label>
+                  <Input
+                    placeholder="例如：arch-reviewer, backend-dev"
+                    value={metadata.agent_hints}
+                    onChange={(event) => setMetadata((current) => ({ ...current, agent_hints: event.target.value }))}
+                  />
+                </div>
               </div>
 
             </CardContent>
@@ -498,4 +575,3 @@ export function CreateProjectPage() {
     </div>
   );
 }
-

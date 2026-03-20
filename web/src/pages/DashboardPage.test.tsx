@@ -107,6 +107,7 @@ describe("DashboardPage", () => {
     expect(screen.getAllByText("发布前校验").length).toBeGreaterThan(0);
     expect(screen.getByText("调度器已启用")).toBeTruthy();
     expect(screen.getByRole("link", { name: /新建工作项/ }).getAttribute("href")).toBe("/work-items/new");
+    expect(screen.getByRole("link", { name: /提交需求/ }).getAttribute("href")).toBe("/requirements/new");
     expect(screen.getByRole("link", { name: /查看全部/ }).getAttribute("href")).toBe("/work-items");
 
     await waitFor(() => {

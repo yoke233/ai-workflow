@@ -740,6 +740,44 @@ func TestServiceCreateThreadAutoMountsResolvableProjects(t *testing.T) {
 	}
 }
 
+func TestServiceCreateThreadCanSkipDefaultContextRefs(t *testing.T) {
+	store := newThreadAppTestStore(t)
+	svc := newSQLiteThreadAppServiceWithWorkspace(store, newSQLiteTxAdapter(store, nil), nil, &workspaceStub{})
+	ctx := context.Background()
+
+	project := &core.Project{Name: "Project Alpha", Kind: core.ProjectGeneral}
+	if _, err := store.CreateProject(ctx, project); err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if _, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
+		ProjectID: project.ID,
+		Kind:      core.ResourceKindLocalFS,
+		RootURI:   t.TempDir(),
+		Label:     "workspace",
+	}); err != nil {
+		t.Fatalf("create resource space: %v", err)
+	}
+
+	result, err := svc.CreateThread(ctx, CreateThreadInput{
+		Title:   "manual-context-thread",
+		OwnerID: "owner-1",
+		Metadata: map[string]any{
+			"skip_default_context_refs": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateThread: %v", err)
+	}
+
+	refs, err := store.ListThreadContextRefs(ctx, result.Thread.ID)
+	if err != nil {
+		t.Fatalf("list context refs: %v", err)
+	}
+	if len(refs) != 0 {
+		t.Fatalf("expected 0 auto-mounted refs when skip flag is set, got %+v", refs)
+	}
+}
+
 func TestServiceCreateThreadRollsBackWhenWorkspaceSyncFails(t *testing.T) {
 	store := newThreadAppTestStore(t)
 	workspace := &workspaceStub{err: errors.New("sync failed")}

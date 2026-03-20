@@ -95,6 +95,7 @@ func buildAPIStack(
 	}
 	if flow.llmClient != nil {
 		apiOpts = append(apiOpts, api.WithTextCompleter(flow.llmClient))
+		apiOpts = append(apiOpts, api.WithRequirementCompleter(llmplanning.NewCompleter(flow.llmClient)))
 	}
 
 	// Inspection engine for self-evolving system inspections.

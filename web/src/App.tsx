@@ -19,6 +19,7 @@ const GitTagsPage = lazy(() => import("@/pages/GitTagsPage").then((module) => ({
 const InspectionPage = lazy(() => import("@/pages/InspectionPage").then((module) => ({ default: module.InspectionPage })));
 const MobileHomePage = lazy(() => import("@/pages/MobileHomePage").then((module) => ({ default: module.MobileHomePage })));
 const ProjectsPage = lazy(() => import("@/pages/ProjectsPage").then((module) => ({ default: module.ProjectsPage })));
+const RequirementPage = lazy(() => import("@/pages/RequirementPage").then((module) => ({ default: module.RequirementPage })));
 const SandboxPage = lazy(() => import("@/pages/SandboxPage").then((module) => ({ default: module.SandboxPage })));
 const ScheduledTasksPage = lazy(() => import("@/pages/ScheduledTasksPage").then((module) => ({ default: module.ScheduledTasksPage })));
 const SkillsPage = lazy(() => import("@/pages/SkillsPage").then((module) => ({ default: module.SkillsPage })));
@@ -78,6 +79,7 @@ const WorkbenchRoutes = () => {
             {/* Threads (accessible via URL, linked from work items) */}
             <Route path="/threads" element={<ThreadsPage />} />
             <Route path="/threads/:threadId" element={<ThreadDetailPage />} />
+            <Route path="/requirements/new" element={<RequirementPage />} />
             {/* Projects */}
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/projects/new" element={<CreateProjectPage />} />

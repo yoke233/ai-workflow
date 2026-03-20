@@ -52,9 +52,11 @@ func (s *Service) CreateThread(ctx context.Context, input CreateThreadInput) (*C
 	if err := s.createThreadAggregate(ctx, thread, participants); err != nil {
 		return nil, err
 	}
-	if err := s.attachDefaultThreadContextRefs(ctx, thread.ID); err != nil {
-		_ = s.deleteThreadAggregate(ctx, thread.ID)
-		return nil, err
+	if !skipDefaultThreadContextRefs(thread.Metadata) {
+		if err := s.attachDefaultThreadContextRefs(ctx, thread.ID); err != nil {
+			_ = s.deleteThreadAggregate(ctx, thread.ID)
+			return nil, err
+		}
 	}
 	if err := s.syncThreadWorkspace(ctx, thread.ID); err != nil {
 		_ = s.deleteThreadAggregate(ctx, thread.ID)
@@ -65,6 +67,14 @@ func (s *Service) CreateThread(ctx context.Context, input CreateThreadInput) (*C
 		Thread:       thread,
 		Participants: participants,
 	}, nil
+}
+
+func skipDefaultThreadContextRefs(metadata map[string]any) bool {
+	if len(metadata) == 0 {
+		return false
+	}
+	value, _ := metadata["skip_default_context_refs"].(bool)
+	return value
 }
 
 func (s *Service) DeleteThread(ctx context.Context, threadID int64) error {

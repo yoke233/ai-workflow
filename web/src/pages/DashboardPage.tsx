@@ -169,12 +169,20 @@ export function DashboardPage() {
             {stats ? t("dashboard.totalFlowsSuffix", { count: stats.total_work_items }) : ""}
           </p>
         </div>
-        <Link to="/work-items/new">
-          <Button>
-            <Play className="mr-2 h-4 w-4" />
-            {t("dashboard.newFlow")}
-          </Button>
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link to="/requirements/new">
+            <Button variant="outline">
+              <ArrowUpRight className="mr-2 h-4 w-4" />
+              提交需求
+            </Button>
+          </Link>
+          <Link to="/work-items/new">
+            <Button>
+              <Play className="mr-2 h-4 w-4" />
+              {t("dashboard.newFlow")}
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

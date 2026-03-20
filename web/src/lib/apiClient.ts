@@ -25,6 +25,10 @@ import type {
   CrystallizeChatSessionThreadResponse,
   CreateResourceSpaceRequest,
   CreateProjectRequest,
+  AnalyzeRequirementRequest,
+  AnalyzeRequirementResponse,
+  CreateThreadFromRequirementRequest,
+  CreateThreadFromRequirementResponse,
   CreateWorkItemRequest,
   UpdateWorkItemRequest,
   WorkItem,
@@ -226,6 +230,8 @@ export interface ApiClient {
   getProject(projectId: number): Promise<Project>;
   updateProject(projectId: number, body: UpdateProjectRequest): Promise<Project>;
   deleteProject(projectId: number): Promise<void>;
+  analyzeRequirement(body: AnalyzeRequirementRequest): Promise<AnalyzeRequirementResponse>;
+  createThreadFromRequirement(body: CreateThreadFromRequirementRequest): Promise<CreateThreadFromRequirementResponse>;
 
   listProjectResources(projectId: number): Promise<ResourceSpace[]>;
   createProjectResource(projectId: number, body: CreateResourceSpaceRequest): Promise<ResourceSpace>;
@@ -782,6 +788,18 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
       request<void>({
         path: `/projects/${projectId}`,
         method: "DELETE",
+      }),
+    analyzeRequirement: (body) =>
+      request<AnalyzeRequirementResponse, AnalyzeRequirementRequest>({
+        path: "/requirements/analyze",
+        method: "POST",
+        body,
+      }),
+    createThreadFromRequirement: (body) =>
+      request<CreateThreadFromRequirementResponse, CreateThreadFromRequirementRequest>({
+        path: "/requirements/create-thread",
+        method: "POST",
+        body,
       }),
 
     listProjectResources: (projectId) =>

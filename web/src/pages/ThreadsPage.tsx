@@ -135,14 +135,24 @@ export function ThreadsPage() {
     <div className="mx-auto max-w-4xl px-6 py-8">
       {/* ── Header ── */}
       <div className="mb-8">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-          {t("nav.threads")}
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          {activeCount > 0
-            ? `${activeCount} ${t("threads.activeThreads", "active")}`
-            : t("threads.noActiveThreads", "Start a conversation")}
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+              {t("nav.threads")}
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              {activeCount > 0
+                ? `${activeCount} ${t("threads.activeThreads", "active")}`
+                : t("threads.noActiveThreads", "Start a conversation")}
+            </p>
+          </div>
+          <Link
+            to="/requirements/new"
+            className="inline-flex items-center rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+          >
+            从需求创建
+          </Link>
+        </div>
       </div>
 
       {/* ── Composer: first message creates thread ── */}
