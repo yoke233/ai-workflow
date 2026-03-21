@@ -20,19 +20,6 @@ func (s *Store) DeleteActionIODeclsByWorkItem(ctx context.Context, workItemID in
 		Delete(&ActionIODeclModel{}).Error
 }
 
-func (s *Store) DeleteActionResourcesByWorkItem(ctx context.Context, workItemID int64) error {
-	if s == nil || s.orm == nil {
-		return fmt.Errorf("store is not initialized")
-	}
-	subQuery := s.orm.WithContext(ctx).
-		Model(&ActionModel{}).
-		Select("id").
-		Where("work_item_id = ?", workItemID)
-	return s.orm.WithContext(ctx).
-		Where("action_id IN (?)", subQuery).
-		Delete(&ActionResourceModel{}).Error
-}
-
 func (s *Store) DeleteRunsByWorkItem(ctx context.Context, workItemID int64) error {
 	if s == nil || s.orm == nil {
 		return fmt.Errorf("store is not initialized")
@@ -101,15 +88,6 @@ func (s *Store) DeleteJournalByWorkItem(ctx context.Context, workItemID int64) e
 	return s.orm.WithContext(ctx).
 		Where("work_item_id = ?", workItemID).
 		Delete(&JournalModel{}).Error
-}
-
-func (s *Store) DeleteResourceBindingsByWorkItem(ctx context.Context, workItemID int64) error {
-	if s == nil || s.orm == nil {
-		return fmt.Errorf("store is not initialized")
-	}
-	return s.orm.WithContext(ctx).
-		Where("work_item_id = ?", workItemID).
-		Delete(&ResourceBindingModel{}).Error
 }
 
 func (s *Store) DeleteActionsByWorkItem(ctx context.Context, workItemID int64) error {

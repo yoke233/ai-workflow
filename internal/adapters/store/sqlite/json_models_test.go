@@ -222,21 +222,6 @@ func TestModelConversions(t *testing.T) {
 		t.Fatalf("project round-trip mismatch: %+v", got)
 	}
 
-	resourceBinding := &core.ResourceBinding{
-		ID:         6,
-		ProjectID:  projectID,
-		WorkItemID: &issueID,
-		Kind:       core.ResourceKindGit,
-		URI:        "file:///repo",
-		Config:     map[string]any{"branch": "main"},
-		Label:      "repo",
-		CreatedAt:  now,
-		UpdatedAt:  now,
-	}
-	if got := resourceBindingModelFromCore(resourceBinding).toCore(); got.Config["branch"] != "main" || got.WorkItemID == nil {
-		t.Fatalf("resource binding round-trip mismatch: %+v", got)
-	}
-
 	workItem := &core.WorkItem{
 		ID:                issueID,
 		ProjectID:         &projectID,
@@ -446,22 +431,6 @@ func TestModelConversions(t *testing.T) {
 	}
 	if got := actionSignalModelFromCore(actionSignal).toCore(); got.RunID != runID || got.Payload["reason"] != "dep" {
 		t.Fatalf("action signal round-trip mismatch: %+v", got)
-	}
-
-	actionResource := &core.ActionResource{
-		ID:                14,
-		ActionID:          actionID,
-		ResourceBindingID: projectID,
-		Direction:         core.ResourceInput,
-		Path:              "src/main.go",
-		MediaType:         "text/plain",
-		Description:       "source",
-		Required:          true,
-		Metadata:          map[string]any{"encoding": "utf-8"},
-		CreatedAt:         now,
-	}
-	if got := actionResourceModelFromCore(actionResource).toCore(); got.Direction != core.ResourceInput || !got.Required {
-		t.Fatalf("action resource round-trip mismatch: %+v", got)
 	}
 
 	notification := &core.Notification{

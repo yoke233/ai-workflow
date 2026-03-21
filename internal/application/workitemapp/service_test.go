@@ -151,24 +151,33 @@ func createWorkItemFixture(t *testing.T, store *sqlite.Store) (workItemID int64,
 	}); err != nil {
 		t.Fatalf("create agent context: %v", err)
 	}
-	bindingID, err := store.CreateResourceBinding(ctx, &core.ResourceBinding{
-		ProjectID:  projectID,
-		WorkItemID: &workItemID,
-		Kind:       core.ResourceKindAttachment,
-		URI:        "D:/tmp/fixture.txt",
-		Label:      "fixture.txt",
+	spaceID, err := store.CreateResourceSpace(ctx, &core.ResourceSpace{
+		ProjectID: projectID,
+		Kind:      core.ResourceKindLocalFS,
+		RootURI:   "D:/tmp",
+		Label:     "fixture-space",
 	})
 	if err != nil {
-		t.Fatalf("create work item resource binding: %v", err)
+		t.Fatalf("create resource space: %v", err)
 	}
-	if _, err := store.CreateActionResource(ctx, &core.ActionResource{
-		ActionID:          actionID,
-		ResourceBindingID: bindingID,
-		Direction:         core.ResourceInput,
-		Path:              "fixture.txt",
-		Required:          true,
+	if _, err := store.CreateResource(ctx, &core.Resource{
+		ProjectID:   projectID,
+		WorkItemID:  &workItemID,
+		StorageKind: "local",
+		URI:         "D:/tmp/fixture.txt",
+		Role:        "attachment",
+		FileName:    "fixture.txt",
 	}); err != nil {
-		t.Fatalf("create action resource: %v", err)
+		t.Fatalf("create resource: %v", err)
+	}
+	if _, err := store.CreateActionIODecl(ctx, &core.ActionIODecl{
+		ActionID:  actionID,
+		Direction: core.IOInput,
+		SpaceID:   &spaceID,
+		Path:      "fixture.txt",
+		Required:  true,
+	}); err != nil {
+		t.Fatalf("create action io decl: %v", err)
 	}
 	threadID, err := store.CreateThread(ctx, &core.Thread{Title: "fixture-thread", Status: core.ThreadActive})
 	if err != nil {

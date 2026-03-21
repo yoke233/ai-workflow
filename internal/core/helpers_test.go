@@ -106,35 +106,6 @@ func TestSignalTypeIsTerminalAndTransientEvents(t *testing.T) {
 	}
 }
 
-func TestResourceBindingAttachmentHelpers(t *testing.T) {
-	binding := NewAttachmentBinding(42, "report.txt", "/tmp/report.txt", "text/plain", 128)
-	if binding.Kind != ResourceKindAttachment {
-		t.Fatalf("Kind = %q, want %q", binding.Kind, ResourceKindAttachment)
-	}
-	if binding.AttachmentFileName() != "report.txt" {
-		t.Fatalf("AttachmentFileName() = %q", binding.AttachmentFileName())
-	}
-	if binding.AttachmentFilePath() != "/tmp/report.txt" {
-		t.Fatalf("AttachmentFilePath() = %q", binding.AttachmentFilePath())
-	}
-	if binding.AttachmentMimeType() != "text/plain" {
-		t.Fatalf("AttachmentMimeType() = %q", binding.AttachmentMimeType())
-	}
-	if binding.AttachmentSize() != 128 {
-		t.Fatalf("AttachmentSize() = %d", binding.AttachmentSize())
-	}
-
-	binding.Config["size"] = float64(256)
-	if binding.AttachmentSize() != 256 {
-		t.Fatalf("AttachmentSize() with float64 = %d", binding.AttachmentSize())
-	}
-
-	empty := &ResourceBinding{}
-	if empty.AttachmentMimeType() != "" || empty.AttachmentSize() != 0 {
-		t.Fatalf("empty attachment helpers returned unexpected values: mime=%q size=%d", empty.AttachmentMimeType(), empty.AttachmentSize())
-	}
-}
-
 func TestRunHasResult(t *testing.T) {
 	run := &Run{}
 	if run.HasResult() {

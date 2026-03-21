@@ -142,35 +142,6 @@ func (n *noopStore) ListActionIODeclsByDirection(context.Context, int64, core.IO
 	panic("unused")
 }
 func (n *noopStore) DeleteActionIODecl(context.Context, int64) error { panic("unused") }
-func (n *noopStore) CreateResourceBinding(context.Context, *core.ResourceBinding) (int64, error) {
-	panic("unused")
-}
-func (n *noopStore) GetResourceBinding(context.Context, int64) (*core.ResourceBinding, error) {
-	panic("unused")
-}
-func (n *noopStore) ListResourceBindings(context.Context, int64) ([]*core.ResourceBinding, error) {
-	panic("unused")
-}
-func (n *noopStore) ListResourceBindingsByWorkItem(context.Context, int64, string) ([]*core.ResourceBinding, error) {
-	panic("unused")
-}
-func (n *noopStore) UpdateResourceBinding(context.Context, *core.ResourceBinding) error {
-	panic("unused")
-}
-func (n *noopStore) DeleteResourceBinding(context.Context, int64) error { panic("unused") }
-func (n *noopStore) CreateActionResource(context.Context, *core.ActionResource) (int64, error) {
-	panic("unused")
-}
-func (n *noopStore) GetActionResource(context.Context, int64) (*core.ActionResource, error) {
-	panic("unused")
-}
-func (n *noopStore) ListActionResources(context.Context, int64) ([]*core.ActionResource, error) {
-	panic("unused")
-}
-func (n *noopStore) ListActionResourcesByDirection(context.Context, int64, core.ActionResourceDirection) ([]*core.ActionResource, error) {
-	panic("unused")
-}
-func (n *noopStore) DeleteActionResource(context.Context, int64) error             { panic("unused") }
 func (n *noopStore) CreateWorkItem(context.Context, *core.WorkItem) (int64, error) { panic("unused") }
 func (n *noopStore) GetWorkItem(context.Context, int64) (*core.WorkItem, error)    { panic("unused") }
 func (n *noopStore) ListWorkItems(context.Context, core.WorkItemFilter) ([]*core.WorkItem, error) {

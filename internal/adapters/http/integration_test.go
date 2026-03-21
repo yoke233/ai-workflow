@@ -653,56 +653,7 @@ func TestIntegration_ProjectCRUD(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 8: Resource Binding CRUD
-// ---------------------------------------------------------------------------
-
-func TestIntegration_ResourceBindingCRUD(t *testing.T) {
-	env := setupIntegration(t, func(_ context.Context, _ *core.Action, _ *core.Run) error {
-		return nil
-	})
-	ts := env.server
-
-	// Create project first.
-	resp, _ := postJSON(ts, "/projects", map[string]any{
-		"name": "res-project", "kind": "dev",
-	})
-	p := decode[core.Project](t, resp)
-
-	// Create resource space.
-	resp, _ = postJSON(ts, fmt.Sprintf("/projects/%d/spaces", p.ID), map[string]any{
-		"kind":     "git",
-		"root_uri": "https://github.com/example/repo.git",
-		"label":    "main-repo",
-	})
-	requireStatus(t, resp, http.StatusCreated)
-	rb := decode[core.ResourceSpace](t, resp)
-	if rb.Kind != "git" || rb.RootURI != "https://github.com/example/repo.git" {
-		t.Fatalf("unexpected resource space: %+v", rb)
-	}
-
-	// List.
-	resp, _ = getJSON(ts, fmt.Sprintf("/projects/%d/spaces", p.ID))
-	requireStatus(t, resp, http.StatusOK)
-	bindings := decode[[]*core.ResourceSpace](t, resp)
-	if len(bindings) != 1 {
-		t.Fatalf("expected 1 binding, got %d", len(bindings))
-	}
-
-	// Get.
-	resp, _ = getJSON(ts, fmt.Sprintf("/spaces/%d", rb.ID))
-	requireStatus(t, resp, http.StatusOK)
-
-	// Delete.
-	resp, _ = deleteReq(ts, fmt.Sprintf("/spaces/%d", rb.ID))
-	requireStatus(t, resp, http.StatusNoContent)
-
-	// Verify deleted.
-	resp, _ = getJSON(ts, fmt.Sprintf("/resources/%d", rb.ID))
-	requireStatus(t, resp, http.StatusNotFound)
-}
-
-// ---------------------------------------------------------------------------
-// Test 9: Agent Profile CRUD via API
+// Test 8: Agent Profile CRUD via API
 // ---------------------------------------------------------------------------
 
 func TestIntegration_AgentProfileCRUD(t *testing.T) {

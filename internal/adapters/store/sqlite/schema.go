@@ -13,7 +13,6 @@ func autoMigrate(ctx context.Context, orm *gorm.DB) error {
 	}
 	if err := orm.WithContext(ctx).AutoMigrate(
 		&ProjectModel{},
-		&ResourceBindingModel{},
 		&ResourceSpaceModel{},
 		&ResourceModel{},
 		&WorkItemModel{},
@@ -36,7 +35,6 @@ func autoMigrate(ctx context.Context, orm *gorm.DB) error {
 		&ThreadAttachmentModel{},
 		&FeatureEntryModel{},
 		&ActionSignalModel{},
-		&ActionResourceModel{},
 		&ActionIODeclModel{},
 		&InspectionReportModel{},
 		&InspectionFindingModel{},
@@ -67,9 +65,6 @@ func autoMigrate(ctx context.Context, orm *gorm.DB) error {
 		if err := orm.WithContext(ctx).Exec(ddl).Error; err != nil {
 			return fmt.Errorf("create sqlite index: %w", err)
 		}
-	}
-	if err := migrateUnifiedResources(ctx, orm); err != nil {
-		return fmt.Errorf("migrate unified resources: %w", err)
 	}
 	return nil
 }
