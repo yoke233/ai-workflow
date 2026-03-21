@@ -83,8 +83,8 @@ const (
 // A WorkItem optionally belongs to a Project and can point at a specific
 // ResourceSpace ID for workspace isolation.
 type WorkItem struct {
-	ID                int64  `json:"id"`
-	ProjectID         *int64 `json:"project_id,omitempty"`
+	ID              int64  `json:"id"`
+	ProjectID       *int64 `json:"project_id,omitempty"`
 	ResourceSpaceID *int64 `json:"resource_space_id,omitempty"` // which resource space to work on
 
 	// Planning fields
