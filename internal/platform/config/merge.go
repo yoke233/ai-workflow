@@ -352,24 +352,24 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 				}
 			}
 		}
-		if probe := runtime.ExecutionProbe; probe != nil {
+		if probe := runtime.RunProbe; probe != nil {
 			if probe.Enabled != nil {
-				cfg.Runtime.ExecutionProbe.Enabled = *probe.Enabled
+				cfg.Runtime.RunProbe.Enabled = *probe.Enabled
 			}
 			if probe.Interval != nil {
-				cfg.Runtime.ExecutionProbe.Interval = *probe.Interval
+				cfg.Runtime.RunProbe.Interval = *probe.Interval
 			}
 			if probe.After != nil {
-				cfg.Runtime.ExecutionProbe.After = *probe.After
+				cfg.Runtime.RunProbe.After = *probe.After
 			}
 			if probe.IdleAfter != nil {
-				cfg.Runtime.ExecutionProbe.IdleAfter = *probe.IdleAfter
+				cfg.Runtime.RunProbe.IdleAfter = *probe.IdleAfter
 			}
 			if probe.Timeout != nil {
-				cfg.Runtime.ExecutionProbe.Timeout = *probe.Timeout
+				cfg.Runtime.RunProbe.Timeout = *probe.Timeout
 			}
 			if probe.MaxAttempts != nil {
-				cfg.Runtime.ExecutionProbe.MaxAttempts = *probe.MaxAttempts
+				cfg.Runtime.RunProbe.MaxAttempts = *probe.MaxAttempts
 			}
 		}
 		if cron := runtime.Cron; cron != nil {

@@ -58,7 +58,7 @@ type LLMFilterConfig struct {
 
 // RuntimeConfig holds configuration for the runtime engine.
 type RuntimeConfig struct {
-	// MockExecutor makes runtime step execution use an in-process stub instead of ACP agents.
+	// MockExecutor makes runtime action runs use an in-process stub instead of ACP agents.
 	// Useful for smoke tests and environments without LLM credentials.
 	MockExecutor   bool                        `toml:"mock_executor" yaml:"mock_executor" json:"mock_executor"`
 	Collector      RuntimeCollectorConfig      `toml:"collector" yaml:"collector" json:"collector"`
@@ -68,9 +68,9 @@ type RuntimeConfig struct {
 	MCP            RuntimeMCPConfig            `toml:"mcp"       yaml:"mcp" json:"mcp"`
 	Prompts        RuntimePromptsConfig        `toml:"prompts"   yaml:"prompts" json:"prompts"`
 	SessionManager RuntimeSessionManagerConfig `toml:"session_manager" yaml:"session_manager" json:"session_manager"`
-	ExecutionProbe RuntimeExecutionProbeConfig `toml:"execution_probe" yaml:"execution_probe" json:"execution_probe"`
-	Cron           RuntimeCronConfig           `toml:"cron"            yaml:"cron" json:"cron"`
-	Inspection     RuntimeInspectionConfig     `toml:"inspection"      yaml:"inspection" json:"inspection"`
+	RunProbe       RuntimeRunProbeConfig       `toml:"run_probe" yaml:"run_probe" json:"run_probe"`
+	Cron           RuntimeCronConfig           `toml:"cron" yaml:"cron" json:"cron"`
+	Inspection     RuntimeInspectionConfig     `toml:"inspection" yaml:"inspection" json:"inspection"`
 }
 
 // RuntimeInspectionConfig configures the self-evolving inspection system.
@@ -101,8 +101,8 @@ type RuntimeSessionManagerConfig struct {
 	NATS RuntimeNATSConfig `toml:"nats" yaml:"nats" json:"nats"`
 }
 
-// RuntimeExecutionProbeConfig configures watchdog-driven execution probes.
-type RuntimeExecutionProbeConfig struct {
+// RuntimeRunProbeConfig configures watchdog-driven run probes.
+type RuntimeRunProbeConfig struct {
 	Enabled     bool     `toml:"enabled" yaml:"enabled" json:"enabled"`
 	Interval    Duration `toml:"interval" yaml:"interval" json:"interval"`
 	After       Duration `toml:"after" yaml:"after" json:"after"`
@@ -419,9 +419,9 @@ type RuntimeLayer struct {
 	MCP            *RuntimeMCPLayer            `toml:"mcp"             yaml:"mcp"`
 	Prompts        *RuntimePromptsLayer        `toml:"prompts"         yaml:"prompts"`
 	SessionManager *RuntimeSessionManagerLayer `toml:"session_manager" yaml:"session_manager"`
-	ExecutionProbe *RuntimeExecutionProbeLayer `toml:"execution_probe" yaml:"execution_probe"`
-	Cron           *RuntimeCronLayer           `toml:"cron"            yaml:"cron"`
-	Inspection     *RuntimeInspectionLayer     `toml:"inspection"      yaml:"inspection"`
+	RunProbe       *RuntimeRunProbeLayer       `toml:"run_probe" yaml:"run_probe"`
+	Cron           *RuntimeCronLayer           `toml:"cron" yaml:"cron"`
+	Inspection     *RuntimeInspectionLayer     `toml:"inspection" yaml:"inspection"`
 }
 
 type RuntimeInspectionLayer struct {
@@ -436,7 +436,7 @@ type RuntimeSessionManagerLayer struct {
 	NATS     *RuntimeNATSLayer `toml:"nats"      yaml:"nats"`
 }
 
-type RuntimeExecutionProbeLayer struct {
+type RuntimeRunProbeLayer struct {
 	Enabled     *bool     `toml:"enabled" yaml:"enabled"`
 	Interval    *Duration `toml:"interval" yaml:"interval"`
 	After       *Duration `toml:"after" yaml:"after"`

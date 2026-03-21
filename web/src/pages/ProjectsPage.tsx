@@ -10,8 +10,8 @@ import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage } from "@/lib/v2Workbench";
 
 interface ProjectMetrics {
-  issueCount: number;
-  activeIssueCount: number;
+  workItemCount: number;
+  activeWorkItemCount: number;
   successRate: number | null;
   resources: string[];
   hasGit: boolean;
@@ -34,7 +34,7 @@ export function ProjectsPage() {
       try {
         const entries = await Promise.all(
           projects.map(async (project) => {
-            const [issues, resources] = await Promise.all([
+            const [workItems, resources] = await Promise.all([
               apiClient.listWorkItems({
                 project_id: project.id,
                 archived: false,
@@ -43,14 +43,14 @@ export function ProjectsPage() {
               }),
               apiClient.listProjectResources(project.id),
             ]);
-            const finished = issues.filter((issue) => issue.status === "done" || issue.status === "failed" || issue.status === "cancelled");
-            const succeeded = finished.filter((issue) => issue.status === "done");
+            const finished = workItems.filter((workItem) => workItem.status === "done" || workItem.status === "failed" || workItem.status === "cancelled");
+            const succeeded = finished.filter((workItem) => workItem.status === "done");
             const successRate = finished.length > 0 ? Math.round((succeeded.length / finished.length) * 100) : null;
             return [
               project.id,
               {
-                issueCount: issues.length,
-                activeIssueCount: issues.filter((issue) => issue.status === "queued" || issue.status === "running" || issue.status === "blocked").length,
+                workItemCount: workItems.length,
+                activeWorkItemCount: workItems.filter((workItem) => workItem.status === "queued" || workItem.status === "running" || workItem.status === "blocked").length,
                 successRate,
                 resources: resources.map((resource) => resource.kind),
                 hasGit: resources.some((resource) => resource.kind.trim().toLowerCase() === "git"),
@@ -162,11 +162,11 @@ export function ProjectsPage() {
 
                 <div className="mt-5 grid grid-cols-3 gap-4 border-t pt-4">
                   <div>
-                    <div className="text-lg font-bold">{projectMetrics?.issueCount ?? 0}</div>
+                    <div className="text-lg font-bold">{projectMetrics?.workItemCount ?? 0}</div>
                     <div className="text-xs text-muted-foreground">{t("projects.flowCount")}</div>
                   </div>
                   <div>
-                    <div className="text-lg font-bold">{projectMetrics?.activeIssueCount ?? 0}</div>
+                    <div className="text-lg font-bold">{projectMetrics?.activeWorkItemCount ?? 0}</div>
                     <div className="text-xs text-muted-foreground">{t("projects.activeCount")}</div>
                   </div>
                   <div>

@@ -167,7 +167,7 @@ func buildActionExecutor(
 			MCPResolver:              mcpResolver,
 			ReworkFollowupTemplate:   reworkFollowupTemplate(bootstrapCfg),
 			ContinueFollowupTemplate: continueFollowupTemplate(bootstrapCfg),
-			StepContextBuilder:       skills.NewActionContextBuilder(store),
+			ActionContextBuilder:     skills.NewActionContextBuilder(store),
 			AuditLogger:              auditLogger,
 		}
 		if signalCfg != nil {
@@ -271,7 +271,7 @@ func recoverFlowRuntime(store core.Store, sessionMode string, scheduler *flowapp
 	if sessionMode == "nats" {
 		recoverFlows = flowapp.RecoverQueuedFlows
 		recoveryLogLabel = "queued flows"
-		slog.Warn("bootstrap: skipping running-flow recovery in NATS mode until execution recovery is implemented")
+		slog.Warn("bootstrap: skipping running-flow recovery in NATS mode until run recovery is implemented")
 	}
 	if n, err := recoverFlows(context.Background(), store, scheduler); err != nil {
 		slog.Warn("bootstrap: flow recovery error", "error", err)

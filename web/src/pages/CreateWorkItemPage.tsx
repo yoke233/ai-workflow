@@ -18,7 +18,7 @@ import { Select, SelectItem } from "@/components/ui/select";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { AttachmentUploader } from "@/components/AttachmentUploader";
 import { getScmFlowProviderFromBindings } from "@/lib/scm";
-import { getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
+import { getErrorMessage, normalizeActionTypeLabel } from "@/lib/v2Workbench";
 import { cn } from "@/lib/utils";
 import type { Action, DAGTemplate, ResourceSpace, WorkItemAttachment } from "@/types/apiV2";
 
@@ -199,9 +199,9 @@ export function CreateWorkItemPage() {
         project_id: projectId ?? undefined,
       });
       if (runImmediately) {
-        await apiClient.runWorkItem(result.issue.id);
+        await apiClient.runWorkItem(result.work_item.id);
       }
-      navigate(`/work-items/${result.issue.id}`);
+      navigate(`/work-items/${result.work_item.id}`);
     } catch (templateError) {
       setError(getErrorMessage(templateError));
     } finally {
@@ -320,7 +320,7 @@ export function CreateWorkItemPage() {
                     <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{template.description}</div>
                   ) : null}
                   <div className="mt-2 flex items-center gap-2">
-                    <Badge variant="secondary" className="text-[10px]">{t("createWorkItem.nSteps", { count: template.actions.length })}</Badge>
+                    <Badge variant="secondary" className="text-[10px]">{t("createWorkItem.nActions", { count: template.actions.length })}</Badge>
                     {(template.tags ?? []).slice(0, 2).map((tag) => (
                       <Badge key={tag} variant="outline" className="text-[10px]">{tag}</Badge>
                     ))}
@@ -457,7 +457,7 @@ export function CreateWorkItemPage() {
                     onClick={() => void generateActionPreview()}
                   >
                     <Sparkles className="mr-2 h-4 w-4" />
-                    {busy === "generating" ? t("createWorkItem.generating") : t("createWorkItem.generateSteps")}
+                    {busy === "generating" ? t("createWorkItem.generating") : t("createWorkItem.generateActions")}
                   </Button>
                 </div>
               </CardContent>
@@ -468,11 +468,11 @@ export function CreateWorkItemPage() {
         <div className="space-y-6">
           <Card className="overflow-hidden p-0">
             <div className="flex items-center justify-between border-b px-5 py-3.5">
-              <span className="text-sm font-semibold">{t("createWorkItem.stepPreview")}</span>
+              <span className="text-sm font-semibold">{t("createWorkItem.actionPreview")}</span>
               <Badge variant="secondary">
                 {selectedTemplate
-                  ? t("createWorkItem.nSteps", { count: selectedTemplate.actions.length })
-                  : t("createWorkItem.nSteps", { count: previewActions.length })}
+                  ? t("createWorkItem.nActions", { count: selectedTemplate.actions.length })
+                  : t("createWorkItem.nActions", { count: previewActions.length })}
               </Badge>
             </div>
             <div>
@@ -493,7 +493,7 @@ export function CreateWorkItemPage() {
                       <div className="min-w-0 flex-1">
                         <div className="text-[13px] font-medium">{action.name}</div>
                         <div className="text-[11px] text-muted-foreground">
-                          {normalizeStepTypeLabel(action.type)}
+                          {normalizeActionTypeLabel(action.type)}
                           {action.agent_role ? ` · ${action.agent_role}` : ""}
                           {action.depends_on?.length ? ` · ${t("createWorkItem.dependsOn", { deps: action.depends_on.join(", ") })}` : ""}
                         </div>
@@ -503,11 +503,11 @@ export function CreateWorkItemPage() {
                 })
               ) : scmProvider ? (
                 <div className="px-5 py-6 text-sm text-muted-foreground">
-                  {t("createWorkItem.scmAutoSteps")}
+                  {t("createWorkItem.scmAutoActions")}
                 </div>
               ) : previewActions.length === 0 ? (
                 <div className="px-5 py-6 text-sm text-muted-foreground">
-                  {t("createWorkItem.noSteps")}
+                  {t("createWorkItem.noActions")}
                 </div>
               ) : (
                 previewActions.map((action, index) => {
@@ -526,7 +526,7 @@ export function CreateWorkItemPage() {
                       <div className="min-w-0 flex-1">
                         <div className="text-[13px] font-medium">{action.name}</div>
                         <div className="text-[11px] text-muted-foreground">
-                          {normalizeStepTypeLabel(action.type)}
+                          {normalizeActionTypeLabel(action.type)}
                           {action.agent_role ? ` · ${action.agent_role}` : ""}
                           {action.depends_on?.length ? ` · ${t("createWorkItem.dependsOn", { deps: action.depends_on.join(", ") })}` : ""}
                         </div>

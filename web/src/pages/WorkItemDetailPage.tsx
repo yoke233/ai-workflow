@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { cn } from "@/lib/utils";
-import { formatIssueDuration, formatRelativeTime, getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
+import { formatWorkItemDuration, formatRelativeTime, getErrorMessage, normalizeActionTypeLabel } from "@/lib/v2Workbench";
 import type {
   WorkItem,
   WorkItemPriority,
@@ -147,7 +147,7 @@ function ActionRow({ action, index, isLast }: { action: Action; index: number; i
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         <span className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium", typeStyle.text, typeStyle.bg)}>
-          {normalizeStepTypeLabel(action.type)}
+          {normalizeActionTypeLabel(action.type)}
         </span>
         {action.agent_role ? (
           <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
@@ -407,14 +407,14 @@ export function WorkItemDetailPage() {
             <div className="pt-5">
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold">{t("workItemDetail.steps")}</h3>
+                  <h3 className="text-sm font-semibold">{t("workItemDetail.actions")}</h3>
                   <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                    {actions.length} {t("workItemDetail.stepsUnit")}
+                    {actions.length} {t("workItemDetail.actionsUnit")}
                   </span>
                 </div>
                 <Button variant="outline" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
                   <Plus className="h-3.5 w-3.5" />
-                  {t("workItemDetail.addStep")}
+                  {t("workItemDetail.addAction")}
                 </Button>
               </div>
               {actions.length > 0 ? (
@@ -425,7 +425,7 @@ export function WorkItemDetailPage() {
                 </div>
               ) : (
                 <div className="rounded-lg border px-4 py-8 text-center text-sm text-muted-foreground">
-                  {t("workItemDetail.noSteps")}
+                  {t("workItemDetail.noActions")}
                 </div>
               )}
             </div>
@@ -568,7 +568,7 @@ export function WorkItemDetailPage() {
                   {workItem ? (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">{t("workItemDetail.duration")}</span>
-                      <span>{formatIssueDuration(workItem)}</span>
+                      <span>{formatWorkItemDuration(workItem)}</span>
                     </div>
                   ) : null}
                 </div>

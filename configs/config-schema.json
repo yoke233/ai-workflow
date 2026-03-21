@@ -193,7 +193,7 @@
         },
         "auto_trigger": {
           "type": "boolean",
-          "description": "Issue 创建时自动触发 run"
+          "description": "WorkItem 创建时自动触发 run"
         },
         "allow_pat_fallback": {
           "type": "boolean",
@@ -430,8 +430,8 @@
         "session_manager": {
           "$ref": "#/$defs/RuntimeSessionManagerConfig"
         },
-        "execution_probe": {
-          "$ref": "#/$defs/RuntimeExecutionProbeConfig"
+        "run_probe": {
+          "$ref": "#/$defs/RuntimeRunProbeConfig"
         },
         "cron": {
           "$ref": "#/$defs/RuntimeCronConfig"
@@ -450,7 +450,7 @@
         "mcp",
         "prompts",
         "session_manager",
-        "execution_probe",
+        "run_probe",
         "cron",
         "inspection"
       ]
@@ -567,7 +567,7 @@
         "capabilities_max"
       ]
     },
-    "RuntimeExecutionProbeConfig": {
+    "RuntimeRunProbeConfig": {
       "properties": {
         "enabled": {
           "type": "boolean"

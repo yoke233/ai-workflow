@@ -46,12 +46,12 @@ func (s *AnalyticsServer) Tools() []ToolDefinition {
 		},
 		{
 			Name:        "analytics_bottlenecks",
-			Description: "Get step bottleneck analysis. Shows which steps are slowest or fail most.",
+			Description: "Get action bottleneck analysis. Shows which actions are slowest or fail most.",
 			InputSchema: filterSchema,
 		},
 		{
 			Name:        "analytics_duration_stats",
-			Description: "Get work item execution duration statistics. Shows avg/min/max execution time per work item.",
+			Description: "Get work item run duration statistics. Shows avg/min/max run time per work item.",
 			InputSchema: filterSchema,
 		},
 		{
@@ -61,7 +61,7 @@ func (s *AnalyticsServer) Tools() []ToolDefinition {
 		},
 		{
 			Name:        "analytics_recent_failures",
-			Description: "Get most recent failed executions with full context.",
+			Description: "Get most recent failed runs with full context.",
 			InputSchema: filterSchema,
 		},
 		{

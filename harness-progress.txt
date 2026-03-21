@@ -125,10 +125,10 @@
 [2026-03-21T03:07:00Z] [SESSION-18] INIT Added [task-021] 实现前端 Phase 3：新增 Initiative 详情页与审批入口
 [2026-03-21T03:07:00Z] [SESSION-18] INIT Added [task-022] review 并修复前端 Phase 3 Initiative 页面实现
 [2026-03-21T03:07:00Z] [SESSION-18] Starting [task-017] 实现前端 Phase 1：补齐 Proposal / Initiative 类型与 API 契约 (base=83faae9)
-[2026-03-21T04:00:49.9528965Z] [SESSION-18] Starting [task-018] review 骞朵慨澶嶅墠绔?Phase 1 濂戠害灞傚疄鐜?(base=8de0e5e)
-[2026-03-21T04:02:23.0691125Z] [SESSION-18] Starting [task-019] 瀹炵幇鍓嶇 Phase 2锛氬湪绾跨▼椤佃ˉ Proposal 鎿嶄綔闈?(base=3efe979)
-[2026-03-21T04:12:20.1072910Z] [SESSION-18] Starting [task-020] review 骞朵慨澶嶅墠绔?Phase 2 Proposal 鎿嶄綔闈?(base=a9509bf)
-[2026-03-21T04:16:08.0384717Z] [SESSION-18] Starting [task-021] 瀹炵幇鍓嶇 Phase 3锛氭柊澧?Initiative 璇︽儏椤典笌瀹℃壒鍏ュ彛 (base=167eecc)
+[2026-03-21T04:00:49.9528965Z] [SESSION-18] Starting [task-018] review 并修复前端 Phase 1 契约层实现 (base=8de0e5e)
+[2026-03-21T04:02:23.0691125Z] [SESSION-18] Starting [task-019] 实现前端 Phase 2：在线程页补 Proposal 操作面 (base=3efe979)
+[2026-03-21T04:12:20.1072910Z] [SESSION-18] Starting [task-020] review 并修复前端 Phase 2 Proposal 操作面 (base=a9509bf)
+[2026-03-21T04:16:08.0384717Z] [SESSION-18] Starting [task-021] 实现前端 Phase 3：新增 Initiative 详情页与审批入口 (base=167eecc)
 [2026-03-21T12:20:00+08:00] [SESSION-18] CHECKPOINT [task-021] step=1/3 "Built InitiativeDetailPage with detail/progress/work-items/threads/review sections"
 [2026-03-21T12:21:00+08:00] [SESSION-18] CHECKPOINT [task-021] step=2/3 "Connected /initiatives/:initiativeId route and initiative entry from thread proposals"
 [2026-03-21T12:24:38+08:00] [SESSION-18] CHECKPOINT [task-021] step=3/3 "Added InitiativeDetailPage and proposal-link tests, committed 0737069"
@@ -138,3 +138,51 @@
 [2026-03-21T12:25:30+08:00] [SESSION-18] CHECKPOINT [task-022] step=2/2 "Fixed review-form reset, added route-switch regression test, revalidated tests and build"
 [2026-03-21T12:25:30+08:00] [SESSION-18] Completed [task-022] (review/fix recorded)
 [2026-03-21T12:25:30+08:00] [SESSION-18] STATS tasks_total=22 completed=22 failed=0 pending=0 blocked=0 attempts_total=22 checkpoints=57
+[2026-03-21T12:54:20+08:00] [SESSION-269] CHECKPOINT [task-023] Rechecked previously completed tasks; fixed InitiativeDetailPage stale/error-state race, github importer symlink handling, gstack artifact slug validation, and metadata-only artifact route semantics; verified go test (4 packages), vitest (4 files), frontend build
+[2026-03-21T13:39:00+08:00] [SESSION-270] CHECKPOINT [task-024] Fixed ThreadDetailPage route-switch state leakage and natural-language invite false positives; made proposal edit update body/proposed_by/drafts atomically; verified proposalapp+http go test, ThreadDetailPage/InitiativeDetailPage vitest, frontend build
+[2026-03-21T20:28:30.2002193+08:00] [SESSION-19] INIT Added [task-025] 收口后端公共面术语：issue/step 全量迁移到 workitem/action
+[2026-03-21T20:28:30.2002193+08:00] [SESSION-19] INIT Added [task-026] 收口前端公共面术语：issue/step 全量迁移到 workitem/action
+[2026-03-21T20:28:30.2002193+08:00] [SESSION-19] INIT Added [task-027] 收口现行文档与 runbook 术语：issue/step 全量迁移到 workitem/action
+[2026-03-21T20:28:30.2002193+08:00] [SESSION-19] INIT Added [task-028] 回归并清空剩余兼容层：统一 workitem/action 术语
+[2026-03-21T20:33:02.1213945+08:00] [SESSION-19] LOCK acquired (pid=9356)
+[2026-03-21T20:33:02.1213945+08:00] [SESSION-19] Starting [task-025] 收口后端公共面术语：issue/step 全量迁移到 workitem/action (base=b221f393878e86d8f361c7b4329a5feed9c7a3b0)
+[2026-03-21T12:52:22.4820467Z] [SESSION-19] Completed [task-025] (validation: go test ./internal/platform/appcmd ./internal/skills ./internal/adapters/http ./internal/adapters/executor ./internal/platform/config -count=1)
+[2026-03-21T12:52:22.4820467Z] [SESSION-19] Starting [task-026] 收口前端公共面术语：issue/step 全量迁移到 workitem/action (base=b221f393878e86d8f361c7b4329a5feed9c7a3b0)
+[2026-03-21T13:05:32.1543990Z] [SESSION-19] Completed [task-026] (validation: npm --prefix web test -- --run src/lib/apiClient.test.ts src/lib/apiClient.cron.test.ts src/pages/CreateWorkItemPage.test.tsx src/pages/WorkItemDetailPage.test.tsx src/pages/ThreadDetailPage.test.tsx src/pages/TemplatesPage.test.tsx src/pages/RunDetailPage.test.tsx && npm --prefix web run build)
+[2026-03-21T13:05:32.1543990Z] [SESSION-19] Starting [task-027] 收口现行文档与 runbook 术语：issue/step 全量迁移到 workitem/action (base=b221f393878e86d8f361c7b4329a5feed9c7a3b0)
+[2026-03-21T21:15:23.7650986+08:00] [SESSION-19] CHECKPOINT [task-027] runbook/spec 主叙述与现行路径已收口到 workitem/action；action-context 文档已重命名并完成定向校验
+[2026-03-21T21:15:23.7650986+08:00] [SESSION-19] Completed [task-027] (validation: pwsh -NoProfile -Command "Get-Content 'docs/spec/backend-workitem-action-cli-surface-map.zh-CN.md','docs/spec/README.md','docs/spec/backend-current-architecture.zh-CN.md','docs/spec/gate-human-intervention.zh-CN.md','docs/spec/action-context-progressive-loading.zh-CN.md','docs/runbooks/2026-03-21-requirement-flow-runbook.zh-CN.md' | Out-Null")
+[2026-03-21T21:15:23.7650986+08:00] [SESSION-19] Starting [task-028] 回归并清空剩余兼容层：统一 workitem/action 术语 (base=b221f393878e86d8f361c7b4329a5feed9c7a3b0)
+[2026-03-21T21:33:16.2539181+08:00] [SESSION-19] CHECKPOINT [task-028] 收口 README/CLAUDE/config schema、现行 spec 与 scripts/test；workitem-e2e/merge-conflict/pr-flow smoke 均已切到 workitem/action，PowerShell 语法校验通过
+[2026-03-21T21:33:16.2539181+08:00] [SESSION-19] Completed [task-028] (validation: go test ./internal/platform/appcmd ./internal/skills ./internal/adapters/http ./internal/adapters/executor ./internal/platform/config -count=1 && npm --prefix web test -- --run src/lib/apiClient.test.ts src/pages/CreateWorkItemPage.test.tsx src/pages/WorkItemDetailPage.test.tsx src/pages/ThreadDetailPage.test.tsx src/pages/TemplatesPage.test.tsx && pwsh -NoProfile -File .\\scripts\\test\\frontend-build.ps1)
+[2026-03-21T21:33:16.2539181+08:00] [SESSION-19] LOCK released
+[2026-03-21T13:46:37.8681365Z] [SESSION-20] INIT Added [task-029] 执行破坏性 SQLite 命名迁移：issues/steps/executions 全量切到 work_items/actions/runs
+[2026-03-21T13:46:37.8681365Z] [SESSION-20] INIT Added [task-030] 清理剩余当前契约命名：planning/dag/core/mcp 全量切到 workitem/action
+[2026-03-21T13:46:37.8681365Z] [SESSION-20] INIT Added [task-031] 执行全仓术语回归与最小闭环验证，确认不再保留 issue/step 主命名
+[2026-03-21T13:46:37.8681365Z] [SESSION-20] LOCK acquired (pid=27928)
+[2026-03-21T21:46:38.4623082+08:00] [SESSION-20] INIT Added [task-029] 破坏性迁移 SQLite 命名：issues/steps/executions 全量改为 work_items/actions/runs
+[2026-03-21T21:46:38.4623082+08:00] [SESSION-20] INIT Added [task-030] 收口剩余当前契约与内部实现命名：issue/step 改为 workitem/action
+[2026-03-21T21:46:38.4623082+08:00] [SESSION-20] INIT Added [task-031] 全仓回归扫描并验证新命名主路径，不保留兼容
+[2026-03-21T21:46:38.4623082+08:00] [SESSION-20] LOCK acquired (pid=32104)
+[2026-03-21T13:46:49.2842102Z] [SESSION-20] Starting [task-029] 执行破坏性 SQLite 命名迁移：issues/steps/executions 全量切到 work_items/actions/runs 破坏性迁移 SQLite 命名：issues/steps/executions 全量改为 work_items/actions/runs (base=b221f393878e86d8f361c7b4329a5feed9c7a3b0)
+[2026-03-21T21:47:05.3587553+08:00] [SESSION-20] Starting [task-029] 破坏性迁移 SQLite 命名：issues/steps/executions 全量改为 work_items/actions/runs (base=b221f393878e86d8f361c7b4329a5feed9c7a3b0)
+[2026-03-21T13:47:19.2403101Z] [SESSION-20] WARN Deduplicated harness task ids task-029..task-031 and set task-029 in_progress (base=b221f393878e86d8f361c7b4329a5feed9c7a3b0)
+[2026-03-21T13:53:46.5822959Z] [SESSION-20] CHECKPOINT [task-029] step=1/3 '已完成 SQLite 表名/列名主迁移：work_items/actions/runs 与 run_id/work_item_id/action_id 已收口到存储层与 schema'
+[2026-03-21T13:54:50.7189693Z] [SESSION-20] Completed [task-029] (validation: go test ./internal/adapters/store/sqlite ./internal/adapters/http ./internal/application/flow ./internal/application/workitemapp -count=1)
+[2026-03-21T13:54:50.7189693Z] [SESSION-20] Starting [task-030] 清理剩余当前契约命名：planning/dag/core/mcp 全量切到 workitem/action (base=b221f393878e86d8f361c7b4329a5feed9c7a3b0)
+[2026-03-21T21:55:22.8211044+08:00] [SESSION-20] Completed [task-029] (validation: go test ./internal/adapters/store/sqlite ./internal/adapters/http ./internal/application/... ./internal/adapters/executor ./internal/platform/appcmd -count=1)
+[2026-03-21T21:55:22.8211044+08:00] [SESSION-20] Starting [task-030] 收口剩余当前契约与内部实现命名：issue/step 改为 workitem/action (base=b221f393878e86d8f361c7b4329a5feed9c7a3b0)
+[2026-03-21T14:01:03.7879074Z] [SESSION-20] CHECKPOINT [task-030] step=1/3 '已完成 planning/dag/notification 主契约收口：actions/run_id/MISSING_ACTIONS 已替换旧命名'
+[2026-03-21T22:03:35.1753283+08:00] [SESSION-20] CHECKPOINT [task-030] step=1/2 "planning/dag template/notification/mcp/acp 当前契约与内部实现命名已收口到 action/workitem/run"
+[2026-03-21T22:03:35.1753283+08:00] [SESSION-20] CHECKPOINT [task-030] step=2/2 "验证通过：go test ./internal/application/planning ./internal/application/workitemapp ./internal/core ./internal/application/flow ./internal/platform/appcmd ./internal/adapters/executor ./internal/adapters/http -count=1"
+[2026-03-21T22:03:35.1753283+08:00] [SESSION-20] Completed [task-030] (validation: go test ./internal/application/planning ./internal/application/workitemapp ./internal/core ./internal/application/flow ./internal/platform/appcmd ./internal/adapters/executor ./internal/adapters/http -count=1)
+[2026-03-21T22:03:35.1753283+08:00] [SESSION-20] Starting [task-031] 全仓回归扫描并验证新命名主路径，不保留兼容 (base=b221f393878e86d8f361c7b4329a5feed9c7a3b0)
+[2026-03-21T22:36:00+08:00] [SESSION-21] INIT Added [task-032] 收口 execution/exec 主命名：现行运行时与表面契约统一改为 run
+[2026-03-21T22:36:00+08:00] [SESSION-21] LOCK acquired (pid=21852)
+[2026-03-21T22:36:00+08:00] [SESSION-21] Starting [task-032] 收口 execution/exec 主命名：现行运行时与表面契约统一改为 run (base=b221f393878e86d8f361c7b4329a5feed9c7a3b0)
+[2026-03-21T22:54:44.7656053+08:00] [SESSION-21] CHECKPOINT [task-031] step=1/1 "全仓扫描完成；现行主路径已不再保留 issue/step 主命名，后端定向回归通过；前端验证未执行，原因是环境缺少 npm"
+[2026-03-21T22:54:44.7656053+08:00] [SESSION-21] Completed [task-031] (validation: go test ./internal/adapters/store/sqlite ./internal/adapters/http ./internal/application/runtime ./internal/runtime/agent ./internal/adapters/executor ./internal/platform/appcmd ./internal/platform/config -count=1; frontend skipped: npm missing)
+[2026-03-21T22:54:44.7656053+08:00] [SESSION-21] CHECKPOINT [task-032] step=1/1 "execution/exec 主命名已收口到 run；运行时、HTTP、SQLite、前端 key/变量、run_probe 配置面与主路径文件名已统一到 run/workitem/action"
+[2026-03-21T22:54:44.7656053+08:00] [SESSION-21] Completed [task-032] (validation: go test ./internal/application/runtime ./internal/runtime/agent ./internal/adapters/executor ./internal/adapters/http ./internal/adapters/store/sqlite ./internal/platform/config -count=1; frontend skipped: npm missing)
+[2026-03-21T22:54:44.7656053+08:00] [SESSION-21] STATS tasks_total=32 completed=32 failed=0 pending=0 blocked=0 attempts_total=22 checkpoints=64
+[2026-03-21T22:54:44.7656053+08:00] [SESSION-21] LOCK released

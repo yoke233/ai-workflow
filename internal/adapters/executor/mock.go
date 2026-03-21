@@ -14,7 +14,7 @@ import (
 //
 // Intended for local smoke tests and CI where external agent credentials are unavailable.
 func NewMockActionExecutor(store core.Store, bus core.EventBus) flowapp.ActionExecutor {
-	return func(ctx context.Context, step *core.Action, exec *core.Run) error {
+	return func(ctx context.Context, action *core.Action, run *core.Run) error {
 		workDir := ""
 		if ws := flowapp.WorkspaceFromContext(ctx); ws != nil {
 			workDir = ws.Path
@@ -22,17 +22,17 @@ func NewMockActionExecutor(store core.Store, bus core.EventBus) flowapp.ActionEx
 
 		now := time.Now().UTC()
 		reply := fmt.Sprintf(
-			"## Mock executor\n\n- step_id: %d\n- issue_id: %d\n- step_type: %s\n- agent_role: %s\n- work_dir: %s\n- time_utc: %s\n",
-			step.ID, step.WorkItemID, step.Type, step.AgentRole, workDir, now.Format(time.RFC3339),
+			"## Mock executor\n\n- action_id: %d\n- work_item_id: %d\n- action_type: %s\n- agent_role: %s\n- work_dir: %s\n- time_utc: %s\n",
+			action.ID, action.WorkItemID, action.Type, action.AgentRole, workDir, now.Format(time.RFC3339),
 		)
 
 		// Publish done event with full reply (matches ACP bridge "done" shape).
 		if bus != nil {
 			bus.Publish(ctx, core.Event{
 				Type:       core.EventRunAgentOutput,
-				WorkItemID: step.WorkItemID,
-				ActionID:   step.ID,
-				RunID:      exec.ID,
+				WorkItemID: action.WorkItemID,
+				ActionID:   action.ID,
+				RunID:      run.ID,
 				Timestamp:  now,
 				Data: map[string]any{
 					"type":    "done",
@@ -42,9 +42,9 @@ func NewMockActionExecutor(store core.Store, bus core.EventBus) flowapp.ActionEx
 		}
 
 		// Store result inline on the Run.
-		exec.ResultMarkdown = reply
+		run.ResultMarkdown = reply
 
-		exec.Output = map[string]any{
+		run.Output = map[string]any{
 			"text":        reply,
 			"stop_reason": "mock",
 		}

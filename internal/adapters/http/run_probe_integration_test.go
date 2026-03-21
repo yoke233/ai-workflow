@@ -25,13 +25,13 @@ type probeRuntimeStub struct {
 func (s *probeRuntimeStub) Acquire(context.Context, runtimeapp.SessionAcquireInput) (*runtimeapp.SessionHandle, error) {
 	return nil, nil
 }
-func (s *probeRuntimeStub) StartExecution(context.Context, *runtimeapp.SessionHandle, string) (string, error) {
+func (s *probeRuntimeStub) StartRun(context.Context, *runtimeapp.SessionHandle, string) (string, error) {
 	return "", nil
 }
-func (s *probeRuntimeStub) WatchExecution(context.Context, string, int64, runtimeapp.EventSink) (*runtimeapp.ExecutionResult, error) {
+func (s *probeRuntimeStub) WatchRun(context.Context, string, int64, runtimeapp.EventSink) (*runtimeapp.RunResult, error) {
 	return nil, nil
 }
-func (s *probeRuntimeStub) RecoverExecutions(context.Context, time.Time) ([]runtimeapp.ExecutionRuntimeStatus, error) {
+func (s *probeRuntimeStub) RecoverRuns(context.Context, time.Time) ([]runtimeapp.RunRuntimeStatus, error) {
 	return nil, nil
 }
 func (s *probeRuntimeStub) ProbeRun(context.Context, runtimeapp.RunProbeRuntimeRequest) (*runtimeapp.RunProbeRuntimeResult, error) {
@@ -43,7 +43,7 @@ func (s *probeRuntimeStub) DrainActive(context.Context) error                   
 func (s *probeRuntimeStub) ActiveCount() int                                         { return 0 }
 func (s *probeRuntimeStub) Close()                                                   {}
 
-func TestIntegration_APIExecutionProbeLifecycle(t *testing.T) {
+func TestIntegration_APIRunProbeLifecycle(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "api-probe.db")
 	store, err := sqlite.New(dbPath)
 	if err != nil {
@@ -66,8 +66,8 @@ func TestIntegration_APIExecutionProbeLifecycle(t *testing.T) {
 		t.Fatalf("create agent context: %v", err)
 	}
 	startedAt := time.Now().UTC().Add(-15 * time.Minute)
-	execRec := &core.Run{ActionID: stepID, WorkItemID: issueID, Status: core.RunRunning, Attempt: 1, StartedAt: &startedAt, AgentContextID: &agentCtxID}
-	execID, err := store.CreateRun(ctx, execRec)
+	run := &core.Run{ActionID: stepID, WorkItemID: issueID, Status: core.RunRunning, Attempt: 1, StartedAt: &startedAt, AgentContextID: &agentCtxID}
+	runID, err := store.CreateRun(ctx, run)
 	if err != nil {
 		t.Fatalf("create run: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestIntegration_APIExecutionProbeLifecycle(t *testing.T) {
 	defer ts.Close()
 
 	body, _ := json.Marshal(map[string]any{})
-	resp, err := http.Post(ts.URL+"/runs/"+itoa(execID)+"/probe", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(ts.URL+"/runs/"+itoa(runID)+"/probe", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST probe: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestIntegration_APIExecutionProbeLifecycle(t *testing.T) {
 		t.Fatalf("probe status = %s, want answered", probe.Status)
 	}
 
-	resp, err = http.Get(ts.URL + "/runs/" + itoa(execID) + "/probes")
+	resp, err = http.Get(ts.URL + "/runs/" + itoa(runID) + "/probes")
 	if err != nil {
 		t.Fatalf("GET probes: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestIntegration_APIExecutionProbeLifecycle(t *testing.T) {
 		t.Fatalf("expected 1 probe, got %d", len(probes))
 	}
 
-	resp, err = http.Get(ts.URL + "/runs/" + itoa(execID) + "/probe/latest")
+	resp, err = http.Get(ts.URL + "/runs/" + itoa(runID) + "/probe/latest")
 	if err != nil {
 		t.Fatalf("GET latest probe: %v", err)
 	}

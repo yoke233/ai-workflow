@@ -48,7 +48,7 @@ func migrateLegacyAttachment(ctx context.Context, orm *gorm.DB, binding Resource
 	var count int64
 	if err := orm.WithContext(ctx).
 		Model(&ResourceModel{}).
-		Where("uri = ? AND work_item_id = ?", binding.URI, binding.IssueID).
+		Where("uri = ? AND work_item_id = ?", binding.URI, binding.WorkItemID).
 		Count(&count).Error; err != nil {
 		return fmt.Errorf("check migrated attachment %d: %w", binding.ID, err)
 	}
@@ -57,10 +57,10 @@ func migrateLegacyAttachment(ctx context.Context, orm *gorm.DB, binding Resource
 	}
 
 	projectID := binding.ProjectID
-	if projectID == 0 && binding.IssueID != nil {
-		var issue WorkItemModel
-		if err := orm.WithContext(ctx).First(&issue, *binding.IssueID).Error; err == nil && issue.ProjectID != nil {
-			projectID = *issue.ProjectID
+	if projectID == 0 && binding.WorkItemID != nil {
+		var workItem WorkItemModel
+		if err := orm.WithContext(ctx).First(&workItem, *binding.WorkItemID).Error; err == nil && workItem.ProjectID != nil {
+			projectID = *workItem.ProjectID
 		}
 	}
 
@@ -84,7 +84,7 @@ func migrateLegacyAttachment(ctx context.Context, orm *gorm.DB, binding Resource
 
 	model := &ResourceModel{
 		ProjectID:   projectID,
-		WorkItemID:  binding.IssueID,
+		WorkItemID:  binding.WorkItemID,
 		StorageKind: "local",
 		URI:         binding.URI,
 		Role:        "input",
@@ -153,7 +153,7 @@ func migrateLegacyActionResources(ctx context.Context, orm *gorm.DB) error {
 		if strings.EqualFold(strings.TrimSpace(binding.Kind), "attachment") {
 			var resource ResourceModel
 			if err := orm.WithContext(ctx).
-				Where("uri = ? AND work_item_id = ?", binding.URI, binding.IssueID).
+				Where("uri = ? AND work_item_id = ?", binding.URI, binding.WorkItemID).
 				First(&resource).Error; err != nil {
 				continue
 			}
@@ -203,9 +203,9 @@ func migrateLegacyRunAssets(ctx context.Context, orm *gorm.DB) error {
 			continue
 		}
 		projectID := int64(0)
-		var issue WorkItemModel
-		if err := orm.WithContext(ctx).First(&issue, run.IssueID).Error; err == nil && issue.ProjectID != nil {
-			projectID = *issue.ProjectID
+		var workItem WorkItemModel
+		if err := orm.WithContext(ctx).First(&workItem, run.WorkItemID).Error; err == nil && workItem.ProjectID != nil {
+			projectID = *workItem.ProjectID
 		}
 		for _, asset := range run.ResultAssets.Data {
 			var count int64
@@ -227,7 +227,7 @@ func migrateLegacyRunAssets(ctx context.Context, orm *gorm.DB) error {
 				Role:        "output",
 				FileName:    asset.Name,
 				MimeType:    asset.MediaType,
-				Metadata:    JSONField[map[string]any]{Data: map[string]any{"legacy_source": "executions.result_assets"}},
+				Metadata:    JSONField[map[string]any]{Data: map[string]any{"legacy_source": "runs.result_assets"}},
 			}
 			if err := orm.WithContext(ctx).Create(model).Error; err != nil {
 				return fmt.Errorf("migrate run asset %d/%s: %w", run.ID, asset.Name, err)

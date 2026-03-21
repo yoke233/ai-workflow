@@ -15,12 +15,12 @@ import (
 	"github.com/yoke233/zhanggui/internal/core"
 )
 
-func TestIntegration_RequirementToWorkItemExecutionFlow(t *testing.T) {
+func TestIntegration_RequirementToWorkItemRunFlow(t *testing.T) {
 	var store core.Store
-	var backendExecRuns int32
-	var frontendExecRuns int32
+	var backendRunCount int32
+	var frontendRunCount int32
 	var frontendGateRuns int32
-	var qaExecRuns int32
+	var qaRunCount int32
 
 	executor := func(ctx context.Context, step *core.Action, exec *core.Run) error {
 		workItem, err := store.GetWorkItem(ctx, step.WorkItemID)
@@ -30,7 +30,7 @@ func TestIntegration_RequirementToWorkItemExecutionFlow(t *testing.T) {
 		switch {
 		case strings.Contains(workItem.Title, "后端"):
 			time.Sleep(80 * time.Millisecond)
-			atomic.AddInt32(&backendExecRuns, 1)
+			atomic.AddInt32(&backendRunCount, 1)
 			exec.Output = map[string]any{"result": "backend-ready"}
 			return nil
 		case strings.Contains(workItem.Title, "登录交互") && step.Type == core.ActionGate:
@@ -46,11 +46,11 @@ func TestIntegration_RequirementToWorkItemExecutionFlow(t *testing.T) {
 			exec.Output = map[string]any{"verdict": verdict, "reason": reason}
 			return nil
 		case strings.Contains(workItem.Title, "登录交互"):
-			atomic.AddInt32(&frontendExecRuns, 1)
+			atomic.AddInt32(&frontendRunCount, 1)
 			exec.Output = map[string]any{"result": "frontend-updated"}
 			return nil
 		case strings.Contains(workItem.Title, "验收"):
-			atomic.AddInt32(&qaExecRuns, 1)
+			atomic.AddInt32(&qaRunCount, 1)
 			exec.Output = map[string]any{"result": "qa-verified"}
 			return nil
 		default:
@@ -371,7 +371,7 @@ func TestIntegration_RequirementToWorkItemExecutionFlow(t *testing.T) {
 			body:       map[string]any{"name": "qa-verify", "type": "exec", "agent_role": "worker"},
 		},
 	} {
-		resp, err := postJSON(ts, fmt.Sprintf("/work-items/%d/steps", req.workItemID), req.body)
+		resp, err := postJSON(ts, fmt.Sprintf("/work-items/%d/actions", req.workItemID), req.body)
 		if err != nil {
 			t.Fatalf("create step for work item %d: %v", req.workItemID, err)
 		}
@@ -435,17 +435,17 @@ func TestIntegration_RequirementToWorkItemExecutionFlow(t *testing.T) {
 		t.Fatalf("initiative progress = %+v, want total=3 done=3", detail.Progress)
 	}
 
-	if got := atomic.LoadInt32(&backendExecRuns); got != 1 {
-		t.Fatalf("backend exec runs = %d, want 1", got)
+	if got := atomic.LoadInt32(&backendRunCount); got != 1 {
+		t.Fatalf("backend run count = %d, want 1", got)
 	}
-	if got := atomic.LoadInt32(&frontendExecRuns); got != 2 {
-		t.Fatalf("frontend exec runs = %d, want 2", got)
+	if got := atomic.LoadInt32(&frontendRunCount); got != 2 {
+		t.Fatalf("frontend run count = %d, want 2", got)
 	}
 	if got := atomic.LoadInt32(&frontendGateRuns); got != 2 {
 		t.Fatalf("frontend gate runs = %d, want 2", got)
 	}
-	if got := atomic.LoadInt32(&qaExecRuns); got != 1 {
-		t.Fatalf("qa exec runs = %d, want 1", got)
+	if got := atomic.LoadInt32(&qaRunCount); got != 1 {
+		t.Fatalf("qa run count = %d, want 1", got)
 	}
 
 	msgs, err := h.store.ListThreadMessages(ctx, created.Thread.ID, 50, 0)

@@ -28,13 +28,13 @@ func (s *Store) CreateEvent(ctx context.Context, e *core.Event) (int64, error) {
 func (s *Store) ListEvents(ctx context.Context, filter core.EventFilter) ([]*core.Event, error) {
 	query := s.orm.WithContext(ctx).Model(&EventModel{})
 	if filter.WorkItemID != nil {
-		query = query.Where("issue_id = ?", *filter.WorkItemID)
+		query = query.Where("work_item_id = ?", *filter.WorkItemID)
 	}
 	if filter.ActionID != nil {
-		query = query.Where("step_id = ?", *filter.ActionID)
+		query = query.Where("action_id = ?", *filter.ActionID)
 	}
 	if filter.RunID != nil {
-		query = query.Where("exec_id = ?", *filter.RunID)
+		query = query.Where("run_id = ?", *filter.RunID)
 	}
 	if filter.ThreadID != nil {
 		query = query.Where("json_extract(data, '$.thread_id') = ?", *filter.ThreadID)
@@ -76,10 +76,10 @@ func (s *Store) ListEvents(ctx context.Context, filter core.EventFilter) ([]*cor
 	return events, nil
 }
 
-func (s *Store) GetLatestRunEventTime(ctx context.Context, execID int64, eventType core.EventType) (*time.Time, error) {
+func (s *Store) GetLatestRunEventTime(ctx context.Context, runID int64, eventType core.EventType) (*time.Time, error) {
 	var model EventModel
 	err := s.orm.WithContext(ctx).
-		Where("exec_id = ? AND type = ?", execID, string(eventType)).
+		Where("run_id = ? AND type = ?", runID, string(eventType)).
 		Order("timestamp DESC").
 		Limit(1).
 		First(&model).Error
@@ -87,7 +87,7 @@ func (s *Store) GetLatestRunEventTime(ctx context.Context, execID int64, eventTy
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("get latest execution event time: %w", err)
+		return nil, fmt.Errorf("get latest run event time: %w", err)
 	}
 	return &model.Timestamp, nil
 }
@@ -122,7 +122,7 @@ func (s *Store) GetToolCallAudit(ctx context.Context, id int64) (*core.ToolCallA
 func (s *Store) GetToolCallAuditByToolCallID(ctx context.Context, runID int64, toolCallID string) (*core.ToolCallAudit, error) {
 	var model EventModel
 	if err := s.orm.WithContext(ctx).
-		Where("exec_id = ? AND category = ? AND json_extract(data, '$.tool_call_id') = ?",
+		Where("run_id = ? AND category = ? AND json_extract(data, '$.tool_call_id') = ?",
 			runID, core.EventCategoryToolAudit, toolCallID).
 		Order("id DESC").
 		First(&model).Error; err != nil {
@@ -138,10 +138,10 @@ func (s *Store) GetToolCallAuditByToolCallID(ctx context.Context, runID int64, t
 func (s *Store) ListToolCallAuditsByRun(ctx context.Context, runID int64) ([]*core.ToolCallAudit, error) {
 	var models []EventModel
 	if err := s.orm.WithContext(ctx).
-		Where("exec_id = ? AND category = ?", runID, core.EventCategoryToolAudit).
+		Where("run_id = ? AND category = ?", runID, core.EventCategoryToolAudit).
 		Order("id ASC").
 		Find(&models).Error; err != nil {
-		return nil, fmt.Errorf("list tool call audits by execution: %w", err)
+		return nil, fmt.Errorf("list tool call audits by run: %w", err)
 	}
 	out := make([]*core.ToolCallAudit, 0, len(models))
 	for i := range models {
@@ -157,11 +157,11 @@ func (s *Store) UpdateToolCallAudit(ctx context.Context, audit *core.ToolCallAud
 	result := s.orm.WithContext(ctx).Model(&EventModel{}).
 		Where("id = ? AND category = ?", audit.ID, core.EventCategoryToolAudit).
 		Updates(map[string]any{
-			"data":      model.Data,
-			"issue_id":  model.IssueID,
-			"step_id":   model.StepID,
-			"exec_id":   model.ExecID,
-			"timestamp": model.Timestamp,
+			"data":         model.Data,
+			"work_item_id": model.WorkItemID,
+			"action_id":    model.ActionID,
+			"run_id":       model.RunID,
+			"timestamp":    model.Timestamp,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("update tool call audit: %w", result.Error)

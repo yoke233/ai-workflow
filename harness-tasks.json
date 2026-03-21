@@ -912,8 +912,313 @@
         }
       ],
       "completed_at": "2026-03-21T12:25:30+08:00"
+    },
+    {
+      "id": "task-023",
+      "title": "回查既有 task 并收口前后端 review findings",
+      "status": "completed",
+      "priority": "P0",
+      "depends_on": [
+        "task-022"
+      ],
+      "attempts": 1,
+      "max_attempts": 3,
+      "started_at_commit": "5b2c2bb",
+      "validation": {
+        "command": "go test ./internal/core ./internal/skills ./internal/adapters/store/sqlite ./internal/adapters/http && npm --prefix web test -- --run src/pages/InitiativeDetailPage.test.tsx src/pages/ThreadDetailPage.test.tsx src/pages/WorkItemDetailPage.test.tsx src/lib/apiClient.test.ts && pwsh -NoProfile -File .\\scripts\\test\\frontend-build.ps1",
+        "timeout_seconds": 2400
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "复查前端 InitiativeDetailPage 竞态与错误态残留问题，补回归测试并确认 Thread/WorkItem/API 相关既有 task 无回归",
+          "timestamp": "2026-03-21T12:54:20+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "修复 github importer symlink、gstack artifact path 与 artifact 路由/metadata-only 结果语义，并完成前后端定向验证",
+          "timestamp": "2026-03-21T12:54:20+08:00"
+        }
+      ],
+      "completed_at": "2026-03-21T12:54:20+08:00"
+    },
+    {
+      "id": "task-024",
+      "title": "修复总代码 review 暴露的 thread/proposal 剩余问题",
+      "status": "completed",
+      "priority": "P0",
+      "depends_on": [
+        "task-023"
+      ],
+      "attempts": 1,
+      "max_attempts": 3,
+      "started_at_commit": "5b2c2bb",
+      "validation": {
+        "command": "go test ./internal/application/proposalapp ./internal/adapters/http && npm --prefix web test -- --run src/pages/ThreadDetailPage.test.tsx src/pages/InitiativeDetailPage.test.tsx && pwsh -NoProfile -File .\\scripts\\test\\frontend-build.ps1",
+        "timeout_seconds": 2400
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "修复 ThreadDetailPage 路由切换状态泄漏与自然语言邀请误匹配，补线程切换和邀请回归测试",
+          "timestamp": "2026-03-21T13:39:00+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "将 proposal 编辑改为单请求原子更新正文、proposed_by 与 drafts，补服务层与前端断言，并通过后端测试、前端测试和构建验证",
+          "timestamp": "2026-03-21T13:39:00+08:00"
+        }
+      ],
+      "completed_at": "2026-03-21T13:39:00+08:00"
+    },
+    {
+      "id": "task-025",
+      "title": "收口后端公共面术语：issue/step 全量迁移到 workitem/action",
+      "status": "completed",
+      "priority": "P0",
+      "depends_on": [],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": "b221f393878e86d8f361c7b4329a5feed9c7a3b0",
+      "validation": {
+        "command": "go test ./internal/platform/appcmd ./internal/skills ./internal/adapters/http ./internal/adapters/executor ./internal/platform/config -count=1",
+        "timeout_seconds": 2400
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [
+        {
+          "step": 4,
+          "total": 4,
+          "description": "完成后端公共面术语迁移：HTTP/MCP/runtime env/builtin skills/tests 全量切到 workitem/action，并通过 task-025 验证命令",
+          "timestamp": "2026-03-21T12:52:22.4820467Z"
+        }
+      ],
+      "completed_at": "2026-03-21T12:52:22.4820467Z"
+    },
+    {
+      "id": "task-026",
+      "title": "收口前端公共面术语：issue/step 全量迁移到 workitem/action",
+      "status": "completed",
+      "priority": "P0",
+      "depends_on": [
+        "task-025"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": "b221f393878e86d8f361c7b4329a5feed9c7a3b0",
+      "validation": {
+        "command": "npm --prefix web test -- --run src/lib/apiClient.test.ts src/pages/CreateWorkItemPage.test.tsx src/pages/WorkItemDetailPage.test.tsx src/pages/ThreadDetailPage.test.tsx src/pages/TemplatesPage.test.tsx && pwsh -NoProfile -File .\\scripts\\test\\frontend-build.ps1",
+        "timeout_seconds": 2400
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [
+        {
+          "at": "2026-03-21T13:05:32.154399Z",
+          "note": "已完成前端公共面迁移：apiV2/apiClient/WS/线程页与模板创建页全部切到 work_item/action；删除未引用旧类型文件 web/src/types/api.ts 与 workflow.ts；定向 vitest 48 项与 frontend build 全绿"
+        }
+      ],
+      "completed_at": "2026-03-21T13:05:32.154399Z"
+    },
+    {
+      "id": "task-027",
+      "title": "收口现行文档与 runbook 术语：issue/step 全量迁移到 workitem/action",
+      "status": "completed",
+      "priority": "P1",
+      "depends_on": [
+        "task-026"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": "b221f393878e86d8f361c7b4329a5feed9c7a3b0",
+      "validation": {
+        "command": "pwsh -NoProfile -Command \"Get-Content 'docs/spec/backend-workitem-action-cli-surface-map.zh-CN.md','docs/spec/README.md','docs/spec/backend-current-architecture.zh-CN.md','docs/spec/gate-human-intervention.zh-CN.md','docs/spec/action-context-progressive-loading.zh-CN.md','docs/runbooks/2026-03-21-requirement-flow-runbook.zh-CN.md' | Out-Null\"",
+        "timeout_seconds": 300
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "completed_at": "2026-03-21T21:15:23.7650986+08:00",
+      "checkpoints": [
+        {
+          "timestamp": "2026-03-21T21:15:23.7650986+08:00",
+          "note": "runbook/spec 现行文档主叙述已切到 workitem/action；gate-human-intervention 与 action-context-progressive-loading 已收口并通过定向读取校验"
+        }
+      ]
+    },
+    {
+      "id": "task-028",
+      "title": "回归并清空剩余兼容层：统一 workitem/action 术语",
+      "status": "completed",
+      "priority": "P0",
+      "depends_on": [
+        "task-027"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": "b221f393878e86d8f361c7b4329a5feed9c7a3b0",
+      "validation": {
+        "command": "go test ./internal/platform/appcmd ./internal/skills ./internal/adapters/http ./internal/adapters/executor ./internal/platform/config -count=1 && npm --prefix web test -- --run src/lib/apiClient.test.ts src/pages/CreateWorkItemPage.test.tsx src/pages/WorkItemDetailPage.test.tsx src/pages/ThreadDetailPage.test.tsx src/pages/TemplatesPage.test.tsx && pwsh -NoProfile -File .\\\\scripts\\\\test\\\\frontend-build.ps1",
+        "timeout_seconds": 3600
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "completed_at": "2026-03-21T21:33:16.2539181+08:00",
+      "checkpoints": [
+        {
+          "timestamp": "2026-03-21T21:33:16.2539181+08:00",
+          "note": "清理现行公共面残留：README/CLAUDE/config schema、lead-chat/execution-context/naming-transition 规格、脚本 README 与 E2E smoke 脚本均切到 workitem/action；四个 PowerShell 脚本语法校验通过，后端定向 go test、前端定向 vitest 与 frontend-build 全绿"
+        }
+      ]
+    },
+    {
+      "id": "task-029",
+      "title": "执行破坏性 SQLite 命名迁移：issues/steps/executions 全量切到 work_items/actions/runs",
+      "status": "completed",
+      "priority": "P0",
+      "depends_on": [],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": "b221f393878e86d8f361c7b4329a5feed9c7a3b0",
+      "validation": {
+        "command": "go test ./internal/adapters/store/sqlite ./internal/adapters/http ./internal/application/flow ./internal/application/workitemapp -count=1",
+        "timeout_seconds": 1200
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [
+        {
+          "step": 1,
+          "description": "SQLite 表名、列名、索引名与直写 SQL 已从 issues/steps/executions 切到 work_items/actions/runs",
+          "total": 2,
+          "timestamp": "2026-03-21T21:55:22.8211044+08:00"
+        },
+        {
+          "step": 2,
+          "description": "验证通过：go test ./internal/adapters/store/sqlite ./internal/adapters/http ./internal/application/... ./internal/adapters/executor ./internal/platform/appcmd -count=1",
+          "total": 2,
+          "timestamp": "2026-03-21T21:55:22.8211044+08:00"
+        }
+      ],
+      "completed_at": "2026-03-21T21:55:22.8211044+08:00"
+    },
+    {
+      "id": "task-030",
+      "title": "清理剩余当前契约命名：planning/dag/core/mcp 全量切到 workitem/action",
+      "status": "completed",
+      "priority": "P0",
+      "depends_on": [
+        "task-029"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": "b221f393878e86d8f361c7b4329a5feed9c7a3b0",
+      "validation": {
+        "command": "go test ./internal/application/planning ./internal/application/workitemapp ./internal/platform/appcmd ./internal/adapters/executor ./internal/adapters/http ./internal/core -count=1",
+        "timeout_seconds": 1200
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [
+        {
+          "total": 2,
+          "timestamp": "2026-03-21T22:03:35.1753283+08:00",
+          "step": 1,
+          "description": "planning/dag template/notification/mcp/acp 当前契约与内部实现命名已收口到 action/workitem/run"
+        },
+        {
+          "total": 2,
+          "timestamp": "2026-03-21T22:03:35.1753283+08:00",
+          "step": 2,
+          "description": "验证通过：go test ./internal/application/planning ./internal/application/workitemapp ./internal/core ./internal/application/flow ./internal/platform/appcmd ./internal/adapters/executor ./internal/adapters/http -count=1"
+        }
+      ],
+      "completed_at": "2026-03-21T22:03:35.1753283+08:00"
+    },
+    {
+      "id": "task-031",
+      "title": "执行全仓术语回归与最小闭环验证，确认不再保留 issue/step 主命名",
+      "status": "completed",
+      "priority": "P0",
+      "depends_on": [
+        "task-029",
+        "task-030"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": "b221f393878e86d8f361c7b4329a5feed9c7a3b0",
+      "validation": {
+        "command": "go test ./internal/adapters/store/sqlite ./internal/adapters/http ./internal/application/... ./internal/platform/appcmd ./internal/adapters/executor -count=1 && npm --prefix web test -- --run src/lib/apiClient.test.ts src/pages/CreateWorkItemPage.test.tsx src/pages/WorkItemDetailPage.test.tsx src/pages/ThreadDetailPage.test.tsx src/pages/TemplatesPage.test.tsx && pwsh -NoProfile -File .\\\\scripts\\\\test\\\\frontend-build.ps1",
+        "timeout_seconds": 1800
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 1,
+          "description": "全仓扫描完成；现行主路径已不再保留 issue/step 主命名，后端定向回归通过；前端验证未执行，原因是环境缺少 npm",
+          "timestamp": "2026-03-21T22:54:44.7656053+08:00"
+        }
+      ],
+      "completed_at": "2026-03-21T22:54:44.7656053+08:00"
+    },
+    {
+      "id": "task-032",
+      "title": "收口 execution/exec 主命名：现行运行时与表面契约统一改为 run",
+      "status": "completed",
+      "priority": "P0",
+      "depends_on": [
+        "task-031"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": "b221f393878e86d8f361c7b4329a5feed9c7a3b0",
+      "validation": {
+        "command": "go test ./internal/application/runtime ./internal/runtime/agent ./internal/adapters/executor ./internal/adapters/http ./internal/adapters/store/sqlite ./internal/platform/config -count=1 && npm --prefix web test -- --run src/lib/apiClient.test.ts src/pages/RunDetailPage.test.tsx src/pages/WorkItemDetailPage.test.tsx src/pages/ThreadDetailPage.test.tsx && pwsh -NoProfile -File .\\\\scripts\\\\test\\\\frontend-build.ps1",
+        "timeout_seconds": 2400
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 1,
+          "description": "execution/exec 主命名已收口到 run；运行时、HTTP、SQLite、前端 key/变量、run_probe 配置面与主路径文件名已统一到 run/workitem/action",
+          "timestamp": "2026-03-21T22:54:44.7656053+08:00"
+        }
+      ],
+      "completed_at": "2026-03-21T22:54:44.7656053+08:00"
     }
   ],
-  "session_count": 18,
-  "last_session": "2026-03-21T12:25:30+08:00"
+  "session_count": 21,
+  "last_session": "2026-03-21T22:54:44.7656053+08:00"
 }

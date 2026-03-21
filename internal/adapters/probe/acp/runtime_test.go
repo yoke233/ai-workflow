@@ -28,7 +28,7 @@ func fixtureProbeLaunchConfig(t *testing.T, scenario string) acpclient.LaunchCon
 	}
 }
 
-func TestRunACPExecutionProbe_LoadsExistingSession(t *testing.T) {
+func TestRunACPProbe_LoadsExistingSession(t *testing.T) {
 	launch := fixtureProbeLaunchConfig(t, "new_session_simple_prompt")
 	client, err := acpclient.New(launch, &acpclient.NopHandler{})
 	if err != nil {

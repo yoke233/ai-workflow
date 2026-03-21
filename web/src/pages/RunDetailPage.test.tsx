@@ -77,12 +77,12 @@ describe("RunDetailPage", () => {
       ]),
       listEvents: vi.fn().mockResolvedValue([
         {
-          type: "exec.agent_output",
+          type: "run.agent_output",
           timestamp: "2026-03-15T00:01:00Z",
           data: { type: "agent_thought", content: "先看日志" },
         },
         {
-          type: "exec.agent_output",
+          type: "run.agent_output",
           timestamp: "2026-03-15T00:02:00Z",
           data: { type: "tool_call", content: "rg -n payment" },
         },
@@ -92,7 +92,7 @@ describe("RunDetailPage", () => {
           data: { type: "tool_call_completed", content: "命令执行完成" },
         },
         {
-          type: "exec.status",
+          type: "run.status",
           timestamp: "2026-03-15T00:04:00Z",
           data: { content: "done" },
         },
@@ -112,12 +112,12 @@ describe("RunDetailPage", () => {
     expect(screen.getByText("先看日志")).toBeTruthy();
     expect(screen.getByText("rg -n payment")).toBeTruthy();
     expect(screen.getByText("命令执行完成")).toBeTruthy();
-    expect(screen.getByText("exec.status: done")).toBeTruthy();
+    expect(screen.getByText("run.status: done")).toBeTruthy();
   });
 
   it("加载失败时展示错误信息", async () => {
     const apiClient = {
-      getRun: vi.fn().mockRejectedValue(new Error("execution unavailable")),
+      getRun: vi.fn().mockRejectedValue(new Error("run unavailable")),
       getAction: vi.fn(),
       getWorkItem: vi.fn(),
       listRunResources: vi.fn(),
@@ -128,6 +128,6 @@ describe("RunDetailPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("execution unavailable")).toBeTruthy();
+    expect(await screen.findByText("run unavailable")).toBeTruthy();
   });
 });

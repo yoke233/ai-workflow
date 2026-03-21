@@ -14,7 +14,7 @@ import (
 	"github.com/yoke233/zhanggui/internal/core"
 )
 
-func runBuiltinGitCommitPush(ctx context.Context, store core.Store, bus core.EventBus, tokens flowapp.SCMTokens, step *core.Action, execRec *core.Run) error {
+func runBuiltinGitCommitPush(ctx context.Context, store core.Store, bus core.EventBus, tokens flowapp.SCMTokens, action *core.Action, run *core.Run) error {
 	if store == nil {
 		return fmt.Errorf("builtin git_commit_push: store is nil")
 	}
@@ -24,8 +24,8 @@ func runBuiltinGitCommitPush(ctx context.Context, store core.Store, bus core.Eve
 	}
 
 	message := "chore: ai-flow runtime update"
-	if step.Config != nil {
-		if v, ok := step.Config["commit_message"].(string); ok && strings.TrimSpace(v) != "" {
+	if action.Config != nil {
+		if v, ok := action.Config["commit_message"].(string); ok && strings.TrimSpace(v) != "" {
 			message = strings.TrimSpace(v)
 		}
 	}
@@ -39,7 +39,7 @@ func runBuiltinGitCommitPush(ctx context.Context, store core.Store, bus core.Eve
 		return err
 	}
 	if !hasChanges {
-		return storeBuiltinArtifact(ctx, store, bus, step, execRec, "git_commit_push: no changes to commit", map[string]any{
+		return storeBuiltinArtifact(ctx, store, bus, action, run, "git_commit_push: no changes to commit", map[string]any{
 			"commit": "skipped",
 		})
 	}
@@ -106,7 +106,7 @@ func runBuiltinGitCommitPush(ctx context.Context, store core.Store, bus core.Eve
 	}
 
 	sha, _ := gitOutput(ctx, ws.Path, nil, "rev-parse", "HEAD")
-	return storeBuiltinArtifact(ctx, store, bus, step, execRec, "git_commit_push: pushed changes", map[string]any{
+	return storeBuiltinArtifact(ctx, store, bus, action, run, "git_commit_push: pushed changes", map[string]any{
 		"commit":    "pushed",
 		"branch":    branch,
 		"head_sha":  strings.TrimSpace(sha),

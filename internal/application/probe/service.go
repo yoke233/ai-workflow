@@ -14,7 +14,7 @@ var (
 	ErrRunNotRunning    = errors.New("run is not running")
 )
 
-const defaultRunProbeQuestion = "Execution Probe: report current status in one short reply. State whether you are actively progressing, blocked waiting for input/authorization, or hung. If blocked, say exactly what input or approval is needed."
+const defaultRunProbeQuestion = "Run Probe: report current status in one short reply. State whether you are actively progressing, blocked waiting for input/authorization, or hung. If blocked, say exactly what input or approval is needed."
 
 type RunProbeService struct {
 	store           Store

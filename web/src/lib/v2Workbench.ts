@@ -40,14 +40,14 @@ export const formatRelativeTime = (input?: string | null): string => {
   });
 };
 
-export const formatIssueDuration = (issue: Pick<WorkItem, "created_at" | "updated_at" | "status">): string => {
-  const created = new Date(issue.created_at);
+export const formatWorkItemDuration = (workItem: Pick<WorkItem, "created_at" | "updated_at" | "status">): string => {
+  const created = new Date(workItem.created_at);
   if (Number.isNaN(created.getTime())) {
     return "-";
   }
-  const updated = new Date(issue.updated_at);
+  const updated = new Date(workItem.updated_at);
   const end =
-    issue.status === "done" || issue.status === "failed" || issue.status === "cancelled"
+    workItem.status === "done" || workItem.status === "failed" || workItem.status === "cancelled"
       ? updated
       : new Date();
   const diffMs = Math.max(0, end.getTime() - created.getTime());
@@ -59,10 +59,10 @@ export const formatIssueDuration = (issue: Pick<WorkItem, "created_at" | "update
   return `${diffMinutes}m`;
 };
 
-export const isActiveIssueStatus = (status: string): boolean =>
+export const isActiveWorkItemStatus = (status: string): boolean =>
   status === "queued" || status === "running" || status === "blocked" || status === "pending";
 
-export const normalizeStepTypeLabel = (type: Action["type"]): string => {
+export const normalizeActionTypeLabel = (type: Action["type"]): string => {
   switch (type) {
     case "exec":
       return "执行";

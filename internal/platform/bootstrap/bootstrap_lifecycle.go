@@ -86,17 +86,17 @@ func startProbeWatchdog(
 	probeSvc *probeapp.RunProbeService,
 	bootstrapCfg *config.Config,
 ) {
-	if bootstrapCfg == nil || !bootstrapCfg.Runtime.ExecutionProbe.Enabled || probeSvc == nil {
+	if bootstrapCfg == nil || !bootstrapCfg.Runtime.RunProbe.Enabled || probeSvc == nil {
 		return
 	}
 
 	probeWatchdog := probeapp.NewRunProbeWatchdog(store, probeSvc, probeapp.RunProbeWatchdogConfig{
-		Enabled:      bootstrapCfg.Runtime.ExecutionProbe.Enabled,
-		Interval:     bootstrapCfg.Runtime.ExecutionProbe.Interval.Duration,
-		ProbeAfter:   bootstrapCfg.Runtime.ExecutionProbe.After.Duration,
-		IdleAfter:    bootstrapCfg.Runtime.ExecutionProbe.IdleAfter.Duration,
-		ProbeTimeout: bootstrapCfg.Runtime.ExecutionProbe.Timeout.Duration,
-		MaxAttempts:  bootstrapCfg.Runtime.ExecutionProbe.MaxAttempts,
+		Enabled:      bootstrapCfg.Runtime.RunProbe.Enabled,
+		Interval:     bootstrapCfg.Runtime.RunProbe.Interval.Duration,
+		ProbeAfter:   bootstrapCfg.Runtime.RunProbe.After.Duration,
+		IdleAfter:    bootstrapCfg.Runtime.RunProbe.IdleAfter.Duration,
+		ProbeTimeout: bootstrapCfg.Runtime.RunProbe.Timeout.Duration,
+		MaxAttempts:  bootstrapCfg.Runtime.RunProbe.MaxAttempts,
 	})
 	watchCtx, cancel := context.WithCancel(context.Background())
 	lifecycle.probeWatchCancel = cancel

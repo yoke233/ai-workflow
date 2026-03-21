@@ -184,7 +184,7 @@ func TestStepCRUD(t *testing.T) {
 	}
 
 	if err := s.UpdateActionStatus(ctx, id, core.ActionRunning); err != nil {
-		t.Fatalf("update step status: %v", err)
+		t.Fatalf("update action status: %v", err)
 	}
 }
 
@@ -199,7 +199,7 @@ func TestStepUpdate(t *testing.T) {
 	got.AcceptanceCriteria = []string{"new criteria"}
 	got.RequiredCapabilities = []string{"frontend"}
 	if err := s.UpdateAction(ctx, got); err != nil {
-		t.Fatalf("update step: %v", err)
+		t.Fatalf("update action: %v", err)
 	}
 
 	got, _ = s.GetAction(ctx, id)
@@ -208,7 +208,7 @@ func TestStepUpdate(t *testing.T) {
 	}
 }
 
-func TestExecutionCRUD(t *testing.T) {
+func TestRunCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
@@ -227,15 +227,15 @@ func TestExecutionCRUD(t *testing.T) {
 	}
 	id, err := s.CreateRun(ctx, e)
 	if err != nil {
-		t.Fatalf("create exec: %v", err)
+		t.Fatalf("create run: %v", err)
 	}
 
 	got, err := s.GetRun(ctx, id)
 	if err != nil {
-		t.Fatalf("get exec: %v", err)
+		t.Fatalf("get run: %v", err)
 	}
 	if got.AgentID != "claude-1" || got.Attempt != 1 {
-		t.Fatalf("unexpected exec: %+v", got)
+		t.Fatalf("unexpected run: %+v", got)
 	}
 	if got.BriefingSnapshot != "implement login API" {
 		t.Fatalf("briefing_snapshot not preserved: %s", got.BriefingSnapshot)
@@ -247,7 +247,7 @@ func TestExecutionCRUD(t *testing.T) {
 	got.ErrorMessage = "timeout"
 	got.ErrorKind = core.ErrKindTransient
 	if err := s.UpdateRun(ctx, got); err != nil {
-		t.Fatalf("update exec: %v", err)
+		t.Fatalf("update run: %v", err)
 	}
 
 	got, _ = s.GetRun(ctx, id)
@@ -255,12 +255,12 @@ func TestExecutionCRUD(t *testing.T) {
 		t.Fatalf("expected failed/transient, got %s/%s", got.Status, got.ErrorKind)
 	}
 
-	execs, err := s.ListRunsByAction(ctx, sID)
+	runs, err := s.ListRunsByAction(ctx, sID)
 	if err != nil {
-		t.Fatalf("list execs: %v", err)
+		t.Fatalf("list runs: %v", err)
 	}
-	if len(execs) != 1 {
-		t.Fatalf("expected 1 exec, got %d", len(execs))
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
 	}
 }
 

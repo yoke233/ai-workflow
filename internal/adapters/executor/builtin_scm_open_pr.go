@@ -13,7 +13,7 @@ import (
 
 // runBuiltinSCMOpenPR creates or finds an open change request using the registered SCM providers.
 // It is provider-agnostic (GitHub PR today; GitLab MR later).
-func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBus, tokens flowapp.SCMTokens, step *core.Action, execRec *core.Run) error {
+func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBus, tokens flowapp.SCMTokens, action *core.Action, run *core.Run) error {
 	if store == nil {
 		return fmt.Errorf("builtin scm_open_pr: store is nil")
 	}
@@ -28,8 +28,8 @@ func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBu
 			baseBranch = strings.TrimSpace(v)
 		}
 	}
-	if step.Config != nil {
-		if v, ok := step.Config["base"].(string); ok && strings.TrimSpace(v) != "" {
+	if action.Config != nil {
+		if v, ok := action.Config["base"].(string); ok && strings.TrimSpace(v) != "" {
 			baseBranch = strings.TrimSpace(v)
 		}
 	}
@@ -44,13 +44,13 @@ func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBu
 		headBranch = "HEAD"
 	}
 
-	title := fmt.Sprintf("ai-flow: work-item %d", step.WorkItemID)
+	title := fmt.Sprintf("ai-flow: work-item %d", action.WorkItemID)
 	body := "Automated change request created by ai-workflow."
-	if step.Config != nil {
-		if v, ok := step.Config["title"].(string); ok && strings.TrimSpace(v) != "" {
+	if action.Config != nil {
+		if v, ok := action.Config["title"].(string); ok && strings.TrimSpace(v) != "" {
 			title = strings.TrimSpace(v)
 		}
-		if v, ok := step.Config["body"].(string); ok && strings.TrimSpace(v) != "" {
+		if v, ok := action.Config["body"].(string); ok && strings.TrimSpace(v) != "" {
 			body = strings.TrimSpace(v)
 		}
 	}
@@ -94,7 +94,7 @@ func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBu
 			}
 		}
 	}
-	if step.Config != nil {
+	if action.Config != nil {
 		for _, key := range []string{
 			"organization_id",
 			"repository_id",
@@ -105,7 +105,7 @@ func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBu
 			"trigger_ai_review_run",
 			"work_item_ids",
 		} {
-			if value, exists := step.Config[key]; exists {
+			if value, exists := action.Config[key]; exists {
 				extra[key] = value
 			}
 		}
@@ -151,7 +151,7 @@ func runBuiltinSCMOpenPR(ctx context.Context, store core.Store, bus core.EventBu
 		fmt.Sprintf("- time_utc: %s", time.Now().UTC().Format(time.RFC3339)),
 	}, "\n")
 
-	return storeBuiltinArtifact(ctx, store, bus, step, execRec, md, map[string]any{
+	return storeBuiltinArtifact(ctx, store, bus, action, run, md, map[string]any{
 		"provider":    repo.Kind,
 		"pr_number":   cr.Number,
 		"pr_url":      cr.URL,

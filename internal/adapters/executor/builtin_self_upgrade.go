@@ -16,7 +16,7 @@ import (
 // The string argument is the absolute path to the newly built binary.
 type UpgradeFunc func(binaryPath string)
 
-func runBuiltinSelfUpgrade(ctx context.Context, store core.Store, bus core.EventBus, step *core.Action, execRec *core.Run, upgradeFn UpgradeFunc) error {
+func runBuiltinSelfUpgrade(ctx context.Context, store core.Store, bus core.EventBus, action *core.Action, run *core.Run, upgradeFn UpgradeFunc) error {
 	if store == nil {
 		return fmt.Errorf("builtin self_upgrade: store is nil")
 	}
@@ -30,17 +30,17 @@ func runBuiltinSelfUpgrade(ctx context.Context, store core.Store, bus core.Event
 	binaryOutput := ""
 	triggerRestart := true
 
-	if step.Config != nil {
-		if v, ok := step.Config["repo_path"].(string); ok && strings.TrimSpace(v) != "" {
+	if action.Config != nil {
+		if v, ok := action.Config["repo_path"].(string); ok && strings.TrimSpace(v) != "" {
 			repoPath = strings.TrimSpace(v)
 		}
-		if v, ok := step.Config["default_branch"].(string); ok && strings.TrimSpace(v) != "" {
+		if v, ok := action.Config["default_branch"].(string); ok && strings.TrimSpace(v) != "" {
 			defaultBranch = strings.TrimSpace(v)
 		}
-		if v, ok := step.Config["binary_output"].(string); ok && strings.TrimSpace(v) != "" {
+		if v, ok := action.Config["binary_output"].(string); ok && strings.TrimSpace(v) != "" {
 			binaryOutput = strings.TrimSpace(v)
 		}
-		if v, ok := step.Config["restart"].(bool); ok {
+		if v, ok := action.Config["restart"].(bool); ok {
 			triggerRestart = v
 		}
 	}
@@ -127,7 +127,7 @@ func runBuiltinSelfUpgrade(ctx context.Context, store core.Store, bus core.Event
 	}
 	markdown := fmt.Sprintf("self_upgrade: built %s at %s (pulled=%v)", headSHA[:minLen(headSHA, 8)], binaryOutput, pulled)
 
-	if err := storeBuiltinArtifact(ctx, store, bus, step, execRec, markdown, result); err != nil {
+	if err := storeBuiltinArtifact(ctx, store, bus, action, run, markdown, result); err != nil {
 		return fmt.Errorf("builtin self_upgrade: failed to store artifact: %w", err)
 	}
 

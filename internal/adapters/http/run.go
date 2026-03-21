@@ -26,19 +26,19 @@ func (h *Handler) getRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listRuns(w http.ResponseWriter, r *http.Request) {
-	stepID, ok := urlParamInt64(r, "stepID")
+	actionID, ok := urlParamInt64(r, "actionID")
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid step ID", "BAD_ID")
+		writeError(w, http.StatusBadRequest, "invalid action ID", "BAD_ID")
 		return
 	}
 
-	execs, err := h.store.ListRunsByAction(r.Context(), stepID)
+	runs, err := h.store.ListRunsByAction(r.Context(), actionID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "STORE_ERROR")
 		return
 	}
-	if execs == nil {
-		execs = []*core.Run{}
+	if runs == nil {
+		runs = []*core.Run{}
 	}
-	writeJSON(w, http.StatusOK, execs)
+	writeJSON(w, http.StatusOK, runs)
 }

@@ -9,16 +9,16 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *Store) CreateRun(ctx context.Context, e *core.Run) (int64, error) {
+func (s *Store) CreateRun(ctx context.Context, run *core.Run) (int64, error) {
 	now := time.Now().UTC()
-	model := runModelFromCore(e)
+	model := runModelFromCore(run)
 	model.CreatedAt = now
 
 	if err := s.orm.WithContext(ctx).Create(model).Error; err != nil {
-		return 0, fmt.Errorf("insert execution: %w", err)
+		return 0, fmt.Errorf("insert run: %w", err)
 	}
-	e.ID = model.ID
-	e.CreatedAt = now
+	run.ID = model.ID
+	run.CreatedAt = now
 	return model.ID, nil
 }
 
@@ -29,19 +29,19 @@ func (s *Store) GetRun(ctx context.Context, id int64) (*core.Run, error) {
 		if err == gorm.ErrRecordNotFound {
 			return nil, core.ErrNotFound
 		}
-		return nil, fmt.Errorf("get execution %d: %w", id, err)
+		return nil, fmt.Errorf("get run %d: %w", id, err)
 	}
 	return model.toCore(), nil
 }
 
-func (s *Store) ListRunsByAction(ctx context.Context, stepID int64) ([]*core.Run, error) {
+func (s *Store) ListRunsByAction(ctx context.Context, actionID int64) ([]*core.Run, error) {
 	var models []RunModel
 	err := s.orm.WithContext(ctx).
-		Where("step_id = ?", stepID).
+		Where("action_id = ?", actionID).
 		Order("attempt ASC").
 		Find(&models).Error
 	if err != nil {
-		return nil, fmt.Errorf("list executions by step: %w", err)
+		return nil, fmt.Errorf("list runs by action: %w", err)
 	}
 
 	out := make([]*core.Run, 0, len(models))
@@ -58,7 +58,7 @@ func (s *Store) ListRunsByStatus(ctx context.Context, status core.RunStatus) ([]
 		Order("id ASC").
 		Find(&models).Error
 	if err != nil {
-		return nil, fmt.Errorf("list executions by status: %w", err)
+		return nil, fmt.Errorf("list runs by status: %w", err)
 	}
 
 	out := make([]*core.Run, 0, len(models))
@@ -68,10 +68,10 @@ func (s *Store) ListRunsByStatus(ctx context.Context, status core.RunStatus) ([]
 	return out, nil
 }
 
-func (s *Store) UpdateRun(ctx context.Context, e *core.Run) error {
-	model := runModelFromCore(e)
+func (s *Store) UpdateRun(ctx context.Context, run *core.Run) error {
+	model := runModelFromCore(run)
 	result := s.orm.WithContext(ctx).Model(&RunModel{}).
-		Where("id = ?", e.ID).
+		Where("id = ?", run.ID).
 		Updates(map[string]any{
 			"status":            model.Status,
 			"agent_id":          model.AgentID,
@@ -87,7 +87,7 @@ func (s *Store) UpdateRun(ctx context.Context, e *core.Run) error {
 			"result_metadata":   model.ResultMetadata,
 		})
 	if result.Error != nil {
-		return fmt.Errorf("update execution: %w", result.Error)
+		return fmt.Errorf("update run: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return core.ErrNotFound
@@ -98,7 +98,7 @@ func (s *Store) UpdateRun(ctx context.Context, e *core.Run) error {
 func (s *Store) GetLatestRunWithResult(ctx context.Context, actionID int64) (*core.Run, error) {
 	var models []RunModel
 	err := s.orm.WithContext(ctx).
-		Where("step_id = ?", actionID).
+		Where("action_id = ?", actionID).
 		Order("id DESC").
 		Find(&models).Error
 	if err != nil {

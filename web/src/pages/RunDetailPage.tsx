@@ -16,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
-import { formatRelativeTime, getErrorMessage, normalizeStepTypeLabel } from "@/lib/v2Workbench";
+import { formatRelativeTime, getErrorMessage, normalizeActionTypeLabel } from "@/lib/v2Workbench";
 import type { Resource, Event, Run, WorkItem, Action } from "@/types/apiV2";
 
 interface LogLine {
@@ -31,7 +31,7 @@ const eventToLogLine = (event: Event, locale: string): LogLine | null => {
     minute: "2-digit",
     second: "2-digit",
   });
-  if (event.type === "exec.agent_output" || event.type === "chat.output") {
+  if (event.type === "run.agent_output" || event.type === "chat.output") {
     const subtype = String(event.data?.type ?? "");
     const content = String(event.data?.content ?? "");
     if (!content) {
@@ -96,8 +96,8 @@ export function RunDetailPage() {
           })).catch(() => null),
           apiClient.listRunResources(runResp.id),
           apiClient.listEvents({
-            issue_id: runResp.work_item_id,
-            step_id: runResp.action_id,
+            work_item_id: runResp.work_item_id,
+            action_id: runResp.action_id,
             limit: 200,
             offset: 0,
           }),
@@ -153,7 +153,7 @@ export function RunDetailPage() {
         </div>
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-bold">
-            {action?.name ?? t("execDetail.execution")} {run ? `— ${t("execDetail.attemptN", { n: run.attempt })}` : ""}
+            {action?.name ?? t("execDetail.run")} {run ? `— ${t("execDetail.attemptN", { n: run.attempt })}` : ""}
           </h1>
           {run ? <StatusBadge status={run.status} /> : null}
           {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
@@ -259,13 +259,13 @@ export function RunDetailPage() {
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Bot className="h-4 w-4" />
-                {t("execDetail.execInfo")}
+                {t("execDetail.runInfo")}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">{t("execDetail.stepType")}</span>
-                <span className="font-medium">{action ? normalizeStepTypeLabel(action.type) : "-"}</span>
+                <span className="text-muted-foreground">{t("execDetail.actionType")}</span>
+                <span className="font-medium">{action ? normalizeActionTypeLabel(action.type) : "-"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">{t("execDetail.role")}</span>

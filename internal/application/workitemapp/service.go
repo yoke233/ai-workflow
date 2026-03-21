@@ -195,15 +195,15 @@ func (s *Service) SetArchived(ctx context.Context, workItemID int64, archived bo
 }
 
 func (s *Service) RunWorkItem(ctx context.Context, workItemID int64) (*RunWorkItemResult, error) {
-	steps, err := s.store.ListActionsByWorkItem(ctx, workItemID)
+	actions, err := s.store.ListActionsByWorkItem(ctx, workItemID)
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
 			return nil, newError(CodeWorkItemNotFound, "work item not found", err)
 		}
 		return nil, err
 	}
-	if len(steps) == 0 {
-		return nil, newError(CodeNoSteps, "work item has no steps; add at least one step before running", nil)
+	if len(actions) == 0 {
+		return nil, newError(CodeNoActions, "work item has no actions; add at least one action before running", nil)
 	}
 
 	if s.scheduler != nil {
@@ -212,7 +212,7 @@ func (s *Service) RunWorkItem(ctx context.Context, workItemID int64) (*RunWorkIt
 		}
 		return &RunWorkItemResult{
 			Queued:  true,
-			Message: "work item queued for execution",
+			Message: "work item queued for run",
 		}, nil
 	}
 
@@ -226,7 +226,7 @@ func (s *Service) RunWorkItem(ctx context.Context, workItemID int64) (*RunWorkIt
 
 	return &RunWorkItemResult{
 		Queued:  false,
-		Message: "work item execution started",
+		Message: "work item run started",
 	}, nil
 }
 

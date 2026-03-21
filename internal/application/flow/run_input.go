@@ -18,7 +18,7 @@ func BuildRunInputFromSnapshot(snapshot string, action *core.Action, hasActionCo
 	if hasActionContext {
 		sb.WriteString("\n\n# Reference Materials\n\n")
 		sb.WriteString("> Full details (work item body, upstream outputs, feature manifest) are pre-loaded\n")
-		sb.WriteString("> in `skills/step-context/`. Read the `SKILL.md` there for an index of\n")
+		sb.WriteString("> in `skills/action-context/`. Read the `SKILL.md` there for an index of\n")
 		sb.WriteString("> available files. Read individual files on demand — do not load everything.\n")
 	}
 
@@ -38,7 +38,7 @@ func BuildRunInputFromSnapshot(snapshot string, action *core.Action, hasActionCo
 // depending on session reuse state and prior gate feedback.
 // The feedback parameter is pre-resolved by the caller (via ResolveLatestFeedback).
 // When hasActionContext is true, a "Reference Materials" section is appended directing
-// the agent to read pre-loaded files from skills/step-context/.
+// the agent to read pre-loaded files from skills/action-context/.
 func BuildRunInputForAction(profile *core.AgentProfile, snapshot string, action *core.Action, hasPriorTurns bool, feedback string, reworkTmpl string, continueTmpl string, hasActionContext bool) string {
 	// Gate actions must always receive the full prompt to keep output deterministic.
 	if action != nil && action.Type == core.ActionGate {
@@ -105,12 +105,12 @@ func renderFollowupRunMessage(tmplText string, vars followupVars) string {
 			if vars.StepName == "" {
 				return "# Continue\n\n请继续完成当前任务（复用已有上下文）。\n"
 			}
-			return "# Continue\n\n请继续完成本 step（复用已有上下文）： " + vars.StepName + "\n"
+			return "# Continue\n\n请继续完成本 action（复用已有上下文）： " + vars.StepName + "\n"
 		}
 		if vars.StepName == "" {
 			return "# Rework Requested\n\n反馈：\n" + vars.Feedback + "\n"
 		}
-		return "# Rework Requested\n\n(step: " + vars.StepName + ")\n\n反馈：\n" + vars.Feedback + "\n"
+		return "# Rework Requested\n\n(action: " + vars.StepName + ")\n\n反馈：\n" + vars.Feedback + "\n"
 	}
 
 	tmpl, err := template.New("runtime-followup").Parse(tmplText)

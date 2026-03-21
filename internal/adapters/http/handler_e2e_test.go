@@ -17,19 +17,19 @@ func TestE2E_APIIssueLifecycle(t *testing.T) {
 	var issue core.WorkItem
 	decodeJSON(resp, &issue)
 
-	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/actions", issue.ID), map[string]any{
 		"name": "A", "type": "exec",
 	})
 	var actionA core.Action
 	decodeJSON(resp, &actionA)
 
-	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID), map[string]any{
+	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/actions", issue.ID), map[string]any{
 		"name": "B", "type": "exec",
 	})
 	var actionB core.Action
 	decodeJSON(resp, &actionB)
 
-	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/steps", issue.ID))
+	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/actions", issue.ID))
 	var actions []*core.Action
 	decodeJSON(resp, &actions)
 	if len(actions) != 2 {
@@ -48,26 +48,26 @@ func TestE2E_APIIssueLifecycle(t *testing.T) {
 		t.Fatalf("expected done, got %s", issue.Status)
 	}
 
-	resp, _ = get(ts, fmt.Sprintf("/steps/%d", actionA.ID))
+	resp, _ = get(ts, fmt.Sprintf("/actions/%d", actionA.ID))
 	decodeJSON(resp, &actionA)
 	if actionA.Status != core.ActionDone {
 		t.Fatalf("expected action A done, got %s", actionA.Status)
 	}
 
-	resp, _ = get(ts, fmt.Sprintf("/steps/%d", actionB.ID))
+	resp, _ = get(ts, fmt.Sprintf("/actions/%d", actionB.ID))
 	decodeJSON(resp, &actionB)
 	if actionB.Status != core.ActionDone {
 		t.Fatalf("expected action B done, got %s", actionB.Status)
 	}
 
-	resp, _ = get(ts, fmt.Sprintf("/steps/%d/runs", actionA.ID))
-	var execs []*core.Run
-	decodeJSON(resp, &execs)
-	if len(execs) == 0 {
+	resp, _ = get(ts, fmt.Sprintf("/actions/%d/runs", actionA.ID))
+	var runs []*core.Run
+	decodeJSON(resp, &runs)
+	if len(runs) == 0 {
 		t.Fatal("expected at least 1 run for action A")
 	}
-	if execs[0].Status != core.RunSucceeded {
-		t.Fatalf("expected succeeded, got %s", execs[0].Status)
+	if runs[0].Status != core.RunSucceeded {
+		t.Fatalf("expected succeeded, got %s", runs[0].Status)
 	}
 
 	resp, _ = get(ts, fmt.Sprintf("/work-items/%d/events", issue.ID))
