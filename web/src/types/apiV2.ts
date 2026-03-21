@@ -1017,6 +1017,159 @@ export interface CreateThreadWorkItemLinkRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Thread Proposals
+// ---------------------------------------------------------------------------
+
+export type ProposalStatus =
+  | "draft"
+  | "open"
+  | "approved"
+  | "rejected"
+  | "revised"
+  | "merged"
+  | string;
+
+export interface ProposalWorkItemDraft {
+  temp_id: string;
+  project_id?: number | null;
+  title: string;
+  body: string;
+  priority: WorkItemPriority;
+  depends_on?: string[];
+  labels?: string[];
+}
+
+export interface ThreadProposal {
+  id: number;
+  thread_id: number;
+  title: string;
+  summary: string;
+  content: string;
+  proposed_by: string;
+  status: ProposalStatus;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_note?: string;
+  work_item_drafts?: ProposalWorkItemDraft[];
+  source_message_id?: number | null;
+  initiative_id?: number | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateThreadProposalRequest {
+  title: string;
+  summary?: string;
+  content?: string;
+  proposed_by?: string;
+  work_item_drafts?: ProposalWorkItemDraft[];
+  source_message_id?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateThreadProposalRequest {
+  title?: string;
+  summary?: string;
+  content?: string;
+  source_message_id?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ReplaceProposalDraftsRequest {
+  work_item_drafts: ProposalWorkItemDraft[];
+}
+
+export interface ReviewProposalRequest {
+  reviewed_by?: string;
+  review_note?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Initiatives
+// ---------------------------------------------------------------------------
+
+export type InitiativeStatus =
+  | "draft"
+  | "proposed"
+  | "approved"
+  | "executing"
+  | "blocked"
+  | "done"
+  | "failed"
+  | "cancelled"
+  | string;
+
+export interface Initiative {
+  id: number;
+  title: string;
+  description: string;
+  status: InitiativeStatus;
+  created_by: string;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  review_note?: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InitiativeItem {
+  id: number;
+  initiative_id: number;
+  work_item_id: number;
+  role?: string;
+  created_at: string;
+}
+
+export interface InitiativeProgress {
+  total: number;
+  pending: number;
+  running: number;
+  blocked: number;
+  done: number;
+  failed: number;
+  cancelled: number;
+}
+
+export interface ThreadInitiativeLink {
+  id: number;
+  thread_id: number;
+  initiative_id: number;
+  relation_type: string;
+  created_at: string;
+}
+
+export interface InitiativeDetail {
+  initiative: Initiative;
+  items: InitiativeItem[];
+  work_items: WorkItem[];
+  threads: ThreadInitiativeLink[];
+  progress: InitiativeProgress;
+}
+
+export interface CreateInitiativeRequest {
+  title: string;
+  description?: string;
+  created_by?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateInitiativeRequest {
+  title?: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ApproveInitiativeRequest {
+  approved_by?: string;
+}
+
+export interface RejectInitiativeRequest {
+  review_note?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Thread Task Groups (lightweight DAG within Thread)
 // ---------------------------------------------------------------------------
 

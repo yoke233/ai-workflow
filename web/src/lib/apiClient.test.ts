@@ -550,4 +550,252 @@ describe("apiClient", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/work-items/10/threads");
   });
+
+  it("proposal 相关方法会命中正确路由", async () => {
+    const proposal = {
+      id: 9,
+      thread_id: 5,
+      title: "提案 A",
+      summary: "summary",
+      content: "content",
+      proposed_by: "lead",
+      status: "draft",
+      created_at: "2026-03-21T00:00:00Z",
+      updated_at: "2026-03-21T00:00:00Z",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([proposal]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(proposal), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(proposal), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(proposal), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response("", { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(proposal), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...proposal, status: "open" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...proposal, status: "approved" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...proposal, status: "rejected" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...proposal, status: "revised" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
+    await client.listThreadProposals(5, { status: "draft" });
+    await client.createThreadProposal(5, { title: "提案 A", proposed_by: "lead" });
+    await client.getProposal(9);
+    await client.updateProposal(9, { summary: "updated" });
+    await client.deleteProposal(9);
+    await client.replaceProposalDrafts(9, { work_item_drafts: [] });
+    await client.submitProposal(9);
+    await client.approveProposal(9, { reviewed_by: "reviewer", review_note: "ok" });
+    await client.rejectProposal(9, { reviewed_by: "reviewer", review_note: "retry" });
+    await client.reviseProposal(9, { reviewed_by: "reviewer", review_note: "revise" });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/threads/5/proposals?status=draft");
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).method).toBe("GET");
+
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("http://localhost:8080/api/threads/5/proposals");
+    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).method).toBe("POST");
+    expect(JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body))).toEqual({
+      title: "提案 A",
+      proposed_by: "lead",
+    });
+
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("http://localhost:8080/api/proposals/9");
+    expect((fetchMock.mock.calls[2]?.[1] as RequestInit).method).toBe("GET");
+
+    expect(fetchMock.mock.calls[3]?.[0]).toBe("http://localhost:8080/api/proposals/9");
+    expect((fetchMock.mock.calls[3]?.[1] as RequestInit).method).toBe("PUT");
+    expect(JSON.parse(String((fetchMock.mock.calls[3]?.[1] as RequestInit).body))).toEqual({
+      summary: "updated",
+    });
+
+    expect(fetchMock.mock.calls[4]?.[0]).toBe("http://localhost:8080/api/proposals/9");
+    expect((fetchMock.mock.calls[4]?.[1] as RequestInit).method).toBe("DELETE");
+
+    expect(fetchMock.mock.calls[5]?.[0]).toBe("http://localhost:8080/api/proposals/9/drafts");
+    expect((fetchMock.mock.calls[5]?.[1] as RequestInit).method).toBe("PUT");
+    expect(JSON.parse(String((fetchMock.mock.calls[5]?.[1] as RequestInit).body))).toEqual({
+      work_item_drafts: [],
+    });
+
+    expect(fetchMock.mock.calls[6]?.[0]).toBe("http://localhost:8080/api/proposals/9/submit");
+    expect((fetchMock.mock.calls[6]?.[1] as RequestInit).method).toBe("POST");
+
+    expect(fetchMock.mock.calls[7]?.[0]).toBe("http://localhost:8080/api/proposals/9/approve");
+    expect((fetchMock.mock.calls[7]?.[1] as RequestInit).method).toBe("POST");
+    expect(JSON.parse(String((fetchMock.mock.calls[7]?.[1] as RequestInit).body))).toEqual({
+      reviewed_by: "reviewer",
+      review_note: "ok",
+    });
+
+    expect(fetchMock.mock.calls[8]?.[0]).toBe("http://localhost:8080/api/proposals/9/reject");
+    expect((fetchMock.mock.calls[8]?.[1] as RequestInit).method).toBe("POST");
+    expect(JSON.parse(String((fetchMock.mock.calls[8]?.[1] as RequestInit).body))).toEqual({
+      reviewed_by: "reviewer",
+      review_note: "retry",
+    });
+
+    expect(fetchMock.mock.calls[9]?.[0]).toBe("http://localhost:8080/api/proposals/9/revise");
+    expect((fetchMock.mock.calls[9]?.[1] as RequestInit).method).toBe("POST");
+    expect(JSON.parse(String((fetchMock.mock.calls[9]?.[1] as RequestInit).body))).toEqual({
+      reviewed_by: "reviewer",
+      review_note: "revise",
+    });
+  });
+
+  it("initiative 相关方法会命中正确路由", async () => {
+    const initiative = {
+      id: 3,
+      title: "计划 A",
+      description: "desc",
+      status: "draft",
+      created_by: "lead",
+      created_at: "2026-03-21T00:00:00Z",
+      updated_at: "2026-03-21T00:00:00Z",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([initiative]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            initiative,
+            items: [],
+            work_items: [],
+            threads: [],
+            progress: {
+              total: 0,
+              pending: 0,
+              running: 0,
+              blocked: 0,
+              done: 0,
+              failed: 0,
+              cancelled: 0,
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...initiative, status: "proposed" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...initiative, status: "executing" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...initiative, status: "draft", review_note: "rework" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ...initiative, status: "cancelled" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createApiClient({ baseUrl: "http://localhost:8080/api" });
+    await client.listInitiatives({ status: "draft", limit: 10, offset: 5 });
+    await client.getInitiative(3);
+    await client.proposeInitiative(3);
+    await client.approveInitiative(3, { approved_by: "approver" });
+    await client.rejectInitiative(3, { review_note: "rework" });
+    await client.cancelInitiative(3);
+    await client.listInitiativeThreads(3);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8080/api/initiatives?status=draft&limit=10&offset=5",
+    );
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).method).toBe("GET");
+
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("http://localhost:8080/api/initiatives/3");
+    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).method).toBe("GET");
+
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("http://localhost:8080/api/initiatives/3/propose");
+    expect((fetchMock.mock.calls[2]?.[1] as RequestInit).method).toBe("POST");
+
+    expect(fetchMock.mock.calls[3]?.[0]).toBe("http://localhost:8080/api/initiatives/3/approve");
+    expect((fetchMock.mock.calls[3]?.[1] as RequestInit).method).toBe("POST");
+    expect(JSON.parse(String((fetchMock.mock.calls[3]?.[1] as RequestInit).body))).toEqual({
+      approved_by: "approver",
+    });
+
+    expect(fetchMock.mock.calls[4]?.[0]).toBe("http://localhost:8080/api/initiatives/3/reject");
+    expect((fetchMock.mock.calls[4]?.[1] as RequestInit).method).toBe("POST");
+    expect(JSON.parse(String((fetchMock.mock.calls[4]?.[1] as RequestInit).body))).toEqual({
+      review_note: "rework",
+    });
+
+    expect(fetchMock.mock.calls[5]?.[0]).toBe("http://localhost:8080/api/initiatives/3/cancel");
+    expect((fetchMock.mock.calls[5]?.[1] as RequestInit).method).toBe("POST");
+
+    expect(fetchMock.mock.calls[6]?.[0]).toBe("http://localhost:8080/api/initiatives/3/threads");
+    expect((fetchMock.mock.calls[6]?.[1] as RequestInit).method).toBe("GET");
+  });
 });

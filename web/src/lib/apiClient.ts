@@ -71,8 +71,18 @@ import type {
   AddThreadParticipantRequest,
   ThreadAttachment,
   ThreadFileRef,
+  ThreadInitiativeLink,
   ThreadWorkItemLink,
+  ThreadProposal,
   CreateThreadWorkItemLinkRequest,
+  CreateThreadProposalRequest,
+  UpdateThreadProposalRequest,
+  ReplaceProposalDraftsRequest,
+  ReviewProposalRequest,
+  Initiative,
+  InitiativeDetail,
+  ApproveInitiativeRequest,
+  RejectInitiativeRequest,
   ThreadTaskGroup,
   ThreadTaskGroupDetail,
   CreateTaskGroupRequest,
@@ -349,6 +359,16 @@ export interface ApiClient {
   listThreadParticipants(threadId: number): Promise<ThreadMember[]>;
   addThreadParticipant(threadId: number, body: AddThreadParticipantRequest): Promise<ThreadMember>;
   removeThreadParticipant(threadId: number, userId: string): Promise<void>;
+  listThreadProposals(threadId: number, params?: { status?: string }): Promise<ThreadProposal[]>;
+  createThreadProposal(threadId: number, body: CreateThreadProposalRequest): Promise<ThreadProposal>;
+  getProposal(proposalId: number): Promise<ThreadProposal>;
+  updateProposal(proposalId: number, body: UpdateThreadProposalRequest): Promise<ThreadProposal>;
+  deleteProposal(proposalId: number): Promise<void>;
+  replaceProposalDrafts(proposalId: number, body: ReplaceProposalDraftsRequest): Promise<ThreadProposal>;
+  submitProposal(proposalId: number): Promise<ThreadProposal>;
+  approveProposal(proposalId: number, body: ReviewProposalRequest): Promise<ThreadProposal>;
+  rejectProposal(proposalId: number, body: ReviewProposalRequest): Promise<ThreadProposal>;
+  reviseProposal(proposalId: number, body: ReviewProposalRequest): Promise<ThreadProposal>;
 
   // Thread-WorkItem Links
   createThreadWorkItemLink(threadId: number, body: CreateThreadWorkItemLinkRequest): Promise<ThreadWorkItemLink>;
@@ -356,6 +376,13 @@ export interface ApiClient {
   deleteThreadWorkItemLink(threadId: number, workItemId: number): Promise<void>;
   listThreadsByWorkItem(workItemId: number): Promise<ThreadWorkItemLink[]>;
   createWorkItemFromThread(threadId: number, body: { title: string; body?: string; project_id?: number }): Promise<WorkItem>;
+  listInitiatives(params?: { status?: string; limit?: number; offset?: number }): Promise<Initiative[]>;
+  getInitiative(initiativeId: number): Promise<InitiativeDetail>;
+  proposeInitiative(initiativeId: number): Promise<Initiative>;
+  approveInitiative(initiativeId: number, body: ApproveInitiativeRequest): Promise<Initiative>;
+  rejectInitiative(initiativeId: number, body: RejectInitiativeRequest): Promise<Initiative>;
+  cancelInitiative(initiativeId: number): Promise<Initiative>;
+  listInitiativeThreads(initiativeId: number): Promise<ThreadInitiativeLink[]>;
   // Thread Task Groups
   listThreadTaskGroups(threadId: number, params?: { limit?: number; offset?: number }): Promise<ThreadTaskGroup[]>;
   createThreadTaskGroup(threadId: number, body: CreateTaskGroupRequest): Promise<ThreadTaskGroupDetail>;
@@ -1116,6 +1143,61 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         path: `/threads/${threadId}/participants/${encodeURIComponent(userId)}`,
         method: "DELETE",
       }),
+    listThreadProposals: (threadId, params) =>
+      request<ThreadProposal[]>({
+        path: `/threads/${threadId}/proposals`,
+        query: { status: params?.status },
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    createThreadProposal: (threadId, body) =>
+      request<ThreadProposal, CreateThreadProposalRequest>({
+        path: `/threads/${threadId}/proposals`,
+        method: "POST",
+        body,
+      }),
+    getProposal: (proposalId) =>
+      request<ThreadProposal>({
+        path: `/proposals/${proposalId}`,
+      }),
+    updateProposal: (proposalId, body) =>
+      request<ThreadProposal, UpdateThreadProposalRequest>({
+        path: `/proposals/${proposalId}`,
+        method: "PUT",
+        body,
+      }),
+    deleteProposal: (proposalId) =>
+      request<void>({
+        path: `/proposals/${proposalId}`,
+        method: "DELETE",
+      }),
+    replaceProposalDrafts: (proposalId, body) =>
+      request<ThreadProposal, ReplaceProposalDraftsRequest>({
+        path: `/proposals/${proposalId}/drafts`,
+        method: "PUT",
+        body,
+      }),
+    submitProposal: (proposalId) =>
+      request<ThreadProposal>({
+        path: `/proposals/${proposalId}/submit`,
+        method: "POST",
+      }),
+    approveProposal: (proposalId, body) =>
+      request<ThreadProposal, ReviewProposalRequest>({
+        path: `/proposals/${proposalId}/approve`,
+        method: "POST",
+        body,
+      }),
+    rejectProposal: (proposalId, body) =>
+      request<ThreadProposal, ReviewProposalRequest>({
+        path: `/proposals/${proposalId}/reject`,
+        method: "POST",
+        body,
+      }),
+    reviseProposal: (proposalId, body) =>
+      request<ThreadProposal, ReviewProposalRequest>({
+        path: `/proposals/${proposalId}/revise`,
+        method: "POST",
+        body,
+      }),
     createThreadWorkItemLink: (threadId, body) =>
       request<ThreadWorkItemLink, CreateThreadWorkItemLinkRequest>({
         path: `/threads/${threadId}/links/work-items`,
@@ -1141,6 +1223,45 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
         method: "POST",
         body,
       }),
+    listInitiatives: (params) =>
+      request<Initiative[]>({
+        path: "/initiatives",
+        query: {
+          status: params?.status,
+          limit: params?.limit,
+          offset: params?.offset,
+        },
+      }).then((items) => (Array.isArray(items) ? items : [])),
+    getInitiative: (initiativeId) =>
+      request<InitiativeDetail>({
+        path: `/initiatives/${initiativeId}`,
+      }),
+    proposeInitiative: (initiativeId) =>
+      request<Initiative>({
+        path: `/initiatives/${initiativeId}/propose`,
+        method: "POST",
+      }),
+    approveInitiative: (initiativeId, body) =>
+      request<Initiative, ApproveInitiativeRequest>({
+        path: `/initiatives/${initiativeId}/approve`,
+        method: "POST",
+        body,
+      }),
+    rejectInitiative: (initiativeId, body) =>
+      request<Initiative, RejectInitiativeRequest>({
+        path: `/initiatives/${initiativeId}/reject`,
+        method: "POST",
+        body,
+      }),
+    cancelInitiative: (initiativeId) =>
+      request<Initiative>({
+        path: `/initiatives/${initiativeId}/cancel`,
+        method: "POST",
+      }),
+    listInitiativeThreads: (initiativeId) =>
+      request<ThreadInitiativeLink[]>({
+        path: `/initiatives/${initiativeId}/threads`,
+      }).then((items) => (Array.isArray(items) ? items : [])),
     listThreadTaskGroups: (threadId, params) =>
       request<ThreadTaskGroup[]>({
         path: `/threads/${threadId}/task-groups`,

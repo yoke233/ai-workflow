@@ -118,3 +118,10 @@
 [2026-03-21T02:46:30Z] [SESSION-17] CHECKPOINT [task-016] step=2/3 "移除 proposal approve 事务内冗余 GetThread，并让 integration cleanup 等待 scheduler / persister 退出"
 [2026-03-21T02:46:30Z] [SESSION-17] CHECKPOINT [task-016] step=3/3 "定向 10 次、关键组合 5 次与 go test ./internal/adapters/http -count=1 均通过"
 [2026-03-21T02:46:30Z] [SESSION-17] Completed [task-016] (working tree pending)
+[2026-03-21T03:07:00Z] [SESSION-18] INIT Added [task-017] 实现前端 Phase 1：补齐 Proposal / Initiative 类型与 API 契约
+[2026-03-21T03:07:00Z] [SESSION-18] INIT Added [task-018] review 并修复前端 Phase 1 契约层实现
+[2026-03-21T03:07:00Z] [SESSION-18] INIT Added [task-019] 实现前端 Phase 2：在线程页补 Proposal 操作面
+[2026-03-21T03:07:00Z] [SESSION-18] INIT Added [task-020] review 并修复前端 Phase 2 Proposal 操作面
+[2026-03-21T03:07:00Z] [SESSION-18] INIT Added [task-021] 实现前端 Phase 3：新增 Initiative 详情页与审批入口
+[2026-03-21T03:07:00Z] [SESSION-18] INIT Added [task-022] review 并修复前端 Phase 3 Initiative 页面实现
+[2026-03-21T03:07:00Z] [SESSION-18] Starting [task-017] 实现前端 Phase 1：补齐 Proposal / Initiative 类型与 API 契约 (base=83faae9)

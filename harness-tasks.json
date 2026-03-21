@@ -698,8 +698,138 @@
         }
       ],
       "completed_at": "2026-03-21T02:46:30Z"
+    },
+    {
+      "id": "task-017",
+      "title": "实现前端 Phase 1：补齐 Proposal / Initiative 类型与 API 契约",
+      "status": "in_progress",
+      "priority": "P0",
+      "depends_on": [],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": "83faae9",
+      "validation": {
+        "command": "npm --prefix web test -- --run src/lib/apiClient.test.ts",
+        "timeout_seconds": 900
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
+    },
+    {
+      "id": "task-018",
+      "title": "review 并修复前端 Phase 1 契约层实现",
+      "status": "pending",
+      "priority": "P0",
+      "depends_on": [
+        "task-017"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": null,
+      "validation": {
+        "command": "npm --prefix web test -- --run src/lib/apiClient.test.ts && pwsh -NoProfile -File .\\scripts\\test\\frontend-build.ps1",
+        "timeout_seconds": 1800
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
+    },
+    {
+      "id": "task-019",
+      "title": "实现前端 Phase 2：在线程页补 Proposal 操作面",
+      "status": "pending",
+      "priority": "P0",
+      "depends_on": [
+        "task-018"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": null,
+      "validation": {
+        "command": "npm --prefix web test -- --run src/pages/ThreadDetailPage.test.tsx src/lib/apiClient.test.ts",
+        "timeout_seconds": 1800
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
+    },
+    {
+      "id": "task-020",
+      "title": "review 并修复前端 Phase 2 Proposal 操作面",
+      "status": "pending",
+      "priority": "P0",
+      "depends_on": [
+        "task-019"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": null,
+      "validation": {
+        "command": "npm --prefix web test -- --run src/pages/ThreadDetailPage.test.tsx src/lib/apiClient.test.ts && pwsh -NoProfile -File .\\scripts\\test\\frontend-build.ps1",
+        "timeout_seconds": 1800
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
+    },
+    {
+      "id": "task-021",
+      "title": "实现前端 Phase 3：新增 Initiative 详情页与审批入口",
+      "status": "pending",
+      "priority": "P0",
+      "depends_on": [
+        "task-020"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": null,
+      "validation": {
+        "command": "npm --prefix web test -- --run src/pages/ThreadDetailPage.test.tsx src/pages/WorkItemDetailPage.test.tsx src/lib/apiClient.test.ts",
+        "timeout_seconds": 1800
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
+    },
+    {
+      "id": "task-022",
+      "title": "review 并修复前端 Phase 3 Initiative 页面实现",
+      "status": "pending",
+      "priority": "P0",
+      "depends_on": [
+        "task-021"
+      ],
+      "attempts": 0,
+      "max_attempts": 3,
+      "started_at_commit": null,
+      "validation": {
+        "command": "npm --prefix web test -- --run src/pages/ThreadDetailPage.test.tsx src/pages/WorkItemDetailPage.test.tsx src/lib/apiClient.test.ts && pwsh -NoProfile -File .\\scripts\\test\\frontend-build.ps1",
+        "timeout_seconds": 1800
+      },
+      "on_failure": {
+        "cleanup": null
+      },
+      "error_log": [],
+      "checkpoints": [],
+      "completed_at": null
     }
   ],
-  "session_count": 17,
-  "last_session": "2026-03-21T02:46:30Z"
+  "session_count": 18,
+  "last_session": "2026-03-21T03:07:00Z"
 }
