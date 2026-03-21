@@ -60,6 +60,7 @@
 - `execution-context-building.zh-CN.md`
 - `gate-human-intervention.zh-CN.md`
 - `gate-merge-failure-handling.zh-CN.md`
+- `thread-plan-review-chain.zh-CN.md`
 - `tauri-desktop.md`
 
 ### 部分实现
