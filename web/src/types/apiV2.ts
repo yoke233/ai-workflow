@@ -1072,6 +1072,8 @@ export interface UpdateThreadProposalRequest {
   title?: string;
   summary?: string;
   content?: string;
+  proposed_by?: string;
+  work_item_drafts?: ProposalWorkItemDraft[];
   source_message_id?: number;
   metadata?: Record<string, unknown>;
 }

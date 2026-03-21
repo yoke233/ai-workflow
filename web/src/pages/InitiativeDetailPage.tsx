@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowUpRight,
@@ -94,8 +94,12 @@ export function InitiativeDetailPage() {
     approvedBy: "human",
     reviewNote: "",
   });
+  const requestVersionRef = useRef(0);
 
   useEffect(() => {
+    setDetail(null);
+    setLinkedThreads({});
+    setError(null);
     setReviewForm({
       approvedBy: "human",
       reviewNote: "",
@@ -106,10 +110,15 @@ export function InitiativeDetailPage() {
     if (!Number.isFinite(initiativeId)) {
       return;
     }
+    const requestVersion = requestVersionRef.current + 1;
+    requestVersionRef.current = requestVersion;
     setLoading(true);
     setError(null);
     try {
       const nextDetail = await apiClient.getInitiative(initiativeId);
+      if (requestVersionRef.current != requestVersion) {
+        return;
+      }
       setDetail(nextDetail);
       setReviewForm({
         approvedBy:
@@ -128,14 +137,22 @@ export function InitiativeDetailPage() {
             threadMap[nextDetail.threads[index].thread_id] = result.value;
           }
         });
+        if (requestVersionRef.current != requestVersion) {
+          return;
+        }
         setLinkedThreads(threadMap);
       } else {
         setLinkedThreads({});
       }
     } catch (loadError) {
+      if (requestVersionRef.current != requestVersion) {
+        return;
+      }
       setError(getErrorMessage(loadError));
     } finally {
-      setLoading(false);
+      if (requestVersionRef.current == requestVersion) {
+        setLoading(false);
+      }
     }
   }, [apiClient, initiativeId]);
 
@@ -441,10 +458,14 @@ export function InitiativeDetailPage() {
             <section className="space-y-3">
               <h4 className="text-sm font-semibold">审批入口</h4>
               <div className="space-y-2">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <label
+                  htmlFor="initiative-approved-by"
+                  className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+                >
                   Approved By
                 </label>
                 <Input
+                  id="initiative-approved-by"
                   value={reviewForm.approvedBy}
                   onChange={(event) =>
                     setReviewForm((prev) => ({
@@ -456,10 +477,14 @@ export function InitiativeDetailPage() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <label
+                  htmlFor="initiative-review-note"
+                  className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+                >
                   Review Note
                 </label>
                 <Textarea
+                  id="initiative-review-note"
                   value={reviewForm.reviewNote}
                   onChange={(event) =>
                     setReviewForm((prev) => ({

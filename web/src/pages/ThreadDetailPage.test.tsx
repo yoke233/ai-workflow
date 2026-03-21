@@ -7,7 +7,13 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import {
+  createMemoryRouter,
+  MemoryRouter,
+  Route,
+  RouterProvider,
+  Routes,
+} from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../i18n";
 import { ThreadDetailPage } from "./ThreadDetailPage";
@@ -118,6 +124,24 @@ function renderPage() {
       </MemoryRouter>
     </I18nextProvider>,
   );
+}
+
+function renderPageWithRouter(initialEntry = "/threads/1") {
+  const router = createMemoryRouter(
+    [
+      {
+        path: "/threads/:threadId",
+        element: (
+          <I18nextProvider i18n={i18n}>
+            <ThreadDetailPage />
+          </I18nextProvider>
+        ),
+      },
+    ],
+    { initialEntries: [initialEntry] },
+  );
+  const result = render(<RouterProvider router={router} />);
+  return { ...result, router };
 }
 
 describe("ThreadDetailPage", () => {
@@ -252,6 +276,44 @@ describe("ThreadDetailPage", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("agent-card-worker-a")).toBeNull();
     });
+  });
+
+  it("自然语言邀请不会误匹配缺少名称的 agent", async () => {
+    const wsClient = createWsClientMock();
+    const apiClient = {
+      getThread: vi.fn().mockResolvedValue(buildThread("已有摘要")),
+      listThreadMessages: vi.fn().mockResolvedValue([]),
+      listThreadParticipants: vi.fn().mockResolvedValue([]),
+      listWorkItemsByThread: vi.fn().mockResolvedValue([]),
+      listThreadTaskGroups: vi.fn().mockResolvedValue([]),
+      listThreadAgents: vi.fn().mockResolvedValue([]),
+      listThreadAttachments: vi.fn().mockResolvedValue([]),
+      listProfiles: vi.fn().mockResolvedValue([
+        buildProfile("worker-a"),
+        { id: "mystery-agent" },
+      ]),
+      inviteThreadAgent: vi
+        .fn()
+        .mockResolvedValue(buildAgentSession(11, "worker-a", "joining")),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    renderPage();
+
+    const input = await screen.findByPlaceholderText(
+      DEFAULT_MESSAGE_PLACEHOLDER,
+    );
+    fireEvent.change(input, { target: { value: "invite worker-a" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(apiClient.inviteThreadAgent).toHaveBeenCalledWith(1, {
+        agent_profile_id: "worker-a",
+      });
+    });
+    expect(wsClient.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "thread.send" }),
+    );
   });
 
   it("把 agent 流式思考渲染到可折叠工作区，不再混入正式消息", async () => {
@@ -884,9 +946,7 @@ describe("ThreadDetailPage", () => {
         title: "新提案",
         summary: "新摘要",
         content: "新内容",
-        source_message_id: undefined,
-      });
-      expect(apiClient.replaceProposalDrafts).toHaveBeenCalledWith(13, {
+        proposed_by: "owner-1",
         work_item_drafts: [
           {
             temp_id: "draft-a",
@@ -898,8 +958,10 @@ describe("ThreadDetailPage", () => {
             project_id: undefined,
           },
         ],
+        source_message_id: undefined,
       });
     });
+    expect(apiClient.replaceProposalDrafts).not.toHaveBeenCalled();
   });
 
   it("支持提交并审批 proposal", async () => {
@@ -998,5 +1060,50 @@ describe("ThreadDetailPage", () => {
 
     const link = await screen.findByRole("link", { name: "initiative #55" });
     expect(link.getAttribute("href")).toBe("/initiatives/55");
+  });
+
+  it("切换到加载失败的 thread 时不会保留旧线程内容", async () => {
+    const wsClient = createWsClientMock();
+    const apiClient = {
+      getThread: vi
+        .fn()
+        .mockResolvedValueOnce({
+          ...buildThread("已有摘要"),
+          title: "旧线程",
+        })
+        .mockRejectedValueOnce(new Error("thread not found")),
+      listThreadMessages: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            id: 1,
+            thread_id: 1,
+            sender_id: "u1",
+            role: "human",
+            content: "旧消息",
+            created_at: "2026-03-13T00:00:00Z",
+          },
+        ])
+        .mockResolvedValue([]),
+      listThreadParticipants: vi.fn().mockResolvedValue([]),
+      listThreadProposals: vi.fn().mockResolvedValue([]),
+      listWorkItemsByThread: vi.fn().mockResolvedValue([]),
+      listThreadTaskGroups: vi.fn().mockResolvedValue([]),
+      listThreadAgents: vi.fn().mockResolvedValue([]),
+      listThreadAttachments: vi.fn().mockResolvedValue([]),
+      listProfiles: vi.fn().mockResolvedValue([buildProfile("worker-a")]),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
+
+    const { router } = renderPageWithRouter("/threads/1");
+
+    expect(await screen.findByText("旧线程")).toBeTruthy();
+    expect(await screen.findByText("旧消息")).toBeTruthy();
+
+    await router.navigate("/threads/2");
+
+    expect(await screen.findByText("thread not found")).toBeTruthy();
+    expect(screen.queryByText("旧线程")).toBeNull();
+    expect(screen.queryByText("旧消息")).toBeNull();
   });
 });

@@ -295,15 +295,16 @@ function detectInviteIntent(
       ).toLowerCase();
       const caps = (profile.capabilities ?? []).map((c) => c.toLowerCase());
 
+      const includesNonEmpty = (candidate: string) =>
+        candidate.length > 0 &&
+        (candidate.includes(query) || query.includes(candidate));
+
       // Check if query contains or is contained by any field
       return (
-        name.includes(query) ||
-        query.includes(name) ||
-        id.includes(query) ||
-        query.includes(id) ||
-        role.includes(query) ||
-        query.includes(role) ||
-        caps.some((c) => c.includes(query) || query.includes(c))
+        includesNonEmpty(name) ||
+        includesNonEmpty(id) ||
+        includesNonEmpty(role) ||
+        caps.some((c) => includesNonEmpty(c))
       );
     });
 
@@ -708,6 +709,33 @@ export function ThreadDetailPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
+
+  useEffect(() => {
+    setThread(null);
+    setMessages([]);
+    setParticipants([]);
+    setProposals([]);
+    setProposalEditor(createProposalEditorState());
+    setProposalReviewInputs({});
+    setWorkItemLinks([]);
+    setLinkedIssues({});
+    setTaskGroups([]);
+    setAgentSessions([]);
+    setAttachments([]);
+    setAvailableProfiles([]);
+    setSelectedInviteIDs(new Set());
+    setSelectedDiscussionAgentIDs(new Set());
+    setShowProposalEditor(false);
+    setShowCreateWI(false);
+    setShowLinkWI(false);
+    setNewWITitle("");
+    setNewWIBody("");
+    setLinkWIId("");
+    setNewMessage("");
+    setSelectedFileRefs([]);
+    setError(null);
+    setLoading(true);
+  }, [id]);
 
   useEffect(() => {
     setThinkingAgentIDs(new Set());
@@ -1667,11 +1695,11 @@ export function ThreadDetailPage() {
           title: proposalEditor.title.trim(),
           summary: proposalEditor.summary.trim(),
           content: proposalEditor.content.trim(),
+          proposed_by:
+            proposalEditor.proposedBy.trim() || thread?.owner_id || "human",
+          work_item_drafts: drafts,
           source_message_id:
             sourceMessageID.length > 0 ? Number(sourceMessageID) : undefined,
-        });
-        await apiClient.replaceProposalDrafts(proposalEditor.proposalId, {
-          work_item_drafts: drafts,
         });
       }
       await refreshProposals();

@@ -6,32 +6,51 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const proxyTarget = env.VITE_API_PROXY_TARGET || "http://127.0.0.1:8080";
 
-  const vendorChunkGroups: Array<{ name: string; patterns: string[] }> = [
+  const vendorChunkGroups: Array<{ name: string; packages: string[] }> = [
     {
       name: "react-vendor",
-      patterns: ["react", "react-dom", "scheduler"],
+      packages: ["react", "react-dom", "scheduler"],
     },
     {
       name: "router-vendor",
-      patterns: ["react-router", "@remix-run/router"],
+      packages: ["react-router", "react-router-dom", "@remix-run/router"],
     },
     {
       name: "i18n-vendor",
-      patterns: ["i18next", "react-i18next"],
+      packages: ["i18next", "react-i18next"],
     },
     {
       name: "graph-vendor",
-      patterns: ["@xyflow/react"],
+      packages: ["@xyflow/react"],
     },
     {
       name: "render-vendor",
-      patterns: ["react-syntax-highlighter", "diff2html"],
+      packages: ["react-syntax-highlighter", "diff2html"],
     },
     {
       name: "state-vendor",
-      patterns: ["zustand"],
+      packages: ["zustand"],
     },
   ];
+
+  const readPackageName = (id: string): string | null => {
+    const normalized = id.replace(/\\/g, "/");
+    const marker = "/node_modules/";
+    const markerIndex = normalized.lastIndexOf(marker);
+    if (markerIndex < 0) {
+      return null;
+    }
+    const packagePath = normalized.slice(markerIndex + marker.length);
+    if (!packagePath) {
+      return null;
+    }
+    if (packagePath.startsWith("@")) {
+      const [scope, name] = packagePath.split("/", 3);
+      return scope && name ? `${scope}/${name}` : null;
+    }
+    const [name] = packagePath.split("/", 2);
+    return name || null;
+  };
 
   return {
     plugins: [react()],
@@ -48,8 +67,12 @@ export default defineConfig(({ mode }) => {
             if (!id.includes("node_modules")) {
               return undefined;
             }
+            const packageName = readPackageName(id);
+            if (!packageName) {
+              return undefined;
+            }
             for (const group of vendorChunkGroups) {
-              if (group.patterns.some((pattern) => id.includes(pattern))) {
+              if (group.packages.includes(packageName)) {
                 return group.name;
               }
             }

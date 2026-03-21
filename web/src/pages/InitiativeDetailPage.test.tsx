@@ -90,6 +90,16 @@ function buildDetail(id: number = 9, status: string = "proposed", overrides?: Pa
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("InitiativeDetailPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -227,5 +237,93 @@ describe("InitiativeDetailPage", () => {
           .value,
       ).toBe("已审批通过");
     });
+  });
+
+  it("切换到加载失败的 initiative 时不会保留旧详情", async () => {
+    const apiClient = {
+      getInitiative: vi
+        .fn()
+        .mockResolvedValueOnce(buildDetail(9, "proposed"))
+        .mockRejectedValueOnce(new Error("initiative not found")),
+      getThread: vi.fn().mockResolvedValue({
+        id: 5,
+        title: "Thread 讨论：跨项目联调",
+        status: "active",
+        created_at: "2026-03-21T00:00:00Z",
+        updated_at: "2026-03-21T00:00:00Z",
+      }),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient });
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/initiatives/:initiativeId",
+          element: <InitiativeDetailPage />,
+        },
+      ],
+      { initialEntries: ["/initiatives/9"] },
+    );
+
+    render(
+      <I18nextProvider i18n={i18n}>
+        <RouterProvider router={router} />
+      </I18nextProvider>,
+    );
+
+    await screen.findByText("跨项目联调 9");
+    await router.navigate("/initiatives/10");
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Initiative #10/).length).toBeGreaterThan(0);
+    });
+    expect(await screen.findByText("initiative not found")).toBeTruthy();
+    expect(screen.queryByText("跨项目联调 9")).toBeNull();
+    expect(screen.queryByText("补前端审批页")).toBeNull();
+  });
+
+  it("路由快速切换时会忽略过期请求结果", async () => {
+    const first = createDeferred<ReturnType<typeof buildDetail>>();
+    const second = createDeferred<ReturnType<typeof buildDetail>>();
+    const apiClient = {
+      getInitiative: vi
+        .fn()
+        .mockImplementationOnce(() => first.promise)
+        .mockImplementationOnce(() => second.promise),
+      getThread: vi.fn().mockResolvedValue({
+        id: 5,
+        title: "Thread 讨论：跨项目联调",
+        status: "active",
+        created_at: "2026-03-21T00:00:00Z",
+        updated_at: "2026-03-21T00:00:00Z",
+      }),
+    };
+    mockUseWorkbench.mockReturnValue({ apiClient });
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/initiatives/:initiativeId",
+          element: <InitiativeDetailPage />,
+        },
+      ],
+      { initialEntries: ["/initiatives/9"] },
+    );
+
+    render(
+      <I18nextProvider i18n={i18n}>
+        <RouterProvider router={router} />
+      </I18nextProvider>,
+    );
+
+    await router.navigate("/initiatives/10");
+    second.resolve(buildDetail(10, "approved"));
+    expect(await screen.findByText("跨项目联调 10")).toBeTruthy();
+
+    first.resolve(buildDetail(9, "proposed"));
+    await waitFor(() => {
+      expect(screen.getByText("跨项目联调 10")).toBeTruthy();
+    });
+    expect(screen.queryByText("跨项目联调 9")).toBeNull();
   });
 });
