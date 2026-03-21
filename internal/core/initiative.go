@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -25,6 +27,14 @@ func (s InitiativeStatus) Valid() bool {
 	default:
 		return false
 	}
+}
+
+func ParseInitiativeStatus(raw string) (InitiativeStatus, error) {
+	s := InitiativeStatus(strings.TrimSpace(raw))
+	if !s.Valid() {
+		return "", fmt.Errorf("invalid initiative status %q", raw)
+	}
+	return s, nil
 }
 
 type Initiative struct {
