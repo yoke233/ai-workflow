@@ -43,8 +43,6 @@ func autoMigrate(ctx context.Context, orm *gorm.DB) error {
 		&InspectionInsightModel{},
 		&NotificationModel{},
 		&JournalModel{},
-		&ThreadTaskGroupModel{},
-		&ThreadTaskModel{},
 	); err != nil {
 		return err
 	}

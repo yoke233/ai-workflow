@@ -87,7 +87,6 @@ type Store interface {
 	JournalStore
 	NotificationStore
 	InspectionStore
-	ThreadTaskStore
 	Close() error
 }
 

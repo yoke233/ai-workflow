@@ -252,7 +252,6 @@ func (h *Handler) Register(r chi.Router) {
 
 	// Threads (multi-participant discussion)
 	registerThreadRoutes(r, h)
-	registerThreadTaskRoutes(r, h)
 	registerRequirementRoutes(r, h)
 
 	// User themes (persisted in {dataDir}/themes/)

@@ -8,8 +8,5 @@ var ActionSignalFS embed.FS
 //go:embed sys-action-manage
 var SysActionManageFS embed.FS
 
-//go:embed task-signal
-var TaskSignalFS embed.FS
-
-//go:embed all:*
+//go:embed action-signal gstack-document-release gstack-office-hours gstack-plan-ceo-review gstack-plan-eng-review gstack-review plan-actions sys-action-manage
 var AllBuiltinFS embed.FS

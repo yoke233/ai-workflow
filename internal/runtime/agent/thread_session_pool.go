@@ -57,7 +57,7 @@ type ThreadSessionPool struct {
 	dataDir                  string
 	threadSharedBootTemplate string
 
-	// Signal config: injected into agent launch env so skills like task-signal can call back.
+	// Signal config: injected into agent launch env for thread agent callbacks.
 	serverAddr    string
 	tokenRegistry TokenGenerator
 
@@ -911,7 +911,7 @@ func (p *ThreadSessionPool) prepareThreadWorkspace(ctx context.Context, threadID
 }
 
 // threadScopedSkills lists skills that should be auto-installed into every thread agent workspace.
-var threadScopedSkills = []string{"task-signal"}
+var threadScopedSkills []string
 
 // ensureThreadSkills creates .codex/skills/ and .claude/skills/ inside the thread workspace
 // and symlinks each thread-scoped skill from the global skills root. This makes ACP agents

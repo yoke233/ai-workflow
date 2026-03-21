@@ -30,7 +30,6 @@ type Store interface {
 	core.JournalStore
 	core.NotificationStore
 	core.InspectionStore
-	core.ThreadTaskStore
 	DeleteResourcesByThread(ctx context.Context, threadID int64) error
 	GetThreadMessage(ctx context.Context, id int64) (*core.ThreadMessage, error)
 	DeleteActionIODeclsByWorkItem(ctx context.Context, workItemID int64) error

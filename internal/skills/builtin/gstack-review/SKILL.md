@@ -72,7 +72,7 @@ When finishing via `action-signal`, pass these fields in the decision payload so
 ## Gate Hint
 
 This skill is a good candidate for future gate integration.
-When a work item or thread task reaches review stage, its result should eventually be representable as a gate verdict.
+When a work item reaches review stage, its result should eventually be representable as a gate verdict.
 
 ## Quality Bar
 

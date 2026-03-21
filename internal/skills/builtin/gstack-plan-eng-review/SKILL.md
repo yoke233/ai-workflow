@@ -11,7 +11,7 @@ This is a normalized adaptation of `garrytan/gstack`'s `plan-eng-review` workflo
 
 ## Primary Goal
 
-Convert a product or feature plan into an engineering-ready plan that can feed DAG generation, work item creation, or thread task decomposition.
+Convert a product or feature plan into an engineering-ready plan that can feed action planning, initiative/work item creation, or implementation breakdown.
 
 ## What To Review
 
@@ -54,7 +54,7 @@ The artifact should include:
 ## Artifact Metadata Contract
 
 Default placement: `ThreadMessage.Metadata`.
-Only place it on the task side when it is explicitly produced inside thread tasks.
+Only place it on the task side when it is explicitly produced as part of work item execution or review.
 Reuse these keys:
 
 1. `artifact_namespace = gstack`

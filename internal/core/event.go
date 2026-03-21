@@ -64,12 +64,6 @@ const (
 	EventThreadProposalRevised   EventType = "thread.proposal.revised"
 	EventThreadProposalMerged    EventType = "thread.proposal.merged"
 
-	// ThreadTask events for lightweight in-thread DAG execution.
-	EventThreadTaskGroupCreated   EventType = "thread.task_group.created"
-	EventThreadTaskGroupCompleted EventType = "thread.task_group.completed"
-	EventThreadTaskStarted        EventType = "thread.task.started"
-	EventThreadTaskCompleted      EventType = "thread.task.completed"
-
 	// Feature manifest events.
 	EventManifestEntryUpdated EventType = "manifest.entry_updated"
 	EventManifestGateChecked  EventType = "manifest.gate_checked"

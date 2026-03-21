@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -157,6 +158,18 @@ func requireStatus(t *testing.T, resp *http.Response, expected int) {
 	if resp.StatusCode != expected {
 		t.Fatalf("expected HTTP %d, got %d", expected, resp.StatusCode)
 	}
+}
+
+func readBody(resp *http.Response) string {
+	if resp == nil || resp.Body == nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "<read body failed: " + err.Error() + ">"
+	}
+	return string(b)
 }
 
 // pollWorkItemStatus polls until the issue reaches the target status or timeout.
