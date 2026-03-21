@@ -109,11 +109,15 @@ func (i *githubImporter) Import(ctx context.Context, skillsRoot string, req GitH
 		return nil, fmt.Errorf("clone repository: %w", err)
 	}
 
-	repoSkillsRoot := filepath.Join(repoPath, "skills")
-	imported, err := InspectSkill(repoSkillsRoot, skillName)
+	repoSkillRoot, repoSkillDir, err := locateImportedSkill(repoPath, skillName)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("%w: %s", ErrGitHubSkillNotFound, skillName)
 	}
+	if err != nil {
+		return nil, fmt.Errorf("locate imported skill: %w", err)
+	}
+
+	imported, err := InspectSkill(repoSkillRoot, skillName)
 	if err != nil {
 		return nil, fmt.Errorf("inspect imported skill: %w", err)
 	}
@@ -136,7 +140,7 @@ func (i *githubImporter) Import(ctx context.Context, skillsRoot string, req GitH
 	defer os.RemoveAll(stagingRoot)
 
 	stagedSkillDir := filepath.Join(stagingRoot, skillName)
-	if err := copyDir(filepath.Join(repoSkillsRoot, skillName), stagedSkillDir); err != nil {
+	if err := copyDir(repoSkillDir, stagedSkillDir); err != nil {
 		return nil, fmt.Errorf("copy imported skill: %w", err)
 	}
 	if err := os.Rename(stagedSkillDir, dstDir); err != nil {
@@ -151,6 +155,24 @@ func (i *githubImporter) Import(ctx context.Context, skillsRoot string, req GitH
 		return nil, fmt.Errorf("inspect installed skill: %w", err)
 	}
 	return installed, nil
+}
+
+func locateImportedSkill(repoPath, skillName string) (skillRoot string, skillDir string, err error) {
+	candidates := []string{
+		filepath.Join(repoPath, "skills"),
+		repoPath,
+	}
+	for _, root := range candidates {
+		imported, inspectErr := InspectSkill(root, skillName)
+		if inspectErr == nil {
+			return root, filepath.Join(root, imported.Name), nil
+		}
+		if errors.Is(inspectErr, os.ErrNotExist) {
+			continue
+		}
+		return "", "", inspectErr
+	}
+	return "", "", os.ErrNotExist
 }
 
 func copyDir(srcDir, dstDir string) error {
@@ -178,11 +200,21 @@ func copyDir(srcDir, dstDir string) error {
 			return os.MkdirAll(targetPath, mode.Perm())
 		}
 		if mode&os.ModeSymlink != 0 {
-			linkTarget, err := os.Readlink(path)
+			resolvedPath, err := resolveImportedSymlink(srcDir, path)
 			if err != nil {
 				return err
 			}
-			return os.Symlink(linkTarget, targetPath)
+			resolvedInfo, err := os.Stat(resolvedPath)
+			if err != nil {
+				return err
+			}
+			if resolvedInfo.IsDir() {
+				return fmt.Errorf("directory symlink %q is not supported", path)
+			}
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+				return err
+			}
+			return copyFile(resolvedPath, targetPath, resolvedInfo.Mode())
 		}
 
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
@@ -190,6 +222,23 @@ func copyDir(srcDir, dstDir string) error {
 		}
 		return copyFile(path, targetPath, mode)
 	})
+}
+
+func resolveImportedSymlink(srcDir, path string) (string, error) {
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	resolvedPath = filepath.Clean(resolvedPath)
+	srcDir = filepath.Clean(srcDir)
+	rel, err := filepath.Rel(srcDir, resolvedPath)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("symlink %q escapes import root", path)
+	}
+	return resolvedPath, nil
 }
 
 func copyFile(srcPath, dstPath string, mode fs.FileMode) error {

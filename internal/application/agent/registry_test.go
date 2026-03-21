@@ -265,3 +265,21 @@ func TestConfigRegistry_RejectsInvalidSkillReference(t *testing.T) {
 		t.Fatalf("expected ErrInvalidSkills, got %v", err)
 	}
 }
+
+func TestConfigRegistry_AcceptsBuiltinNormalizedGstackSkills(t *testing.T) {
+	ctx := context.Background()
+	reg := NewConfigRegistry()
+
+	dataDir := t.TempDir()
+	t.Setenv("AI_WORKFLOW_DATA_DIR", dataDir)
+	skillsRoot := filepath.Join(dataDir, "skills")
+	if err := skillset.EnsureBuiltinSkills(skillsRoot); err != nil {
+		t.Fatalf("EnsureBuiltinSkills: %v", err)
+	}
+
+	p := testProfile("worker-gstack-review", core.RoleWorker, "backend")
+	p.Skills = []string{"gstack-review", "gstack-plan-eng-review"}
+	if err := reg.CreateProfile(ctx, p); err != nil {
+		t.Fatalf("expected builtin normalized gstack skills to validate, got %v", err)
+	}
+}

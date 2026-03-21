@@ -315,6 +315,37 @@ func TestProfileValidationUsesResolvedSkillsRoot(t *testing.T) {
 	}
 }
 
+func TestSkillRoutesListBuiltinNormalizedGstackSkills(t *testing.T) {
+	ts, _, skillsRoot := setupSkillTestServer(t)
+	if err := skillset.EnsureBuiltinSkills(skillsRoot); err != nil {
+		t.Fatalf("EnsureBuiltinSkills: %v", err)
+	}
+
+	resp, err := getJSON(ts, "/skills/")
+	if err != nil {
+		t.Fatalf("GET /skills: %v", err)
+	}
+	requireStatus(t, resp, 200)
+
+	var list []skillInfo
+	decodeJSON(resp, &list)
+	found := map[string]bool{}
+	for _, item := range list {
+		found[item.Name] = true
+	}
+	for _, name := range []string{
+		"gstack-office-hours",
+		"gstack-plan-ceo-review",
+		"gstack-plan-eng-review",
+		"gstack-review",
+		"gstack-document-release",
+	} {
+		if !found[name] {
+			t.Fatalf("expected builtin skill %q in /skills list, got %+v", name, found)
+		}
+	}
+}
+
 type stubGitHubImporter struct {
 	imported *skillset.ParsedSkill
 	err      error

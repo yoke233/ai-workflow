@@ -74,6 +74,85 @@ func TestEnsureBuiltinSkills_ExtractsPlanActions(t *testing.T) {
 	}
 }
 
+func TestEnsureBuiltinSkills_ExtractsNormalizedGstackSkills(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := EnsureBuiltinSkills(root); err != nil {
+		t.Fatalf("EnsureBuiltinSkills: %v", err)
+	}
+
+	cases := []struct {
+		name     string
+		keywords []string
+	}{
+		{
+			name: "gstack-office-hours",
+			keywords: []string{
+				"Gstack Office Hours",
+				"narrowest viable wedge",
+				".ai-workflow/artifacts/gstack/office-hours/",
+			},
+		},
+		{
+			name: "gstack-plan-ceo-review",
+			keywords: []string{
+				"Gstack Plan CEO Review",
+				"Review Modes",
+				".ai-workflow/artifacts/gstack/ceo-review/",
+			},
+		},
+		{
+			name: "gstack-plan-eng-review",
+			keywords: []string{
+				"Gstack Plan Eng Review",
+				"Failure and retry matrix",
+				".ai-workflow/artifacts/gstack/eng-review/",
+			},
+		},
+		{
+			name: "gstack-review",
+			keywords: []string{
+				"Gstack Review",
+				"Present findings first",
+				".ai-workflow/artifacts/gstack/review/",
+			},
+		},
+		{
+			name: "gstack-document-release",
+			keywords: []string{
+				"Gstack Document Release",
+				"Bring project documentation back in sync",
+				".ai-workflow/artifacts/gstack/document-release/",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			skillMD := filepath.Join(root, tc.name, "SKILL.md")
+			b, err := os.ReadFile(skillMD)
+			if err != nil {
+				t.Fatalf("read extracted %s SKILL.md: %v", tc.name, err)
+			}
+			content := string(b)
+
+			if meta, errs := ValidateSkillMD(tc.name, content); len(errs) > 0 {
+				t.Fatalf("extracted %s SKILL.md validation errors: %v", tc.name, errs)
+			} else if meta.Name != tc.name {
+				t.Fatalf("expected name=%s, got %q", tc.name, meta.Name)
+			}
+
+			for _, keyword := range tc.keywords {
+				if !contains(content, keyword) {
+					t.Errorf("expected %s SKILL.md to contain %q", tc.name, keyword)
+				}
+			}
+		})
+	}
+}
+
 func TestEnsureBuiltinSkills_SkipsWhenContentMatches(t *testing.T) {
 	t.Parallel()
 

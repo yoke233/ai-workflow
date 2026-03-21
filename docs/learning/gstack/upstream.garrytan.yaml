@@ -1,0 +1,44 @@
+repo: https://github.com/garrytan/gstack
+branch: main
+commit: 9811ed37bf05a6cfa85ce3a1b00d8db5edfa44ca
+synced_at: 2026-03-21T00:00:00Z
+local_clone: C:\Users\yoke\AppData\Local\Temp\gstack-research\gstack
+priority_skills:
+  - office-hours
+  - plan-ceo-review
+  - plan-eng-review
+  - review
+  - document-release
+secondary_skills:
+  - ship
+  - investigate
+  - codex
+  - retro
+  - plan-design-review
+  - design-consultation
+platform_dependent_skills:
+  - browse
+  - setup-browser-cookies
+  - qa
+  - qa-only
+  - design-review
+platform_policy_skills:
+  - careful
+  - freeze
+  - guard
+  - unfreeze
+  - gstack-upgrade
+watch_dirs:
+  - office-hours
+  - plan-ceo-review
+  - plan-eng-review
+  - review
+  - document-release
+  - ship
+  - investigate
+  - codex
+  - retro
+  - browse
+notes:
+  - Prefer workflow skills first; browser and hook-dependent skills require platform work.
+  - Importer compatibility for top-level skill directories landed in ai-workflow on 2026-03-21.
