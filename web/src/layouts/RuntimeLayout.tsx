@@ -21,14 +21,14 @@ export function RuntimeLayout() {
   return (
     <div className="flex h-full flex-col">
       <div className="shrink-0 border-b bg-background">
-        <div className="flex items-center gap-1 overflow-x-auto px-8 pt-4">
+        <div className="flex items-center gap-1 overflow-x-auto px-4 pt-3 md:px-8 md:pt-4">
           {tabs.map((tab) => (
             <NavLink
               key={tab.to}
               to={tab.to}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2 border-b-2 px-4 pb-3 pt-1 text-sm font-medium transition-colors whitespace-nowrap",
+                  "flex items-center gap-2 border-b-2 px-3 pb-2.5 pt-1 text-sm font-medium transition-colors whitespace-nowrap md:px-4 md:pb-3",
                   isActive
                     ? "border-primary text-foreground"
                     : "border-transparent text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground",
