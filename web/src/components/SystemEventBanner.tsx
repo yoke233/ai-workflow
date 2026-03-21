@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { WsClient } from "../lib/wsClient";
 import type { SystemEventPayload } from "../types/ws";
 
-interface PreflightStep {
+interface PreflightCheck {
   name: string;
   status: string;
   duration: string;
@@ -13,7 +13,7 @@ interface BannerState {
   visible: boolean;
   variant: "info" | "success" | "error" | "warning";
   title: string;
-  steps: PreflightStep[];
+  checks: PreflightCheck[];
   countdown: number | null;
 }
 
@@ -21,7 +21,7 @@ const INITIAL_STATE: BannerState = {
   visible: false,
   variant: "info",
   title: "",
-  steps: [],
+  checks: [],
   countdown: null,
 };
 
@@ -77,7 +77,7 @@ const SystemEventBanner = ({ wsClient }: Props) => {
               visible: true,
               variant: "info",
               title: t("systemEvent.preflightRunning"),
-              steps: [],
+              checks: [],
               countdown: null,
             });
             break;
@@ -88,8 +88,8 @@ const SystemEventBanner = ({ wsClient }: Props) => {
               visible: true,
               variant: "info",
               title: data.message ?? t("systemEvent.preflightRunning"),
-              steps: [
-                ...prev.steps,
+              checks: [
+                ...prev.checks,
                 {
                   name: data.name ?? "?",
                   status: data.status ?? "?",
@@ -137,7 +137,7 @@ const SystemEventBanner = ({ wsClient }: Props) => {
               visible: true,
               variant: "warning",
               title: t("systemEvent.serverRestartingNow"),
-              steps: [],
+              checks: [],
               countdown: 0,
             });
             break;
@@ -155,7 +155,7 @@ const SystemEventBanner = ({ wsClient }: Props) => {
         visible: true,
         variant: "warning",
         title: t("systemEvent.workspaceWarning", "工作区准备警告"),
-        steps: payload.warnings.map((msg) => ({
+        checks: payload.warnings.map((msg) => ({
           name: msg,
           status: "WARN",
           duration: "",
@@ -196,14 +196,14 @@ const SystemEventBanner = ({ wsClient }: Props) => {
         </button>
       </div>
 
-      {state.steps.length > 0 && (
+      {state.checks.length > 0 && (
         <div className="mt-2 space-y-1">
-          {state.steps.map((step, i) => (
+          {state.checks.map((check, i) => (
             <div key={i} className="flex items-center gap-2 text-xs">
-              <span>{step.status === "PASS" ? "\u2705" : step.status === "WARN" ? "\u26A0\uFE0F" : "\u274C"}</span>
-              <span className="font-medium">{step.name}</span>
-              {step.duration && (
-                <span className="opacity-60">{step.duration}</span>
+              <span>{check.status === "PASS" ? "\u2705" : check.status === "WARN" ? "\u26A0\uFE0F" : "\u274C"}</span>
+              <span className="font-medium">{check.name}</span>
+              {check.duration && (
+                <span className="opacity-60">{check.duration}</span>
               )}
             </div>
           ))}

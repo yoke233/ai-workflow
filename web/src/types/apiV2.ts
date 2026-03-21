@@ -159,13 +159,13 @@ export interface Event {
 }
 
 export interface RunWorkItemResponse {
-  issue_id: number;
+  work_item_id: number;
   status: "accepted" | string;
   message?: string;
 }
 
 export interface CancelWorkItemResponse {
-  issue_id: number;
+  work_item_id: number;
   status: "cancelled" | string;
 }
 
@@ -176,11 +176,11 @@ export interface BootstrapPRWorkItemRequest {
 }
 
 export interface BootstrapPRWorkItemResponse {
-  issue_id: number;
-  implement_step_id: number;
-  commit_push_step_id: number;
-  open_pr_step_id: number;
-  gate_step_id: number;
+  work_item_id: number;
+  implement_action_id: number;
+  commit_push_action_id: number;
+  open_pr_action_id: number;
+  gate_action_id: number;
 }
 
 export interface CreateProjectRequest {
@@ -827,8 +827,8 @@ export interface CreateWorkItemFromTemplateRequest {
 }
 
 export interface CreateWorkItemFromTemplateResponse {
-  issue: WorkItem;
-  steps: Action[];
+  work_item: WorkItem;
+  actions: Action[];
 }
 
 // --- Git Tags ---
@@ -1414,34 +1414,3 @@ export interface ErrorKindCount {
   count: number;
   pct: number;
 }
-
-// ---------------------------------------------------------------------------
-// Backward compatibility aliases
-// ---------------------------------------------------------------------------
-
-export type Issue = WorkItem;
-export type IssueStatus = WorkItemStatus;
-export type IssuePriority = WorkItemPriority;
-export type CreateIssueRequest = CreateWorkItemRequest;
-export type UpdateIssueRequest = UpdateWorkItemRequest;
-
-export type Step = Action;
-export type StepType = ActionType;
-export type StepStatus = ActionStatus;
-export type CreateStepRequest = CreateActionRequest;
-export type UpdateStepRequest = UpdateActionRequest;
-export type GenerateStepsRequest = GenerateActionsRequest;
-
-export type StepBottleneck = ActionBottleneck;
-export type IssueDurationStat = WorkItemDurationStat;
-
-export type DAGTemplateStep = DAGTemplateAction;
-
-export type RunIssueResponse = RunWorkItemResponse;
-export type CancelIssueResponse = CancelWorkItemResponse;
-export type BootstrapPRIssueRequest = BootstrapPRWorkItemRequest;
-export type BootstrapPRIssueResponse = BootstrapPRWorkItemResponse;
-export type SaveIssueAsTemplateRequest = SaveWorkItemAsTemplateRequest;
-export type CreateIssueFromTemplateRequest = CreateWorkItemFromTemplateRequest;
-export type CreateIssueFromTemplateResponse = CreateWorkItemFromTemplateResponse;
-export type IssueAttachment = WorkItemAttachment;

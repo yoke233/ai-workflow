@@ -85,7 +85,7 @@ export function TemplatesPage() {
         title: template.name,
         project_id: selectedProjectId ?? undefined,
       });
-      navigate(`/work-items/${result.issue.id}`);
+      navigate(`/work-items/${result.work_item.id}`);
     } catch (createError) {
       setError(getErrorMessage(createError));
     }
@@ -175,7 +175,7 @@ export function TemplatesPage() {
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">
-                        {t("templates.nSteps", { count: template.actions.length })}
+                        {t("templates.nActions", { count: template.actions.length })}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -235,20 +235,20 @@ export function TemplatesPage() {
                 ) : null}
               </CardHeader>
               <CardContent className="space-y-2">
-                {template.actions.map((step, i) => (
+                {template.actions.map((action, i) => (
                   <div
-                    key={step.name}
+                    key={action.name}
                     className="flex items-center gap-2 text-sm"
                   >
                     <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">
                       {i + 1}
                     </div>
-                    <span className="truncate">{step.name}</span>
+                    <span className="truncate">{action.name}</span>
                     {i > 0 ? (
                       <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
                     ) : null}
                     <Badge variant="outline" className="ml-auto text-[10px]">
-                      {step.type}
+                      {action.type}
                     </Badge>
                   </div>
                 ))}

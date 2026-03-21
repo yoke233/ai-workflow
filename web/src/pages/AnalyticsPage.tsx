@@ -287,14 +287,14 @@ export function AnalyticsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-amber-500" />
-              {t("analytics.stepBottleneck")}
+              {t("analytics.actionBottleneck")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t("analytics.step")}</TableHead>
+                  <TableHead>{t("analytics.action")}</TableHead>
                   <TableHead>{t("analytics.flow")}</TableHead>
                   <TableHead>{t("analytics.avgDuration")}</TableHead>
                   <TableHead>{t("analytics.maxDuration")}</TableHead>
@@ -390,7 +390,7 @@ export function AnalyticsPage() {
                 <TableHead>{t("analytics.time")}</TableHead>
                 <TableHead>{t("common.project")}</TableHead>
                 <TableHead>{t("analytics.flow")}</TableHead>
-                <TableHead>{t("analytics.step")}</TableHead>
+                <TableHead>{t("analytics.action")}</TableHead>
                 <TableHead>{t("analytics.errorType")}</TableHead>
                 <TableHead>{t("analytics.attempts")}</TableHead>
                 <TableHead>{t("analytics.duration")}</TableHead>

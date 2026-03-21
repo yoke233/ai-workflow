@@ -19,16 +19,25 @@ GitHub Actions now runs native `go` / `npm` commands directly. These PowerShell 
 - `backend-integration.ps1`: run backend `TestIntegration_*` suites. Use `-IncludeACPClientIntegration` to enable ACP client integration cases.
 - `backend-e2e.ps1`: run backend `TestE2E_*` suites.
 - `backend-real.ps1`: run backend `TestReal_*` suites with `-tags real`.
+- `frontend-lint.ps1`: run frontend ESLint checks.
 - `frontend-unit.ps1`: run frontend unit tests.
-- `frontend-e2e.ps1`: run Playwright browser E2E for project admin (`local_path` + `local_new` flows).
 - `frontend-build.ps1`: run frontend production build.
+- `frontend-ci.ps1`: run the recommended frontend baseline in local Windows environments (`lint -> unit -> build`), with optional `-WithE2E`.
+- `frontend-e2e.ps1`: run Playwright browser E2E for the project creation flow (`local_path` + `local_new`).
+
+## Recommended Frontend Flow
+
+- Quick regression: `frontend-unit.ps1` + `frontend-build.ps1`
+- Local CI baseline: `frontend-ci.ps1`
+- Browser flow validation: `frontend-e2e.ps1`
+- Full local frontend regression: `frontend-ci.ps1 -WithE2E`
 
 ## Suite Scripts
 
 - `suite-smoke.ps1`: terminology gate, test naming gate, and backend build smoke.
 - `suite-p3.ps1`: backend unit/integration/e2e + frontend unit/build + smoke baseline.
-- `issue-e2e-github.ps1`: full Issue E2E smoke against a local GitHub repo (server → project → issue → exec+gate steps → ACP agent → done).
-- `issue-e2e-codeup.ps1`: full Issue E2E smoke against a Codeup repo (auto-clones if needed, same flow as above).
+- `workitem-e2e-github.ps1`: full WorkItem E2E smoke against a local GitHub repo (server → project → work item → exec+gate actions → ACP agent → done).
+- `workitem-e2e-codeup.ps1`: full WorkItem E2E smoke against a Codeup repo (auto-clones if needed, same flow as above).
 - `codeup-cr-smoke.ps1`: minimal Codeup API smoke for create CR, with optional merge.
 - `codeup-resource-binding.example.json`: minimal v2 git resource binding example for Codeup.
 
@@ -61,6 +70,18 @@ Run browser E2E (headless):
 pwsh -NoProfile -File .\scripts\test\frontend-e2e.ps1
 ```
 
+Run the recommended frontend baseline:
+
+```powershell
+pwsh -NoProfile -File .\scripts\test\frontend-ci.ps1
+```
+
+Run the full frontend baseline with browser E2E:
+
+```powershell
+pwsh -NoProfile -File .\scripts\test\frontend-ci.ps1 -WithE2E
+```
+
 Run Codeup create-only smoke:
 
 ```powershell
@@ -87,35 +108,35 @@ pwsh -NoProfile -File .\scripts\test\codeup-cr-smoke.ps1 `
   -MergeType "no-fast-forward"
 ```
 
-### Issue E2E (GitHub)
+### WorkItem E2E (GitHub)
 
-Starts a server, creates a project with local GitHub repo, creates an issue with exec+gate steps, runs ACP agents, and waits until done.
+Starts a server, creates a project with local GitHub repo, creates a work item with exec+gate actions, runs ACP agents, and waits until done.
 
 ```powershell
-pwsh -NoProfile -File .\scripts\test\issue-e2e-github.ps1
+pwsh -NoProfile -File .\scripts\test\workitem-e2e-github.ps1
 ```
 
 With custom options:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\test\issue-e2e-github.ps1 `
+pwsh -NoProfile -File .\scripts\test\workitem-e2e-github.ps1 `
   -RepoPath "D:\project\test-workflow" `
   -Port 8083 `
   -TimeoutSeconds 600
 ```
 
-### Issue E2E (Codeup)
+### WorkItem E2E (Codeup)
 
 Same flow as GitHub but against a Codeup (Alibaba Cloud) repo. Auto-clones the repo if not already present. Reads `[codeup].pat` from secrets.toml.
 
 ```powershell
-pwsh -NoProfile -File .\scripts\test\issue-e2e-codeup.ps1
+pwsh -NoProfile -File .\scripts\test\workitem-e2e-codeup.ps1
 ```
 
 With custom options:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\test\issue-e2e-codeup.ps1 `
+pwsh -NoProfile -File .\scripts\test\workitem-e2e-codeup.ps1 `
   -CodeupRepoUrl "https://codeup.aliyun.com/org/repo" `
   -LocalClonePath "D:\project\codeup-test-workflow" `
   -OrganizationId "5f6ea0829cffa29cfdd39a7f" `
@@ -124,4 +145,4 @@ pwsh -NoProfile -File .\scripts\test\issue-e2e-codeup.ps1 `
   -TimeoutSeconds 600
 ```
 
-Use the Codeup binding example when creating a v2 git resource binding. `base_branch` is the default target branch for PR bootstrap, and step-level config can still override it.
+Use the Codeup binding example when creating a v2 git resource binding. `base_branch` is the default target branch for PR bootstrap, and action-level config can still override it.

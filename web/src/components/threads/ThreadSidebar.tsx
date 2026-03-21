@@ -27,7 +27,6 @@ import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/v2Workbench";
 import type {
   AgentProfile,
-  Issue,
   Thread,
   ThreadAttachment,
   ThreadAgentSession,
@@ -35,6 +34,7 @@ import type {
   ThreadProposal,
   ThreadWorkItemLink,
   ThreadTaskGroup,
+  WorkItem,
   WorkItemPriority,
 } from "@/types/apiV2";
 
@@ -187,7 +187,7 @@ export interface ThreadSidebarProps {
   // Tasks: work items
   workItemLinks: ThreadWorkItemLink[];
   orderedWorkItemLinks: ThreadWorkItemLink[];
-  linkedIssues: Record<number, Issue>;
+  linkedWorkItems: Record<number, WorkItem>;
   showCreateWI: boolean;
   newWITitle: string;
   newWIBody: string;
@@ -998,8 +998,8 @@ function ProposalSection({
   );
 }
 
-function readIssueSourceType(issue: Issue | undefined): string | null {
-  const value = issue?.metadata?.source_type;
+function readWorkItemSourceType(workItem: WorkItem | undefined): string | null {
+  const value = workItem?.metadata?.source_type;
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
@@ -1013,7 +1013,7 @@ function TasksSection({
   onRetryTaskGroup,
   workItemLinks,
   orderedWorkItemLinks,
-  linkedIssues,
+  linkedWorkItems,
   showCreateWI,
   newWITitle,
   newWIBody,
@@ -1212,8 +1212,8 @@ function TasksSection({
         ) : (
           <div className="mt-1.5 space-y-1">
             {orderedWorkItemLinks.map((link) => {
-              const issue = linkedIssues[link.work_item_id];
-              const sourceType = readIssueSourceType(issue);
+              const workItem = linkedWorkItems[link.work_item_id];
+              const sourceType = readWorkItemSourceType(workItem);
               return (
                 <div
                   key={link.id}
@@ -1247,7 +1247,7 @@ function TasksSection({
                     to={`/work-items/${link.work_item_id}`}
                     className="mt-0.5 block truncate font-medium text-primary hover:underline"
                   >
-                    {issue ? issue.title : `#${link.work_item_id}`}
+                    {workItem ? workItem.title : `#${link.work_item_id}`}
                   </Link>
                 </div>
               );

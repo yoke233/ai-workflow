@@ -207,7 +207,7 @@ const normalizeCronStatus = (value: unknown): CronStatus | null => {
   }
 
   const raw = value as Record<string, unknown>;
-  const workItemID = raw.work_item_id ?? raw.issue_id;
+  const workItemID = raw.work_item_id;
   if (typeof workItemID !== "number") {
     return null;
   }
@@ -291,8 +291,8 @@ export interface ApiClient {
   getRun(runId: number): Promise<Run>;
 
   listEvents(params?: {
-    issue_id?: number;
-    step_id?: number;
+    work_item_id?: number;
+    action_id?: number;
     session_id?: string;
     types?: string[];
     limit?: number;
@@ -415,7 +415,7 @@ export interface ApiClient {
     level?: string;
     read?: boolean;
     project_id?: number;
-    issue_id?: number;
+    work_item_id?: number;
     limit?: number;
     offset?: number;
   }): Promise<Notification[]>;
@@ -570,45 +570,45 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
   // -- Actions (primary) --
   const listActions: ApiClient["listActions"] = (workItemId) =>
     request<Action[]>({
-      path: `/work-items/${workItemId}/steps`,
+      path: `/work-items/${workItemId}/actions`,
     }).then((items) => (Array.isArray(items) ? items : []));
 
   const createAction: ApiClient["createAction"] = (workItemId, body) =>
     request<Action, CreateActionRequest>({
-      path: `/work-items/${workItemId}/steps`,
+      path: `/work-items/${workItemId}/actions`,
       method: "POST",
       body,
     });
 
   const generateActions: ApiClient["generateActions"] = (workItemId, body) =>
     request<Action[], GenerateActionsRequest>({
-      path: `/work-items/${workItemId}/generate-steps`,
+      path: `/work-items/${workItemId}/generate-actions`,
       method: "POST",
       body,
     }).then((items) => (Array.isArray(items) ? items : []));
 
   const getAction: ApiClient["getAction"] = (actionId) =>
     request<Action>({
-      path: `/steps/${actionId}`,
+      path: `/actions/${actionId}`,
     });
 
   const updateAction: ApiClient["updateAction"] = (actionId, body) =>
     request<Action, UpdateActionRequest>({
-      path: `/steps/${actionId}`,
+      path: `/actions/${actionId}`,
       method: "PUT",
       body,
     });
 
   const deleteAction: ApiClient["deleteAction"] = (actionId) =>
     request<void>({
-      path: `/steps/${actionId}`,
+      path: `/actions/${actionId}`,
       method: "DELETE",
     });
 
   // -- Runs (primary) --
   const listRuns: ApiClient["listRuns"] = (actionId) =>
     request<Run[]>({
-      path: `/steps/${actionId}/runs`,
+      path: `/actions/${actionId}/runs`,
     }).then((items) => (Array.isArray(items) ? items : []));
 
   const getRun: ApiClient["getRun"] = (runId) =>
@@ -627,8 +627,8 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
     request<Event[]>({
       path: "/events",
       query: {
-        issue_id: params?.issue_id,
-        step_id: params?.step_id,
+        work_item_id: params?.work_item_id,
+        action_id: params?.action_id,
         session_id: params?.session_id,
         types: params?.types?.join(","),
         limit: params?.limit,
@@ -1402,7 +1402,7 @@ export const createApiClient = (opts: ApiClientOptions): ApiClient => {
           level: params?.level,
           read: params?.read === undefined ? undefined : String(params.read),
           project_id: params?.project_id,
-          issue_id: params?.issue_id,
+          work_item_id: params?.work_item_id,
           limit: params?.limit,
           offset: params?.offset,
         },

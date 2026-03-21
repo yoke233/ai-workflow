@@ -65,7 +65,7 @@ describe("TemplatesPage", () => {
       ]),
       deleteDAGTemplate: vi.fn().mockResolvedValue({}),
       createWorkItemFromTemplate: vi.fn().mockResolvedValue({
-        issue: { id: 88 },
+        work_item: { id: 88 },
       }),
     };
 

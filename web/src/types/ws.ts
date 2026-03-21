@@ -2,7 +2,7 @@ export interface WsEnvelope<TPayload = unknown> {
   type: string;
   run_id?: string;
   project_id?: string;
-  issue_id?: string;
+  work_item_id?: string;
   session_id?: string;
   data?: TPayload;
   payload?: TPayload;
@@ -150,8 +150,8 @@ export interface NotificationEventPayload {
     category?: string;
     action_url?: string;
     project_id?: number | null;
-    issue_id?: number | null;
-    exec_id?: number | null;
+    work_item_id?: number | null;
+    run_id?: number | null;
     channels?: string[];
     read: boolean;
     created_at: string;
@@ -173,13 +173,13 @@ export interface WsClientMessage {
     | "unsubscribe_thread"
     | "subscribe_run"
     | "unsubscribe_run"
-    | "subscribe_issue"
-    | "unsubscribe_issue"
+    | "subscribe_work_item"
+    | "unsubscribe_work_item"
     | "subscribe_chat_session"
     | "unsubscribe_chat_session";
   request_id?: string;
   run_id?: string;
-  issue_id?: string;
+  work_item_id?: string;
   session_id?: string;
   thread_id?: number;
   message?: string;

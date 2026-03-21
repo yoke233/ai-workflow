@@ -6,12 +6,12 @@ describe("apiClient cron normalization", () => {
     vi.restoreAllMocks();
   });
 
-  it("兼容 issue_id 并归一化为 work_item_id", async () => {
+  it("仅接受 work_item_id 并归一化 cron 状态", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify([
           {
-            issue_id: 18,
+            work_item_id: 18,
             enabled: true,
             is_template: true,
             schedule: "0 * * * *",

@@ -99,7 +99,8 @@ describe("ChatInputBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "审阅" }));
     expect(props.onSetMode).toHaveBeenCalledWith("review");
 
-    fireEvent.change(screen.getByDisplayValue("高"), { target: { value: "low" } });
+    fireEvent.click(screen.getByRole("button", { name: "高" }));
+    fireEvent.click(screen.getByRole("button", { name: "低" }));
     expect(props.onSetConfigOption).toHaveBeenCalledWith("risk", "low");
 
     const pendingBadge = screen.getByText("spec.md").parentElement as HTMLElement;

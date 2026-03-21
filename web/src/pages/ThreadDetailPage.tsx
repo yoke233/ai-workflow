@@ -29,13 +29,13 @@ import type {
   ThreadProposal,
   ThreadWorkItemLink,
   ThreadAgentSession,
-  Issue,
   ThreadAttachment,
   ThreadFileRef,
   MessageFileRef,
   ProposalWorkItemDraft,
   WorkItemPriority,
   ThreadTaskGroup,
+  WorkItem,
 } from "@/types/apiV2";
 import type { ThreadAckPayload, ThreadEventPayload } from "@/types/ws";
 
@@ -515,7 +515,7 @@ export function ThreadDetailPage() {
   const [proposals, setProposals] = useState<ThreadProposal[]>([]);
   const [proposalsLoading, setProposalsLoading] = useState(false);
   const [workItemLinks, setWorkItemLinks] = useState<ThreadWorkItemLink[]>([]);
-  const [linkedIssues, setLinkedIssues] = useState<Record<number, Issue>>({});
+  const [linkedWorkItems, setLinkedWorkItems] = useState<Record<number, WorkItem>>({});
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [showProposalEditor, setShowProposalEditor] = useState(false);
@@ -718,7 +718,7 @@ export function ThreadDetailPage() {
     setProposalEditor(createProposalEditorState());
     setProposalReviewInputs({});
     setWorkItemLinks([]);
-    setLinkedIssues({});
+    setLinkedWorkItems({});
     setTaskGroups([]);
     setAgentSessions([]);
     setAttachments([]);
@@ -810,15 +810,15 @@ export function ThreadDetailPage() {
           setAgentSessions(agents);
           setAvailableProfiles(profiles);
           setAttachments(atts);
-          const issueMap: Record<number, Issue> = {};
-          const issueResults = await Promise.allSettled(
+          const workItemMap: Record<number, WorkItem> = {};
+          const workItemResults = await Promise.allSettled(
             links.map((l) => apiClient.getWorkItem(l.work_item_id)),
           );
-          issueResults.forEach((r, i) => {
+          workItemResults.forEach((r, i) => {
             if (r.status === "fulfilled")
-              issueMap[links[i].work_item_id] = r.value;
+              workItemMap[links[i].work_item_id] = r.value;
           });
-          if (!cancelled) setLinkedIssues(issueMap);
+          if (!cancelled) setLinkedWorkItems(workItemMap);
         }
       } catch (e) {
         if (!cancelled) setError(getErrorMessage(e));
@@ -1790,7 +1790,7 @@ export function ThreadDetailPage() {
     try {
       const trimmedBody = newWIBody.trim();
       const savedSummary = thread?.summary?.trim() ?? "";
-      const issue = await apiClient.createWorkItemFromThread(id, {
+      const workItem = await apiClient.createWorkItemFromThread(id, {
         title: newWITitle.trim(),
         body:
           trimmedBody !== "" && trimmedBody !== savedSummary
@@ -1799,7 +1799,7 @@ export function ThreadDetailPage() {
       });
       const links = await apiClient.listWorkItemsByThread(id);
       setWorkItemLinks(links);
-      setLinkedIssues((prev) => ({ ...prev, [issue.id]: issue }));
+      setLinkedWorkItems((prev) => ({ ...prev, [workItem.id]: workItem }));
       setNewWITitle("");
       setNewWIBody("");
       setShowCreateWI(false);
@@ -1820,8 +1820,8 @@ export function ThreadDetailPage() {
       const links = await apiClient.listWorkItemsByThread(id);
       setWorkItemLinks(links);
       try {
-        const issue = await apiClient.getWorkItem(wiId);
-        setLinkedIssues((prev) => ({ ...prev, [wiId]: issue }));
+        const workItem = await apiClient.getWorkItem(wiId);
+        setLinkedWorkItems((prev) => ({ ...prev, [wiId]: workItem }));
       } catch {
         /* ignore */
       }
@@ -2743,7 +2743,7 @@ export function ThreadDetailPage() {
             }}
             workItemLinks={workItemLinks}
             orderedWorkItemLinks={orderedWorkItemLinks}
-            linkedIssues={linkedIssues}
+            linkedWorkItems={linkedWorkItems}
             showCreateWI={showCreateWI}
             newWITitle={newWITitle}
             newWIBody={newWIBody}

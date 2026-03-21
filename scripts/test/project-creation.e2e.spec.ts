@@ -12,7 +12,7 @@ const assertCreateSucceeded = async (page: Page) => {
     .toMatch(/project created|项目创建成功|创建成功/i);
 };
 
-test("项目管理面板可完成 local_path 与 local_new 创建流程", async ({ page }) => {
+test("项目创建面板可完成 local_path 与 local_new 创建流程", async ({ page }) => {
   const runID = Date.now();
   const localPathName = `e2e-local-path-${runID}`;
   const localPathRepo = `D:/project/ai-workflow/.runtime/${localPathName}`;
@@ -59,7 +59,7 @@ test("项目管理面板可完成 local_path 与 local_new 创建流程", async 
     }, { timeout: 60_000 })
     .toContain(expectedLocalNewSlug);
 
-  const screenshotPath = join(".runtime", "playwright", `project-admin-${runID}.png`);
+  const screenshotPath = join(".runtime", "playwright", `project-creation-${runID}.png`);
   mkdirSync(dirname(screenshotPath), { recursive: true });
   await page.screenshot({ path: screenshotPath, fullPage: true });
 });

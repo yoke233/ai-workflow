@@ -10,6 +10,6 @@ $repoRoot = Enter-RepoRoot -ScriptRoot $PSScriptRoot
 
 Write-Host "RepoRoot: $repoRoot"
 
-Invoke-Step -Name "Frontend unit tests (vitest run)" -CheckLastExitCode -Command {
-    npm --prefix web run test:unit
+Invoke-Step -Name "Frontend lint" -CheckLastExitCode -Command {
+    npm --prefix web run lint
 }

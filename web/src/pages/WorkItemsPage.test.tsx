@@ -106,16 +106,18 @@ describe("WorkItemsPage", () => {
       target: { value: "" },
     });
 
-    const combos = screen.getAllByRole("combobox");
-    fireEvent.change(combos[0], { target: { value: "high" } });
+    fireEvent.click(screen.getByRole("button", { name: "全部优先级" }));
+    fireEvent.click(screen.getByRole("button", { name: "高" }));
 
     await waitFor(() => {
       expect(screen.getByText("API 巡检")).toBeTruthy();
       expect(screen.queryByText("修复导出缺陷")).toBeNull();
     });
 
-    fireEvent.change(combos[0], { target: { value: "all" } });
-    fireEvent.change(combos[1], { target: { value: "frontend" } });
+    fireEvent.click(screen.getByRole("button", { name: "高" }));
+    fireEvent.click(screen.getByRole("button", { name: "全部优先级" }));
+    fireEvent.click(screen.getByRole("button", { name: "全部标签" }));
+    fireEvent.click(screen.getByRole("button", { name: "frontend" }));
 
     await waitFor(() => {
       expect(screen.getByText("修复导出缺陷")).toBeTruthy();

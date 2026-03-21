@@ -9,7 +9,7 @@
  * Usage:
  *   const svc = new BrowserNotificationService();
  *   await svc.requestPermission();
- *   svc.show("Task completed", { body: "Issue #42 finished" });
+ *   svc.show("Task completed", { body: "Work item #42 finished" });
  */
 
 export interface BrowserNotificationOptions {

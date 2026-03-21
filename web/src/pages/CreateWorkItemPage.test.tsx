@@ -112,7 +112,7 @@ describe("CreateWorkItemPage", () => {
       ]),
       listProjectResources: vi.fn().mockResolvedValue([]),
       createWorkItemFromTemplate: vi.fn().mockResolvedValue({
-        issue: { id: 88 },
+        work_item: { id: 88 },
       }),
       runWorkItem: vi.fn().mockResolvedValue({}),
       createWorkItem: vi.fn(),

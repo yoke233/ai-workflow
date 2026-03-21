@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/v2Workbench";
-import type { Issue, Thread, ThreadWorkItemLink } from "@/types/apiV2";
+import type { Thread, ThreadWorkItemLink, WorkItem } from "@/types/apiV2";
 
 interface ThreadDetailsPanelProps {
   thread: Thread;
@@ -23,7 +23,7 @@ interface ThreadDetailsPanelProps {
   linkWIId: string;
   workItemLinks: ThreadWorkItemLink[];
   orderedWorkItemLinks: ThreadWorkItemLink[];
-  linkedIssues: Record<number, Issue>;
+  linkedWorkItems: Record<number, WorkItem>;
   onSummaryCollapsedChange: (collapsed: boolean) => void;
   onSummaryDraftChange: (value: string) => void;
   onSaveSummary: () => void;
@@ -38,8 +38,8 @@ interface ThreadDetailsPanelProps {
   onResetCreateWorkItemDraft: () => void;
 }
 
-function readIssueSourceType(issue: Issue | undefined): string | null {
-  const value = issue?.metadata?.source_type;
+function readWorkItemSourceType(workItem: WorkItem | undefined): string | null {
+  const value = workItem?.metadata?.source_type;
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
@@ -57,7 +57,7 @@ export function ThreadDetailsPanel({
   linkWIId,
   workItemLinks,
   orderedWorkItemLinks,
-  linkedIssues,
+  linkedWorkItems,
   onSummaryCollapsedChange,
   onSummaryDraftChange,
   onSaveSummary,
@@ -200,8 +200,8 @@ export function ThreadDetailsPanel({
         ) : (
           <div className="space-y-1.5">
             {orderedWorkItemLinks.map((link) => {
-              const issue = linkedIssues[link.work_item_id];
-              const sourceType = readIssueSourceType(issue);
+              const workItem = linkedWorkItems[link.work_item_id];
+              const sourceType = readWorkItemSourceType(workItem);
               return (
                 <div
                   key={link.id}
@@ -222,9 +222,9 @@ export function ThreadDetailsPanel({
                       to={`/work-items/${link.work_item_id}`}
                       className="min-w-0 flex-1 truncate font-medium text-primary hover:underline"
                     >
-                      {issue ? issue.title : `#${link.work_item_id}`}
+                      {workItem ? workItem.title : `#${link.work_item_id}`}
                     </Link>
-                    {issue && <Badge variant="secondary" className="text-[9px]">{issue.status}</Badge>}
+                    {workItem && <Badge variant="secondary" className="text-[9px]">{workItem.status}</Badge>}
                   </div>
                 </div>
               );

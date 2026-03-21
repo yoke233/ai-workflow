@@ -6,7 +6,7 @@ describe("apiClient", () => {
     vi.restoreAllMocks();
   });
 
-  it("generateActions 会命中 /work-items/{id}/generate-steps 并 POST JSON body", async () => {
+  it("generateActions 会命中 /work-items/{id}/generate-actions 并 POST JSON body", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), {
         status: 201,
@@ -19,13 +19,13 @@ describe("apiClient", () => {
     await client.generateActions(12, { description: "make a dag" });
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/work-items/12/generate-steps");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/work-items/12/generate-actions");
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.method).toBe("POST");
     expect(JSON.parse(String(init.body))).toEqual({ description: "make a dag" });
   });
 
-  it("updateAction 会命中 /steps/{id} 并 PUT JSON body", async () => {
+  it("updateAction 会命中 /actions/{id} 并 PUT JSON body", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -51,13 +51,13 @@ describe("apiClient", () => {
     await client.updateAction(99, { position: 3 });
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/steps/99");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/actions/99");
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.method).toBe("PUT");
     expect(JSON.parse(String(init.body))).toEqual({ position: 3 });
   });
 
-  it("deleteAction 会命中 /steps/{id} 并 DELETE", async () => {
+  it("deleteAction 会命中 /actions/{id} 并 DELETE", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -65,7 +65,7 @@ describe("apiClient", () => {
     await client.deleteAction(7);
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/steps/7");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:8080/api/actions/7");
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.method).toBe("DELETE");
   });
@@ -290,11 +290,11 @@ describe("apiClient", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          issue_id: 12,
-          implement_step_id: 101,
-          commit_push_step_id: 102,
-          open_pr_step_id: 103,
-          gate_step_id: 104,
+          work_item_id: 12,
+          implement_action_id: 101,
+          commit_push_action_id: 102,
+          open_pr_action_id: 103,
+          gate_action_id: 104,
         }),
         {
           status: 201,
@@ -318,8 +318,8 @@ describe("apiClient", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          issue: { id: 12, title: "demo" },
-          steps: [],
+          work_item: { id: 12, title: "demo" },
+          actions: [],
         }),
         {
           status: 201,

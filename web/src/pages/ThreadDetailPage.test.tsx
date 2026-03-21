@@ -8,10 +8,8 @@ import {
 } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import {
-  createMemoryRouter,
   MemoryRouter,
   Route,
-  RouterProvider,
   Routes,
 } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -114,34 +112,20 @@ function createWsClientMock() {
   };
 }
 
-function renderPage() {
-  return render(
+function buildPage(initialEntry = "/threads/1", key = initialEntry) {
+  return (
     <I18nextProvider i18n={i18n}>
-      <MemoryRouter initialEntries={["/threads/1"]}>
+      <MemoryRouter key={key} initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/threads/:threadId" element={<ThreadDetailPage />} />
         </Routes>
       </MemoryRouter>
-    </I18nextProvider>,
+    </I18nextProvider>
   );
 }
 
-function renderPageWithRouter(initialEntry = "/threads/1") {
-  const router = createMemoryRouter(
-    [
-      {
-        path: "/threads/:threadId",
-        element: (
-          <I18nextProvider i18n={i18n}>
-            <ThreadDetailPage />
-          </I18nextProvider>
-        ),
-      },
-    ],
-    { initialEntries: [initialEntry] },
-  );
-  const result = render(<RouterProvider router={router} />);
-  return { ...result, router };
+function renderPage(initialEntry = "/threads/1") {
+  return render(buildPage(initialEntry));
 }
 
 describe("ThreadDetailPage", () => {
@@ -1095,12 +1079,12 @@ describe("ThreadDetailPage", () => {
     };
     mockUseWorkbench.mockReturnValue({ apiClient, wsClient });
 
-    const { router } = renderPageWithRouter("/threads/1");
+    const view = renderPage("/threads/1");
 
     expect(await screen.findByText("旧线程")).toBeTruthy();
     expect(await screen.findByText("旧消息")).toBeTruthy();
 
-    await router.navigate("/threads/2");
+    view.rerender(buildPage("/threads/2"));
 
     expect(await screen.findByText("thread not found")).toBeTruthy();
     expect(screen.queryByText("旧线程")).toBeNull();

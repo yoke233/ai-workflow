@@ -211,8 +211,8 @@ export function WorkbenchProvider({ children }: ProviderProps) {
     const bootstrap = async (): Promise<void> => {
       let token = resolvedToken.token;
       let tokenSource = resolvedToken.source;
-      let effectiveApiBaseUrl = apiBaseUrl;
-      let effectiveWsBaseUrl = wsBaseUrl;
+      const effectiveApiBaseUrl = apiBaseUrl;
+      const effectiveWsBaseUrl = wsBaseUrl;
 
       if (runningInDesktop) {
         try {
@@ -382,4 +382,3 @@ export const useWorkbench = (): WorkbenchContextValue => {
   }
   return value;
 };
-

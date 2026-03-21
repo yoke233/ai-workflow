@@ -25,10 +25,10 @@ import { StatusBadge } from "@/components/status-badge";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { cn } from "@/lib/utils";
 import {
-  formatIssueDuration,
+  formatWorkItemDuration,
   formatRelativeTime,
   getErrorMessage,
-  isActiveIssueStatus,
+  isActiveWorkItemStatus,
 } from "@/lib/v2Workbench";
 import type { WorkItem, SchedulerStats, StatsResponse } from "@/types/apiV2";
 
@@ -90,7 +90,7 @@ export function DashboardPage() {
     };
   }, [apiClient, selectedProjectId]);
 
-  const activeWorkItems = useMemo(() => workItems.filter((workItem) => isActiveIssueStatus(workItem.status)), [workItems]);
+  const activeWorkItems = useMemo(() => workItems.filter((workItem) => isActiveWorkItemStatus(workItem.status)), [workItems]);
   const doneWorkItems = useMemo(() => workItems.filter((workItem) => workItem.status === "done"), [workItems]);
   const queuedWorkItems = useMemo(
     () => workItems.filter((workItem) => workItem.status === "queued" || workItem.status === "running").slice(0, 4),
@@ -248,7 +248,7 @@ export function DashboardPage() {
                         <StatusBadge status={workItem.status} />
                       </TableCell>
                       <TableCell className="text-muted-foreground">{formatRelativeTime(workItem.created_at)}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatIssueDuration(workItem)}</TableCell>
+                      <TableCell className="text-muted-foreground">{formatWorkItemDuration(workItem)}</TableCell>
                     </TableRow>
                   ))
                 )}

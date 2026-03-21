@@ -16,17 +16,17 @@ import { parseCronExpr } from "@/lib/cronParser";
 interface Props {
   open: boolean;
   onClose: () => void;
-  onSave: (issueId: number, schedule: string, maxInstances: number) => Promise<void>;
+  onSave: (workItemId: number, schedule: string, maxInstances: number) => Promise<void>;
 }
 
 export function CronSetupDialog({ open, onClose, onSave }: Props) {
   const { t } = useTranslation();
-  const [form, setForm] = useState({ issueId: "", schedule: "", maxInstances: "1" });
+  const [form, setForm] = useState({ workItemId: "", schedule: "", maxInstances: "1" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleClose = () => {
-    setForm({ issueId: "", schedule: "", maxInstances: "1" });
+    setForm({ workItemId: "", schedule: "", maxInstances: "1" });
     setError(null);
     onClose();
   };
@@ -35,7 +35,7 @@ export function CronSetupDialog({ open, onClose, onSave }: Props) {
     setSaving(true);
     setError(null);
     try {
-      await onSave(Number(form.issueId), form.schedule, Number(form.maxInstances) || 1);
+      await onSave(Number(form.workItemId), form.schedule, Number(form.maxInstances) || 1);
       handleClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -45,7 +45,7 @@ export function CronSetupDialog({ open, onClose, onSave }: Props) {
   };
 
   const cronResult = form.schedule.trim() ? parseCronExpr(form.schedule, t) : null;
-  const canSave = !saving && !!form.issueId && !!form.schedule && (cronResult?.valid ?? false);
+  const canSave = !saving && !!form.workItemId && !!form.schedule && (cronResult?.valid ?? false);
 
   return (
     <Dialog open={open} onClose={handleClose}>
@@ -63,8 +63,8 @@ export function CronSetupDialog({ open, onClose, onSave }: Props) {
             <Input
               type="number"
               placeholder={t("analytics.enterFlowId")}
-              value={form.issueId}
-              onChange={(e) => setForm((f) => ({ ...f, issueId: e.target.value }))}
+              value={form.workItemId}
+              onChange={(e) => setForm((f) => ({ ...f, workItemId: e.target.value }))}
             />
           </div>
           <div className="space-y-1.5">

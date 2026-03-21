@@ -14,7 +14,7 @@ $args = @(
   "-y",
   "@playwright/test",
   "test",
-  "scripts/test/project-admin.e2e.spec.ts",
+  "scripts/test/project-creation.e2e.spec.ts",
   "--workers=1",
   "--reporter=line"
 )
@@ -23,9 +23,9 @@ if ($Headed) {
   $args += "--headed"
 }
 
-Write-Host "[e2e] running playwright project-admin flow..."
+Write-Host "[e2e] running playwright project-creation flow..."
 Write-Host "[e2e] APP_URL=$env:APP_URL"
-Write-Host "[e2e] suite=frontend-e2e"
+Write-Host "[e2e] suite=frontend-e2e-project-creation"
 
 & npx @args
 if ($LASTEXITCODE -ne 0) {

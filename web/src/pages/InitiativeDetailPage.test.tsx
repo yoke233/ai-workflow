@@ -1,35 +1,33 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
-import {
-  createMemoryRouter,
-  MemoryRouter,
-  Route,
-  RouterProvider,
-  Routes,
-} from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "../i18n";
 import { InitiativeDetailPage } from "./InitiativeDetailPage";
 
-const { mockUseWorkbench } = vi.hoisted(() => ({
+const { mockUseWorkbench, mockUseParams } = vi.hoisted(() => ({
   mockUseWorkbench: vi.fn(),
+  mockUseParams: vi.fn(),
 }));
 
 vi.mock("@/contexts/WorkbenchContext", () => ({
   useWorkbench: mockUseWorkbench,
 }));
 
-function renderPage(initialEntry = "/initiatives/9") {
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  return {
+    ...actual,
+    useParams: mockUseParams,
+  };
+});
+
+function renderPage() {
   return render(
     <I18nextProvider i18n={i18n}>
-      <MemoryRouter initialEntries={[initialEntry]}>
-        <Routes>
-          <Route
-            path="/initiatives/:initiativeId"
-            element={<InitiativeDetailPage />}
-          />
-        </Routes>
+      <MemoryRouter>
+        <InitiativeDetailPage />
       </MemoryRouter>
     </I18nextProvider>,
   );
@@ -104,6 +102,7 @@ describe("InitiativeDetailPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     void i18n.changeLanguage("zh-CN");
+    mockUseParams.mockReturnValue({ initiativeId: "9" });
   });
 
   afterEach(() => {
@@ -201,21 +200,7 @@ describe("InitiativeDetailPage", () => {
     };
     mockUseWorkbench.mockReturnValue({ apiClient });
 
-    const router = createMemoryRouter(
-      [
-        {
-          path: "/initiatives/:initiativeId",
-          element: <InitiativeDetailPage />,
-        },
-      ],
-      { initialEntries: ["/initiatives/9"] },
-    );
-
-    render(
-      <I18nextProvider i18n={i18n}>
-        <RouterProvider router={router} />
-      </I18nextProvider>,
-    );
+    const view = renderPage();
 
     await screen.findByText("跨项目联调 9");
     fireEvent.change(screen.getByPlaceholderText("reviewer id"), {
@@ -225,7 +210,14 @@ describe("InitiativeDetailPage", () => {
       target: { value: "temporary-note" },
     });
 
-    await router.navigate("/initiatives/10");
+    mockUseParams.mockReturnValue({ initiativeId: "10" });
+    view.rerender(
+      <I18nextProvider i18n={i18n}>
+        <MemoryRouter>
+          <InitiativeDetailPage />
+        </MemoryRouter>
+      </I18nextProvider>,
+    );
 
     await screen.findByText("跨项目联调 10");
     await waitFor(() => {
@@ -255,24 +247,17 @@ describe("InitiativeDetailPage", () => {
     };
     mockUseWorkbench.mockReturnValue({ apiClient });
 
-    const router = createMemoryRouter(
-      [
-        {
-          path: "/initiatives/:initiativeId",
-          element: <InitiativeDetailPage />,
-        },
-      ],
-      { initialEntries: ["/initiatives/9"] },
-    );
-
-    render(
-      <I18nextProvider i18n={i18n}>
-        <RouterProvider router={router} />
-      </I18nextProvider>,
-    );
+    const view = renderPage();
 
     await screen.findByText("跨项目联调 9");
-    await router.navigate("/initiatives/10");
+    mockUseParams.mockReturnValue({ initiativeId: "10" });
+    view.rerender(
+      <I18nextProvider i18n={i18n}>
+        <MemoryRouter>
+          <InitiativeDetailPage />
+        </MemoryRouter>
+      </I18nextProvider>,
+    );
 
     await waitFor(() => {
       expect(screen.getAllByText(/Initiative #10/).length).toBeGreaterThan(0);
@@ -300,23 +285,16 @@ describe("InitiativeDetailPage", () => {
     };
     mockUseWorkbench.mockReturnValue({ apiClient });
 
-    const router = createMemoryRouter(
-      [
-        {
-          path: "/initiatives/:initiativeId",
-          element: <InitiativeDetailPage />,
-        },
-      ],
-      { initialEntries: ["/initiatives/9"] },
-    );
+    const view = renderPage();
 
-    render(
+    mockUseParams.mockReturnValue({ initiativeId: "10" });
+    view.rerender(
       <I18nextProvider i18n={i18n}>
-        <RouterProvider router={router} />
+        <MemoryRouter>
+          <InitiativeDetailPage />
+        </MemoryRouter>
       </I18nextProvider>,
     );
-
-    await router.navigate("/initiatives/10");
     second.resolve(buildDetail(10, "approved"));
     expect(await screen.findByText("跨项目联调 10")).toBeTruthy();
 
