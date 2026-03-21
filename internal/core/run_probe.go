@@ -1,6 +1,10 @@
 package core
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // RunProbeTriggerSource identifies how a probe was initiated.
 type RunProbeTriggerSource string
@@ -32,6 +36,40 @@ const (
 	RunProbeDead    RunProbeVerdict = "dead"
 	RunProbeUnknown RunProbeVerdict = "unknown"
 )
+
+func (s RunProbeStatus) Valid() bool {
+	switch s {
+	case RunProbePending, RunProbeSent, RunProbeAnswered, RunProbeTimeout, RunProbeUnreachable, RunProbeFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func ParseRunProbeStatus(raw string) (RunProbeStatus, error) {
+	s := RunProbeStatus(strings.TrimSpace(raw))
+	if !s.Valid() {
+		return "", fmt.Errorf("invalid run probe status %q", raw)
+	}
+	return s, nil
+}
+
+func (v RunProbeVerdict) Valid() bool {
+	switch v {
+	case RunProbeAlive, RunProbeBlocked, RunProbeHung, RunProbeDead, RunProbeUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func ParseRunProbeVerdict(raw string) (RunProbeVerdict, error) {
+	v := RunProbeVerdict(strings.TrimSpace(raw))
+	if !v.Valid() {
+		return "", fmt.Errorf("invalid run probe verdict %q", raw)
+	}
+	return v, nil
+}
 
 // RunProbe stores a single side-channel diagnostic interaction for a running run.
 type RunProbe struct {

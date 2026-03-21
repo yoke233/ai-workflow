@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -14,6 +16,23 @@ const (
 	FeatureFail    FeatureStatus = "fail"
 	FeatureSkipped FeatureStatus = "skipped"
 )
+
+func (s FeatureStatus) Valid() bool {
+	switch s {
+	case FeaturePending, FeaturePass, FeatureFail, FeatureSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
+func ParseFeatureStatus(raw string) (FeatureStatus, error) {
+	s := FeatureStatus(strings.TrimSpace(raw))
+	if !s.Valid() {
+		return "", fmt.Errorf("invalid feature status %q", raw)
+	}
+	return s, nil
+}
 
 // FeatureEntry is a single feature/scenario in a project's feature checklist.
 // Entries are append-only from the Agent's perspective (no delete).

@@ -2,6 +2,8 @@ package core
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -14,6 +16,23 @@ const (
 	InspectionStatusCompleted InspectionStatus = "completed"
 	InspectionStatusFailed    InspectionStatus = "failed"
 )
+
+func (s InspectionStatus) Valid() bool {
+	switch s {
+	case InspectionStatusPending, InspectionStatusRunning, InspectionStatusCompleted, InspectionStatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func ParseInspectionStatus(raw string) (InspectionStatus, error) {
+	s := InspectionStatus(strings.TrimSpace(raw))
+	if !s.Valid() {
+		return "", fmt.Errorf("invalid inspection status %q", raw)
+	}
+	return s, nil
+}
 
 // InspectionTrigger records how the inspection was initiated.
 type InspectionTrigger string
