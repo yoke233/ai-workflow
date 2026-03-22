@@ -459,7 +459,7 @@ func (h *ACPHandler) HandleSessionUpdate(ctx context.Context, update acpclient.S
 	}
 
 	switch update.Type {
-	case "available_commands_update":
+	case acpclient.UpdateTypeAvailableCommandsUpdate:
 		if stateCallback != nil {
 			commands := append([]acpproto.AvailableCommand(nil), update.Commands...)
 			if commands == nil {
@@ -467,7 +467,7 @@ func (h *ACPHandler) HandleSessionUpdate(ctx context.Context, update acpclient.S
 			}
 			stateCallback(commands, nil)
 		}
-	case "config_option_update":
+	case acpclient.UpdateTypeConfigOptionUpdate:
 		if stateCallback != nil {
 			configOptions := append([]acpproto.SessionConfigOptionSelect(nil), update.ConfigOptions...)
 			if configOptions == nil {
@@ -666,12 +666,12 @@ func extractACPChunkText(rawUpdateJSON string) string {
 
 func aggregatedACPChunkUpdateType(updateType string) string {
 	switch strings.TrimSpace(updateType) {
-	case "agent_message_chunk":
-		return "agent_message"
-	case "agent_thought_chunk":
-		return "agent_thought"
-	case "user_message_chunk":
-		return "user_message"
+	case acpclient.UpdateTypeAgentMessageChunk:
+		return acpclient.UpdateTypeAgentMessage
+	case acpclient.UpdateTypeAgentThoughtChunk:
+		return acpclient.UpdateTypeAgentThought
+	case acpclient.UpdateTypeUserMessageChunk:
+		return acpclient.UpdateTypeUserMessage
 	default:
 		return ""
 	}
@@ -683,7 +683,11 @@ func isAggregatedACPChunkUpdateType(updateType string) bool {
 
 func isACPChunkUpdateType(updateType string) bool {
 	switch strings.TrimSpace(updateType) {
-	case "agent_message_chunk", "assistant_message_chunk", "message_chunk", "agent_thought_chunk", "user_message_chunk":
+	case acpclient.UpdateTypeAgentMessageChunk,
+		acpclient.UpdateTypeAssistantMessageChunk,
+		acpclient.UpdateTypeMessageChunk,
+		acpclient.UpdateTypeAgentThoughtChunk,
+		acpclient.UpdateTypeUserMessageChunk:
 		return true
 	default:
 		return false

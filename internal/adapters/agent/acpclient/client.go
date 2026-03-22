@@ -469,7 +469,7 @@ func (c *Client) handleNotification(ctx context.Context, method string, params j
 		if c.eventHandler != nil {
 			_ = c.eventHandler.HandleSessionUpdate(ctx, update)
 		}
-		if update.Type == "agent_message_chunk" && update.Text != "" {
+		if update.Type == UpdateTypeAgentMessageChunk && update.Text != "" {
 			c.appendText(update.SessionID, update.Text)
 		}
 		return
@@ -521,7 +521,7 @@ func (c *Client) handleNotification(ctx context.Context, method string, params j
 		_ = c.eventHandler.HandleSessionUpdate(ctx, update)
 	}
 
-	if update.Type == "agent_message_chunk" && update.Text != "" {
+	if update.Type == UpdateTypeAgentMessageChunk && update.Text != "" {
 		c.appendText(in.SessionID, update.Text)
 	}
 }
@@ -610,43 +610,43 @@ func decodeACPNotificationFromStruct(notification acpproto.SessionNotification) 
 	configOptions := []acpproto.SessionConfigOptionSelect(nil)
 	switch {
 	case notification.Update.AgentMessageChunk != nil:
-		updateType = "agent_message_chunk"
+		updateType = UpdateTypeAgentMessageChunk
 		if tb := notification.Update.AgentMessageChunk.Content.Text; tb != nil {
 			text = tb.Text
 		}
 	case notification.Update.AgentThoughtChunk != nil:
-		updateType = "agent_thought_chunk"
+		updateType = UpdateTypeAgentThoughtChunk
 		if tb := notification.Update.AgentThoughtChunk.Content.Text; tb != nil {
 			text = tb.Text
 		}
 	case notification.Update.UserMessageChunk != nil:
-		updateType = "user_message_chunk"
+		updateType = UpdateTypeUserMessageChunk
 		if tb := notification.Update.UserMessageChunk.Content.Text; tb != nil {
 			text = tb.Text
 		}
 	case notification.Update.ToolCall != nil:
-		updateType = "tool_call"
+		updateType = UpdateTypeToolCall
 		status = string(notification.Update.ToolCall.Status)
 	case notification.Update.ToolCallUpdate != nil:
-		updateType = "tool_call_update"
+		updateType = UpdateTypeToolCallUpdate
 		if notification.Update.ToolCallUpdate.Status != nil {
 			status = string(*notification.Update.ToolCallUpdate.Status)
 		}
 	case notification.Update.Plan != nil:
-		updateType = "plan"
+		updateType = UpdateTypePlan
 	case notification.Update.AvailableCommandsUpdate != nil:
-		updateType = "available_commands_update"
+		updateType = UpdateTypeAvailableCommandsUpdate
 		commands = make([]acpproto.AvailableCommand, len(notification.Update.AvailableCommandsUpdate.AvailableCommands))
 		copy(commands, notification.Update.AvailableCommandsUpdate.AvailableCommands)
 	case notification.Update.CurrentModeUpdate != nil:
-		updateType = "current_mode_update"
+		updateType = UpdateTypeCurrentModeUpdate
 	case notification.Update.ConfigOptionUpdate != nil:
-		updateType = "config_option_update"
+		updateType = UpdateTypeConfigOptionUpdate
 		configOptions = selectConfigOptions(notification.Update.ConfigOptionUpdate.ConfigOptions)
 	case notification.Update.SessionInfoUpdate != nil:
-		updateType = "session_info_update"
+		updateType = UpdateTypeSessionInfoUpdate
 	case notification.Update.UsageUpdate != nil:
-		updateType = "usage_update"
+		updateType = UpdateTypeUsageUpdate
 	default:
 		return SessionUpdate{}, false
 	}

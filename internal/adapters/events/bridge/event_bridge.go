@@ -12,22 +12,21 @@ import (
 	"github.com/yoke233/zhanggui/internal/core"
 )
 
-// ACP session update type constants — these match the wire values produced by
-// the acpclient decoder and are used to route incoming SessionUpdate events.
+// Package-level aliases for the shared ACP session update type constants.
 const (
-	updateTypeAgentThoughtChunk = "agent_thought_chunk"
-	updateTypeAgentMessageChunk = "agent_message_chunk"
-	updateTypeAgentThought      = "agent_thought"
-	updateTypeAgentMessage      = "agent_message"
-	updateTypeToolCall          = "tool_call"
-	updateTypeToolCallUpdate    = "tool_call_update"
-	updateTypeToolCallCompleted = "tool_call_completed"
-	updateTypeUsageUpdate       = "usage_update"
+	updateTypeAgentThoughtChunk = acpclient.UpdateTypeAgentThoughtChunk
+	updateTypeAgentMessageChunk = acpclient.UpdateTypeAgentMessageChunk
+	updateTypeAgentThought      = acpclient.UpdateTypeAgentThought
+	updateTypeAgentMessage      = acpclient.UpdateTypeAgentMessage
+	updateTypeToolCall          = acpclient.UpdateTypeToolCall
+	updateTypeToolCallUpdate    = acpclient.UpdateTypeToolCallUpdate
+	updateTypeToolCallCompleted = acpclient.UpdateTypeToolCallCompleted
+	updateTypeUsageUpdate       = acpclient.UpdateTypeUsageUpdate
 )
 
 // Tool-call status values.
 const (
-	toolCallStatusCompleted = "completed"
+	toolCallStatusCompleted = acpclient.ToolCallStatusCompleted
 )
 
 type Scope struct {
