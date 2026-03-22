@@ -554,7 +554,9 @@ export function ThreadDetailPage() {
   const syntheticMessageIDRef = useRef(-1);
   const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const agentCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messageContainerRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isNearMessageListBottomRef = useRef(true);
   const pendingAgentChunkBuffersRef = useRef<
     Record<string, ThreadAgentChunkBuffer>
   >({});
@@ -664,8 +666,20 @@ export function ThreadDetailPage() {
       return new Date(rightTime).getTime() - new Date(leftTime).getTime();
     });
 
+  const handleMessageListScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      const element = event.currentTarget;
+      isNearMessageListBottomRef.current =
+        element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+    },
+    [],
+  );
+
   /* ── auto-scroll to bottom on new messages ── */
   useEffect(() => {
+    if (!isNearMessageListBottomRef.current) {
+      return;
+    }
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
@@ -693,6 +707,7 @@ export function ThreadDetailPage() {
     setSelectedFileRefs([]);
     setError(null);
     setLoading(true);
+    isNearMessageListBottomRef.current = true;
   }, [id]);
 
   useEffect(() => {
@@ -1930,6 +1945,9 @@ export function ThreadDetailPage() {
 
   return (
     <ThreadDetailShell
+      messageContainerRef={messageContainerRef}
+      messagesEndRef={messagesEndRef}
+      onMessageListScroll={handleMessageListScroll}
       header={
         <ThreadDetailHeader
           thread={thread}
@@ -1993,7 +2011,6 @@ export function ThreadDetailPage() {
           liveAgentOutputsByID={liveAgentOutputsByID}
           collapsedAgentActivityPanels={collapsedAgentActivityPanels}
           sending={sending}
-          messagesEndRef={messagesEndRef}
           renderMessageContent={renderMessageContent}
           onToggleAgentActivityPanel={toggleAgentActivityPanel}
           focusAgentProfile={focusAgentProfile}

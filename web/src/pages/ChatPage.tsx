@@ -103,7 +103,7 @@ export function ChatPage() {
   const [collapsedActivityGroups, setCollapsedActivityGroups] = useState<Record<string, boolean>>({});
   const [prLoading, setPrLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const messageContainerRef = useRef<HTMLDivElement>(null);
   const pendingChunkBuffersRef = useRef<Record<string, string>>({});
   const chunkFlushFrameRef = useRef<number | null>(null);
   const pendingRequestIdRef = useRef<string | null>(null);
@@ -579,7 +579,7 @@ export function ChatPage() {
   // After prepending entries, restore scroll position so the view doesn't jump
   useEffect(() => {
     if (!loadingMore) return;
-    const el = chatContainerRef.current;
+    const el = messageContainerRef.current;
     if (!el || prevScrollHeightRef.current === 0) return;
     // Wait for DOM to repaint with the new content
     requestAnimationFrame(() => {
@@ -1453,9 +1453,9 @@ export function ChatPage() {
           collapsedActivityGroups={collapsedActivityGroups}
           activeSession={activeSession}
           sessionRunning={sessionRunning ?? false}
-          chatContainerRef={chatContainerRef}
+          messageContainerRef={messageContainerRef}
           messagesEndRef={messagesEndRef}
-          onScroll={handleChatScroll}
+          onMessageListScroll={handleChatScroll}
           onCopyMessage={(id, content) => void handleCopyMessage(id, content)}
           onCreateWorkItem={handleCreateWorkItem}
           lastActivityText={lastActivityText}

@@ -1,4 +1,4 @@
-import type { RefObject, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
@@ -38,7 +38,6 @@ interface ThreadMessageListProps {
   liveAgentOutputsByID: Record<string, ThreadAgentLiveOutput>;
   collapsedAgentActivityPanels: Record<string, boolean>;
   sending: boolean;
-  messagesEndRef: RefObject<HTMLDivElement>;
   renderMessageContent: (msg: ThreadMessage) => ReactNode;
   onToggleAgentActivityPanel: (profileID: string) => void;
   focusAgentProfile: (profileID: string) => void;
@@ -344,7 +343,6 @@ export function ThreadMessageList({
   liveAgentOutputsByID,
   collapsedAgentActivityPanels,
   sending,
-  messagesEndRef,
   renderMessageContent,
   onToggleAgentActivityPanel,
   focusAgentProfile,
@@ -534,8 +532,6 @@ export function ThreadMessageList({
           <span>{t("threads.sending", "Sending")}...</span>
         </div>
       )}
-
-      <div ref={messagesEndRef} />
     </div>
   );
 }

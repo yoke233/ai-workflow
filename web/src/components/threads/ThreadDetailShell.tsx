@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
+import {
+  MessageListViewport,
+  type MessageListScrollProps,
+} from "@/components/messages/MessageListViewport";
 
-interface ThreadDetailShellProps {
+interface ThreadDetailShellProps extends MessageListScrollProps {
   header: ReactNode;
   errorBanner?: ReactNode;
   invitePickerDialog: ReactNode;
@@ -14,6 +18,9 @@ export function ThreadDetailShell({
   errorBanner,
   invitePickerDialog,
   messageList,
+  messageContainerRef,
+  messagesEndRef,
+  onMessageListScroll,
   composer,
   sidebar,
 }: ThreadDetailShellProps) {
@@ -24,7 +31,14 @@ export function ThreadDetailShell({
       {invitePickerDialog}
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex-1 overflow-y-auto px-5 py-4">{messageList}</div>
+          <MessageListViewport
+            messageContainerRef={messageContainerRef}
+            messagesEndRef={messagesEndRef}
+            onMessageListScroll={onMessageListScroll}
+            viewportClassName="px-5 py-4"
+          >
+            {messageList}
+          </MessageListViewport>
           {composer}
         </div>
         <div className="w-80 shrink-0 border-l">{sidebar}</div>

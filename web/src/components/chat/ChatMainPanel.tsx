@@ -1,6 +1,10 @@
 import type React from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
+import {
+  MessageListViewport,
+  type MessageListScrollProps,
+} from "@/components/messages/MessageListViewport";
 import type { DriverConfig, AgentProfile, Event as ApiEvent } from "@/types/apiV2";
 import type { LLMConfigItem } from "@/types/system";
 import { ChatEventsPanel } from "./ChatEventsPanel";
@@ -44,7 +48,7 @@ interface ChatMainPanelDraftSetupProps {
   onRemovePendingFile: (index: number) => void;
 }
 
-interface ChatMainPanelFeedProps {
+interface ChatMainPanelFeedProps extends MessageListScrollProps {
   chatFeedEntries: ChatFeedEntry[];
   hasMoreFeedEntries: boolean;
   loadingMore: boolean;
@@ -53,9 +57,6 @@ interface ChatMainPanelFeedProps {
   collapsedActivityGroups: Record<string, boolean>;
   activeSession: string | null;
   sessionRunning: boolean;
-  chatContainerRef: React.RefObject<HTMLDivElement>;
-  messagesEndRef: React.RefObject<HTMLDivElement>;
-  onScroll: React.UIEventHandler<HTMLDivElement>;
   lastActivityText: string;
   onCopyMessage: (id: string, content: string) => void;
   onCreateWorkItem: (id: string, content: string) => void;
@@ -106,9 +107,9 @@ export function ChatMainPanel({
   lastActivityText,
   activeSession,
   sessionRunning,
-  chatContainerRef,
+  messageContainerRef,
   messagesEndRef,
-  onScroll,
+  onMessageListScroll,
   onCopyMessage,
   onCreateWorkItem,
   onActivityGroupToggle,
@@ -116,12 +117,13 @@ export function ChatMainPanel({
   const { t } = useTranslation();
 
   return (
-    <div className="relative flex-1">
-      <div
-        ref={chatContainerRef}
-        className="absolute inset-0 overflow-y-auto px-5 py-4 pr-6 [scrollbar-gutter:stable]"
-        onScroll={onScroll}
-      >
+    <MessageListViewport
+      messageContainerRef={messageContainerRef}
+      messagesEndRef={messagesEndRef}
+      onMessageListScroll={onMessageListScroll}
+      viewportClassName="absolute inset-0 overflow-y-auto px-5 py-4 pr-6 [scrollbar-gutter:stable]"
+      overlay={<ChatScrollTrack containerRef={messageContainerRef} />}
+    >
         {detailView === "events" ? (
           <ChatEventsPanel events={currentEvents} />
         ) : isDraftSessionView ? (
@@ -188,9 +190,6 @@ export function ChatMainPanel({
             )}
           </div>
         )}
-        <div ref={messagesEndRef} />
-      </div>
-      <ChatScrollTrack containerRef={chatContainerRef} />
-    </div>
+    </MessageListViewport>
   );
 }
