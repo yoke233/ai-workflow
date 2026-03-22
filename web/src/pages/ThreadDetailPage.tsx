@@ -3,16 +3,13 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
-  Bot,
   Loader2,
-  MessageSquare,
-  Paperclip,
-  Send,
-  Users,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { ThreadComposerPanel, type ThreadComposerMentionCandidate } from "@/components/threads/ThreadComposerPanel";
+import { ThreadDetailHeader } from "@/components/threads/ThreadDetailHeader";
+import { ThreadDetailShell } from "@/components/threads/ThreadDetailShell";
 import { ThreadSidebar } from "@/components/threads/ThreadSidebar";
 import { ThreadMessageList } from "@/components/threads/ThreadMessageList";
 import { InvitePickerDialog } from "@/components/threads/InvitePickerDialog";
@@ -604,7 +601,7 @@ export function ThreadDetailPage() {
   const committedMentionSession = committedMentionTargetID
     ? agentSessionByProfileID.get(committedMentionTargetID)
     : undefined;
-  const mentionCandidates = (() => {
+  const mentionCandidates: ThreadComposerMentionCandidate[] = (() => {
     if (!mentionDraft) return [];
     const query = mentionDraft.query.trim().toLowerCase();
     const agents = activeAgentProfileIDs
@@ -1932,673 +1929,325 @@ export function ThreadDetailPage() {
   /* ── main layout ── */
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      {/* ── Header ── */}
-      <div className="flex h-14 shrink-0 items-center justify-between border-b px-5">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            onClick={() => navigate("/threads")}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-              <MessageSquare className="h-4 w-4" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="truncate text-sm font-semibold leading-tight">
-                {thread.title}
-              </h1>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <span
-                    className={cn(
-                      "h-1.5 w-1.5 rounded-full",
-                      thread.status === "active"
-                        ? "bg-emerald-500"
-                        : "bg-slate-400",
-                    )}
-                  />
-                  {thread.status}
-                </span>
-                {thread.owner_id && (
-                  <>
-                    <span className="text-border">|</span>
-                    <span>{thread.owner_id}</span>
-                  </>
-                )}
-                <span className="text-border">|</span>
-                <span>{formatRelativeTime(thread.updated_at)}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 rounded-lg border bg-muted/30 px-1 py-0.5 text-xs">
+    <ThreadDetailShell
+      header={
+        <ThreadDetailHeader
+          thread={thread}
+          participantsCount={participants.length}
+          agentSessionsCount={agentSessions.length}
+          agentRoutingMode={agentRoutingMode}
+          meetingMode={meetingMode}
+          savingRoutingMode={savingRoutingMode}
+          savingMeetingMode={savingMeetingMode}
+          formatRelativeTime={formatRelativeTime}
+          onBack={() => navigate("/threads")}
+          onSetRoutingMode={(mode) => {
+            void handleSetRoutingMode(mode);
+          }}
+          onSetMeetingMode={(mode) => {
+            void handleSetMeetingMode(mode);
+          }}
+        />
+      }
+      errorBanner={
+        error ? (
+          <div className="flex items-center justify-between border-b border-destructive/20 bg-destructive/5 px-5 py-2">
+            <span className="text-xs text-destructive">{error}</span>
             <button
               type="button"
-              className={cn(
-                "rounded-md px-2.5 py-1 transition-colors",
-                agentRoutingMode === "mention_only"
-                  ? "bg-background font-medium shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => void handleSetRoutingMode("mention_only")}
-              disabled={savingRoutingMode}
+              className="text-destructive/60 hover:text-destructive"
+              onClick={() => setError(null)}
             >
-              {t("threads.routingMentionOnly", "@ Only")}
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-2.5 py-1 transition-colors",
-                agentRoutingMode === "broadcast"
-                  ? "bg-background font-medium shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => void handleSetRoutingMode("broadcast")}
-              disabled={savingRoutingMode}
-            >
-              {t("threads.routingBroadcast", "Broadcast")}
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-2.5 py-1 transition-colors",
-                agentRoutingMode === "auto"
-                  ? "bg-background font-medium shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => void handleSetRoutingMode("auto")}
-              disabled={savingRoutingMode}
-            >
-              {t("threads.routingAuto", "Auto")}
+              <X className="h-3.5 w-3.5" />
             </button>
           </div>
-          <div className="flex items-center gap-1 rounded-lg border bg-muted/30 px-1 py-0.5 text-xs">
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-2.5 py-1 transition-colors",
-                meetingMode === "direct"
-                  ? "bg-background font-medium shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => void handleSetMeetingMode("direct")}
-              disabled={savingMeetingMode}
-            >
-              {t("threads.meetingDirect", "Direct")}
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-2.5 py-1 transition-colors",
-                meetingMode === "concurrent"
-                  ? "bg-background font-medium shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => void handleSetMeetingMode("concurrent")}
-              disabled={savingMeetingMode}
-            >
-              {t("threads.meetingConcurrent", "Concurrent")}
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-2.5 py-1 transition-colors",
-                meetingMode === "group_chat"
-                  ? "bg-background font-medium shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => void handleSetMeetingMode("group_chat")}
-              disabled={savingMeetingMode}
-            >
-              {t("threads.meetingGroupChat", "Group Chat")}
-            </button>
-          </div>
-          <Badge variant="secondary" className="gap-1 text-xs">
-            <Users className="h-3 w-3" />
-            {participants.length}
-          </Badge>
-          <Badge variant="secondary" className="gap-1 text-xs">
-            <Bot className="h-3 w-3" />
-            {agentSessions.length}
-          </Badge>
-        </div>
-      </div>
-
-      {/* ── Error banner ── */}
-      {error ? (
-        <div className="flex items-center justify-between border-b border-destructive/20 bg-destructive/5 px-5 py-2">
-          <span className="text-xs text-destructive">{error}</span>
-          <button
-            type="button"
-            className="text-destructive/60 hover:text-destructive"
-            onClick={() => setError(null)}
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      ) : null}
-
-      {/* ── Invite picker dialog ── */}
-      <InvitePickerDialog
-        candidates={invitePickerCandidates}
-        selectedIDs={invitePickerSelected}
-        busy={invitePickerBusy}
-        onToggle={(profileID) => {
-          setInvitePickerSelected((prev) => {
-            const next = new Set(prev);
-            if (next.has(profileID)) next.delete(profileID);
-            else next.add(profileID);
-            return next;
-          });
-        }}
-        onClose={() => {
-          setInvitePickerCandidates([]);
-          setInvitePickerSelected(new Set());
-        }}
-        onConfirm={handleInvitePickerConfirm}
-      />
-
-      {/* ── Main content: chat + sidebar ── */}
-      <div className="flex min-h-0 flex-1">
-        {/* ── Chat area ── */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          {/* ── Messages ── */}
-          <div className="flex-1 overflow-y-auto px-5 py-4">
-              <ThreadMessageList
-                messages={messages}
-                profileByID={profileByID}
-                thinkingAgentIDs={thinkingAgentIDs}
-                visibleAgentActivityIDs={visibleAgentActivityIDs}
-                agentActivitiesByID={agentActivitiesByID}
-                liveAgentOutputsByID={liveAgentOutputsByID}
-                collapsedAgentActivityPanels={collapsedAgentActivityPanels}
-                sending={sending}
-                messagesEndRef={messagesEndRef}
-                renderMessageContent={renderMessageContent}
-                onToggleAgentActivityPanel={toggleAgentActivityPanel}
-                focusAgentProfile={focusAgentProfile}
-                readTargetAgentID={readTargetAgentID}
-                readTargetAgentIDs={readTargetAgentIDs}
-                readAutoRoutedTo={readAutoRoutedTo}
-                readMetadataType={readMetadataType}
-                formatRelativeTime={formatRelativeTime}
-              />
-          </div>
-
-          {/* ── Input area ── */}
-          <div className="shrink-0 border-t bg-background px-5 py-3">
-            <div className="mx-auto max-w-3xl">
-              {/* Mention target indicator */}
-              {committedMentionTargetID ? (
-                <div className="mb-2 flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-1.5 text-xs">
-                  <Bot className="h-3.5 w-3.5 text-blue-500" />
-                  <span className="text-slate-600">
-                    {t("threads.mentionResolved", "Target agent")}:
-                  </span>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 font-semibold text-blue-800 shadow-sm transition-colors hover:bg-blue-100"
-                    onClick={() => focusAgentProfile(committedMentionTargetID)}
-                  >
-                    @{committedMentionTargetID}
-                  </button>
-                  <span className="text-slate-500">
-                    {committedMentionProfile?.name ?? committedMentionTargetID}
-                  </span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                    <span
-                      className={cn(
-                        "h-1.5 w-1.5 rounded-full",
-                        agentStatusColor(
-                          committedMentionSession?.status ?? "active",
-                        ),
-                      )}
-                    />
-                    {committedMentionSession?.status ?? "active"}
-                  </span>
-                </div>
-              ) : null}
-
-              {/* Input container */}
-              <div className="relative">
-                {/* Mention autocomplete popup */}
-                {/* # file mention popup */}
-                {hashDraft && fileCandidates.length > 0 ? (
-                  <div className="absolute bottom-full left-0 right-0 z-20 mb-2 overflow-hidden rounded-xl border bg-white dark:bg-zinc-900 shadow-lg">
-                    <div className="border-b px-3 py-1.5">
-                      <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        Select file
-                      </span>
-                    </div>
-                    <div className="max-h-48 overflow-y-auto py-1">
-                      {fileCandidates.map((file, index) => (
-                        <button
-                          key={file.path}
-                          type="button"
-                          className={cn(
-                            "flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors",
-                            index === selectedHashIndex
-                              ? "bg-blue-100 dark:bg-blue-900/40"
-                              : "hover:bg-accent/50",
-                          )}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            applyHashCandidate(file);
-                          }}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            <span className="font-medium truncate">
-                              {file.name}
-                            </span>
-                          </div>
-                          <span className="ml-2 shrink-0 text-xs text-muted-foreground">
-                            {file.source}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* @ agent mention popup */}
-                {mentionDraft && mentionCandidates.length > 0 ? (
-                  <div className="absolute bottom-full left-0 right-0 z-20 mb-2 overflow-hidden rounded-xl border bg-white dark:bg-zinc-900 shadow-lg">
-                    <div className="border-b px-3 py-1.5">
-                      <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        {t("threads.mentionCandidates", "Select agent")}
-                      </span>
-                    </div>
-                    <div className="py-1">
-                      {mentionCandidates.map((candidate, index) => (
-                        <button
-                          key={candidate.id}
-                          type="button"
-                          className={cn(
-                            "flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors",
-                            index === selectedMentionIndex
-                              ? "bg-blue-100 dark:bg-blue-900/40"
-                              : "hover:bg-accent/50",
-                          )}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            applyMentionCandidate(candidate.id);
-                          }}
-                        >
-                          <div className="flex items-center gap-2">
-                            <div
-                              className={cn(
-                                "flex h-6 w-6 items-center justify-center rounded-full",
-                                candidate.id === "all"
-                                  ? "bg-blue-100 text-blue-700"
-                                  : "bg-emerald-100 text-emerald-700",
-                              )}
-                            >
-                              {candidate.id === "all" ? (
-                                <Users className="h-3 w-3" />
-                              ) : (
-                                <Bot className="h-3 w-3" />
-                              )}
-                            </div>
-                            <span className="font-medium">@{candidate.id}</span>
-                            {candidate.id === "all" && (
-                              <span className="text-xs text-muted-foreground">
-                                广播给所有 agent
-                              </span>
-                            )}
-                          </div>
-                          {candidate.id !== "all" && (
-                            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                              <span
-                                className={cn(
-                                  "h-1.5 w-1.5 rounded-full",
-                                  agentStatusColor(candidate.status),
-                                )}
-                              />
-                              {candidate.status}
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="flex flex-wrap items-center gap-1.5 rounded-xl border bg-muted/30 px-3 py-2 transition-colors focus-within:border-blue-300 focus-within:bg-background focus-within:ring-2 focus-within:ring-blue-100">
-                  {selectedDiscussionAgents.map((profileID) => {
-                    const profile = profileByID.get(profileID);
-                    return (
-                      <span
-                        key={profileID}
-                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700"
-                      >
-                        <Bot className="h-3 w-3" />
-                        {profile?.name ?? profileID}
-                        <button
-                          type="button"
-                          className="ml-0.5 rounded-sm hover:bg-emerald-200"
-                          onClick={() =>
-                            toggleDiscussionAgentSelection(profileID)
-                          }
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    );
-                  })}
-                  {selectedFileRefs.map((ref) => (
-                    <span
-                      key={ref.path}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 text-xs text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700"
-                    >
-                      <Paperclip className="h-3 w-3" />
-                      {ref.name}
-                      <button
-                        type="button"
-                        className="ml-0.5 rounded-sm hover:bg-blue-200 dark:hover:bg-blue-800"
-                        onClick={() => removeFileRef(ref.path)}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))}
-                  <textarea
-                    ref={messageInputRef}
-                    rows={2}
-                    placeholder={
-                      thread.status !== "active"
-                        ? t("threads.threadClosed", "Thread is closed")
-                        : selectedDiscussionAgents.length > 0
-                          ? t(
-                              "threads.messagePlaceholderSelectedAgents",
-                              "Type a message (will send to selected agents)...",
-                            )
-                        : meetingMode === "concurrent"
-                          ? t(
-                              "threads.messagePlaceholderConcurrent",
-                              "Type a message (concurrent meeting with routed agents)...",
-                            )
-                          : meetingMode === "group_chat"
-                            ? t(
-                                "threads.messagePlaceholderGroupChat",
-                                "Type a message (round-robin discussion with routed agents)...",
-                              )
-                            : agentRoutingMode === "auto"
-                              ? t(
-                                  "threads.messagePlaceholderAuto",
-                                  "Type a message (auto-routed to the best-fit agent)...",
-                                )
-                              : agentRoutingMode === "broadcast"
-                                ? t(
-                                    "threads.messagePlaceholderBroadcast",
-                                    "Type a message (broadcasts to all agents)...",
-                                  )
-                                : t(
-                                    "threads.messagePlaceholder",
-                                    "Type @ to mention an agent, # to reference a file...",
-                                  )
-                    }
-                    className="flex-1 resize-none border-0 bg-transparent p-0 text-sm shadow-none outline-none focus:ring-0"
-                    value={newMessage}
-                    onChange={(e) =>
-                      handleMessageInputChange(
-                        e.target.value,
-                        e.target.selectionStart,
-                      )
-                    }
-                    onClick={(e) =>
-                      updateMentionDraft(
-                        e.currentTarget.value,
-                        e.currentTarget.selectionStart,
-                      )
-                    }
-                    onKeyUp={(e) => {
-                      if (
-                        e.key === "ArrowDown" ||
-                        e.key === "ArrowUp" ||
-                        e.key === "Tab"
-                      )
-                        return;
-                      updateMentionDraft(
-                        e.currentTarget.value,
-                        e.currentTarget.selectionStart,
-                      );
-                    }}
-                    onBlur={() => {
-                      window.setTimeout(() => {
-                        setMentionDraft(null);
-                        setHashDraft(null);
-                        setFileCandidates([]);
-                      }, 120);
-                    }}
-                    onKeyDown={(e) => {
-                      if (hashDraft && fileCandidates.length > 0) {
-                        if (e.key === "ArrowDown") {
-                          e.preventDefault();
-                          setSelectedHashIndex(
-                            (prev) => (prev + 1) % fileCandidates.length,
-                          );
-                          return;
-                        }
-                        if (e.key === "ArrowUp") {
-                          e.preventDefault();
-                          setSelectedHashIndex(
-                            (prev) =>
-                              (prev - 1 + fileCandidates.length) %
-                              fileCandidates.length,
-                          );
-                          return;
-                        }
-                        if (e.key === "Enter" || e.key === "Tab") {
-                          e.preventDefault();
-                          const selected = fileCandidates[selectedHashIndex];
-                          if (selected) applyHashCandidate(selected);
-                          return;
-                        }
-                        if (e.key === "Escape") {
-                          setHashDraft(null);
-                          setFileCandidates([]);
-                          return;
-                        }
-                      }
-                      if (mentionDraft && mentionCandidates.length > 0) {
-                        if (e.key === "ArrowDown") {
-                          e.preventDefault();
-                          setSelectedMentionIndex(
-                            (prev) => (prev + 1) % mentionCandidates.length,
-                          );
-                          return;
-                        }
-                        if (e.key === "ArrowUp") {
-                          e.preventDefault();
-                          setSelectedMentionIndex(
-                            (prev) =>
-                              (prev - 1 + mentionCandidates.length) %
-                              mentionCandidates.length,
-                          );
-                          return;
-                        }
-                        if (e.key === "Enter" || e.key === "Tab") {
-                          e.preventDefault();
-                          if (selectedMentionCandidate) {
-                            applyMentionCandidate(selectedMentionCandidate.id);
-                          }
-                          return;
-                        }
-                        if (e.key === "Escape") {
-                          setMentionDraft(null);
-                          return;
-                        }
-                      }
-                      if (
-                        e.key === "Backspace" &&
-                        selectedFileRefs.length > 0
-                      ) {
-                        const input = e.currentTarget;
-                        if (
-                          input.selectionStart === 0 &&
-                          input.selectionEnd === 0
-                        ) {
-                          e.preventDefault();
-                          setSelectedFileRefs((prev) => prev.slice(0, -1));
-                          return;
-                        }
-                      }
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        void handleSend();
-                      }
-                    }}
-                    onPaste={(e) => {
-                      const items = Array.from(e.clipboardData.items);
-                      const files = items
-                        .filter((item) => item.kind === "file")
-                        .map((item) => item.getAsFile())
-                        .filter((f): f is File => f !== null);
-                      if (files.length > 0) {
-                        e.preventDefault();
-                        files.forEach((f) => void handleUploadAttachment(f));
-                      }
-                    }}
-                    disabled={sending || thread.status !== "active"}
-                  />
-                  <input
-                    type="file"
-                    className="hidden"
-                    id="chat-file-upload"
-                    multiple
-                    onChange={(e) => {
-                      Array.from(e.target.files ?? []).forEach(
-                        (f) => void handleUploadAttachment(f),
-                      );
-                      e.target.value = "";
-                    }}
-                  />
-                  <label
-                    htmlFor="chat-file-upload"
-                    className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                    title={t("threads.uploadFile", "Upload file")}
-                  >
-                    <Paperclip className="h-4 w-4" />
-                  </label>
-                  <Button
-                    size="icon"
-                    className="h-8 w-8 shrink-0 rounded-lg"
-                    onClick={handleSend}
-                    disabled={
-                      !newMessage.trim() ||
-                      sending ||
-                      thread.status !== "active"
-                    }
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Sidebar ── */}
-        <div className="w-80 shrink-0 border-l">
-          <ThreadSidebar
-            thread={thread}
-            messagesCount={messages.length}
-            inviteableProfiles={inviteableProfiles}
-            selectedInviteIDs={selectedInviteIDs}
-            invitingAgent={invitingAgent}
-            onToggleInviteSelection={toggleInviteSelection}
-            onInviteAgent={() => {
-              void handleInviteAgent();
-            }}
-            onClearInviteSelection={() => setSelectedInviteIDs(new Set())}
-            agentSessionsWithProfileID={agentSessionsWithProfileID}
-            selectedDiscussionAgentIDs={selectedDiscussionAgentIDs}
-            profileByID={profileByID}
-            highlightedAgentProfileID={highlightedAgentProfileID}
-            agentCardRefs={agentCardRefs}
-            removingAgentID={removingAgentID}
-            onRemoveAgent={(id) => {
-              void handleRemoveAgent(id);
-            }}
-            onToggleDiscussionAgentSelection={toggleDiscussionAgentSelection}
-            onStartDiscussionWithAgents={startDiscussionWithSelectedAgents}
-            onClearDiscussionAgents={() =>
-              setSelectedDiscussionAgentIDs(new Set())
+        ) : null
+      }
+      invitePickerDialog={
+        <InvitePickerDialog
+          candidates={invitePickerCandidates}
+          selectedIDs={invitePickerSelected}
+          busy={invitePickerBusy}
+          onToggle={(profileID) => {
+            setInvitePickerSelected((prev) => {
+              const next = new Set(prev);
+              if (next.has(profileID)) next.delete(profileID);
+              else next.add(profileID);
+              return next;
+            });
+          }}
+          onClose={() => {
+            setInvitePickerCandidates([]);
+            setInvitePickerSelected(new Set());
+          }}
+          onConfirm={handleInvitePickerConfirm}
+        />
+      }
+      messageList={
+        <ThreadMessageList
+          messages={messages}
+          profileByID={profileByID}
+          thinkingAgentIDs={thinkingAgentIDs}
+          visibleAgentActivityIDs={visibleAgentActivityIDs}
+          agentActivitiesByID={agentActivitiesByID}
+          liveAgentOutputsByID={liveAgentOutputsByID}
+          collapsedAgentActivityPanels={collapsedAgentActivityPanels}
+          sending={sending}
+          messagesEndRef={messagesEndRef}
+          renderMessageContent={renderMessageContent}
+          onToggleAgentActivityPanel={toggleAgentActivityPanel}
+          focusAgentProfile={focusAgentProfile}
+          readTargetAgentID={readTargetAgentID}
+          readTargetAgentIDs={readTargetAgentIDs}
+          readAutoRoutedTo={readAutoRoutedTo}
+          readMetadataType={readMetadataType}
+          formatRelativeTime={formatRelativeTime}
+        />
+      }
+      composer={
+        <ThreadComposerPanel
+          threadStatus={thread.status}
+          agentRoutingMode={agentRoutingMode}
+          meetingMode={meetingMode}
+          sending={sending}
+          newMessage={newMessage}
+          messageInputRef={messageInputRef}
+          selectedDiscussionAgents={selectedDiscussionAgents}
+          profileByID={profileByID}
+          selectedFileRefs={selectedFileRefs}
+          committedMentionTargetID={committedMentionTargetID}
+          committedMentionProfile={committedMentionProfile}
+          committedMentionSession={committedMentionSession}
+          agentStatusColor={agentStatusColor}
+          hashDraftActive={Boolean(hashDraft)}
+          fileCandidates={fileCandidates}
+          selectedHashIndex={selectedHashIndex}
+          mentionDraftActive={Boolean(mentionDraft)}
+          mentionCandidates={mentionCandidates}
+          selectedMentionIndex={selectedMentionIndex}
+          onFocusAgentProfile={focusAgentProfile}
+          onRemoveSelectedDiscussionAgent={toggleDiscussionAgentSelection}
+          onRemoveFileRef={removeFileRef}
+          onChooseHashCandidate={applyHashCandidate}
+          onChooseMentionCandidate={applyMentionCandidate}
+          onInputChange={(event) =>
+            handleMessageInputChange(
+              event.target.value,
+              event.target.selectionStart,
+            )
+          }
+          onInputClick={(event) =>
+            updateMentionDraft(
+              event.currentTarget.value,
+              event.currentTarget.selectionStart,
+            )
+          }
+          onInputKeyUp={(event) => {
+            if (
+              event.key === "ArrowDown" ||
+              event.key === "ArrowUp" ||
+              event.key === "Tab"
+            ) {
+              return;
             }
-            canStartDiscussionWithAgent={canStartDiscussionWithAgent}
-            agentStatusColor={agentStatusColor}
-            participants={participants}
-            proposals={orderedProposals}
-            proposalsLoading={proposalsLoading}
-            showProposalEditor={showProposalEditor}
-            proposalEditor={proposalEditor}
-            savingProposal={savingProposal}
-            proposalActionLoadingID={proposalActionLoadingID}
-            proposalReviewInputs={proposalReviewInputs}
-            onOpenCreateProposal={handleOpenCreateProposal}
-            onOpenEditProposal={handleOpenEditProposal}
-            onShowProposalEditorChange={(open) => {
-              setShowProposalEditor(open);
-              if (!open) {
-                setProposalEditor(createProposalEditorState(thread.owner_id));
+            updateMentionDraft(
+              event.currentTarget.value,
+              event.currentTarget.selectionStart,
+            );
+          }}
+          onInputBlur={() => {
+            window.setTimeout(() => {
+              setMentionDraft(null);
+              setHashDraft(null);
+              setFileCandidates([]);
+            }, 120);
+          }}
+          onInputKeyDown={(event) => {
+            if (hashDraft && fileCandidates.length > 0) {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setSelectedHashIndex(
+                  (prev) => (prev + 1) % fileCandidates.length,
+                );
+                return;
               }
-            }}
-            onProposalEditorFieldChange={handleProposalEditorFieldChange}
-            onProposalDraftChange={handleProposalDraftChange}
-            onAddProposalDraft={handleAddProposalDraft}
-            onRemoveProposalDraft={handleRemoveProposalDraft}
-            onSaveProposal={handleSaveProposal}
-            onProposalReviewInputChange={handleProposalReviewInputChange}
-            onSubmitProposal={(proposalId) => {
-              void runProposalAction(proposalId, "submit");
-            }}
-            onApproveProposal={(proposalId) => {
-              void runProposalAction(proposalId, "approve");
-            }}
-            onRejectProposal={(proposalId) => {
-              void runProposalAction(proposalId, "reject");
-            }}
-            onReviseProposal={(proposalId) => {
-              void runProposalAction(proposalId, "revise");
-            }}
-            workItemLinks={workItemLinks}
-            orderedWorkItemLinks={orderedWorkItemLinks}
-            linkedWorkItems={linkedWorkItems}
-            showCreateWI={showCreateWI}
-            newWITitle={newWITitle}
-            newWIBody={newWIBody}
-            showLinkWI={showLinkWI}
-            linkWIId={linkWIId}
-            onOpenCreateWorkItem={handleOpenCreateWorkItem}
-            onShowCreateWIChange={setShowCreateWI}
-            onNewWITitleChange={setNewWITitle}
-            onNewWIBodyChange={setNewWIBody}
-            onCreateWorkItem={handleCreateWorkItem}
-            onShowLinkWIChange={setShowLinkWI}
-            onLinkWIIdChange={setLinkWIId}
-            onLinkWorkItem={handleLinkWorkItem}
-            onResetCreateWorkItemDraft={() => {
-              setNewWITitle("");
-              setNewWIBody("");
-            }}
-            attachments={attachments}
-            attachmentsLoading={attachmentsLoading}
-            onUploadAttachment={(file) => {
-              void handleUploadAttachment(file);
-            }}
-            onDeleteAttachment={(attId) => {
-              void handleDeleteAttachment(attId);
-            }}
-            getAttachmentDownloadUrl={apiClient.getThreadAttachmentDownloadUrl}
-          />
-        </div>
-      </div>
-    </div>
+              if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setSelectedHashIndex(
+                  (prev) =>
+                    (prev - 1 + fileCandidates.length) % fileCandidates.length,
+                );
+                return;
+              }
+              if (event.key === "Enter" || event.key === "Tab") {
+                event.preventDefault();
+                const selected = fileCandidates[selectedHashIndex];
+                if (selected) applyHashCandidate(selected);
+                return;
+              }
+              if (event.key === "Escape") {
+                setHashDraft(null);
+                setFileCandidates([]);
+                return;
+              }
+            }
+            if (mentionDraft && mentionCandidates.length > 0) {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setSelectedMentionIndex(
+                  (prev) => (prev + 1) % mentionCandidates.length,
+                );
+                return;
+              }
+              if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setSelectedMentionIndex(
+                  (prev) =>
+                    (prev - 1 + mentionCandidates.length) %
+                    mentionCandidates.length,
+                );
+                return;
+              }
+              if (event.key === "Enter" || event.key === "Tab") {
+                event.preventDefault();
+                if (selectedMentionCandidate) {
+                  applyMentionCandidate(selectedMentionCandidate.id);
+                }
+                return;
+              }
+              if (event.key === "Escape") {
+                setMentionDraft(null);
+                return;
+              }
+            }
+            if (event.key === "Backspace" && selectedFileRefs.length > 0) {
+              const input = event.currentTarget;
+              if (input.selectionStart === 0 && input.selectionEnd === 0) {
+                event.preventDefault();
+                setSelectedFileRefs((prev) => prev.slice(0, -1));
+                return;
+              }
+            }
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void handleSend();
+            }
+          }}
+          onInputPaste={(event) => {
+            const items = Array.from(event.clipboardData.items);
+            const files = items
+              .filter((item) => item.kind === "file")
+              .map((item) => item.getAsFile())
+              .filter((file): file is File => file !== null);
+            if (files.length > 0) {
+              event.preventDefault();
+              files.forEach((file) => void handleUploadAttachment(file));
+            }
+          }}
+          onUploadInputChange={(event) => {
+            Array.from(event.target.files ?? []).forEach(
+              (file) => void handleUploadAttachment(file),
+            );
+            event.target.value = "";
+          }}
+          onSend={() => {
+            void handleSend();
+          }}
+        />
+      }
+      sidebar={
+        <ThreadSidebar
+          thread={thread}
+          messagesCount={messages.length}
+          inviteableProfiles={inviteableProfiles}
+          selectedInviteIDs={selectedInviteIDs}
+          invitingAgent={invitingAgent}
+          onToggleInviteSelection={toggleInviteSelection}
+          onInviteAgent={() => {
+            void handleInviteAgent();
+          }}
+          onClearInviteSelection={() => setSelectedInviteIDs(new Set())}
+          agentSessionsWithProfileID={agentSessionsWithProfileID}
+          selectedDiscussionAgentIDs={selectedDiscussionAgentIDs}
+          profileByID={profileByID}
+          highlightedAgentProfileID={highlightedAgentProfileID}
+          agentCardRefs={agentCardRefs}
+          removingAgentID={removingAgentID}
+          onRemoveAgent={(id) => {
+            void handleRemoveAgent(id);
+          }}
+          onToggleDiscussionAgentSelection={toggleDiscussionAgentSelection}
+          onStartDiscussionWithAgents={startDiscussionWithSelectedAgents}
+          onClearDiscussionAgents={() =>
+            setSelectedDiscussionAgentIDs(new Set())
+          }
+          canStartDiscussionWithAgent={canStartDiscussionWithAgent}
+          agentStatusColor={agentStatusColor}
+          participants={participants}
+          proposals={orderedProposals}
+          proposalsLoading={proposalsLoading}
+          showProposalEditor={showProposalEditor}
+          proposalEditor={proposalEditor}
+          savingProposal={savingProposal}
+          proposalActionLoadingID={proposalActionLoadingID}
+          proposalReviewInputs={proposalReviewInputs}
+          onOpenCreateProposal={handleOpenCreateProposal}
+          onOpenEditProposal={handleOpenEditProposal}
+          onShowProposalEditorChange={(open) => {
+            setShowProposalEditor(open);
+            if (!open) {
+              setProposalEditor(createProposalEditorState(thread.owner_id));
+            }
+          }}
+          onProposalEditorFieldChange={handleProposalEditorFieldChange}
+          onProposalDraftChange={handleProposalDraftChange}
+          onAddProposalDraft={handleAddProposalDraft}
+          onRemoveProposalDraft={handleRemoveProposalDraft}
+          onSaveProposal={handleSaveProposal}
+          onProposalReviewInputChange={handleProposalReviewInputChange}
+          onSubmitProposal={(proposalId) => {
+            void runProposalAction(proposalId, "submit");
+          }}
+          onApproveProposal={(proposalId) => {
+            void runProposalAction(proposalId, "approve");
+          }}
+          onRejectProposal={(proposalId) => {
+            void runProposalAction(proposalId, "reject");
+          }}
+          onReviseProposal={(proposalId) => {
+            void runProposalAction(proposalId, "revise");
+          }}
+          workItemLinks={workItemLinks}
+          orderedWorkItemLinks={orderedWorkItemLinks}
+          linkedWorkItems={linkedWorkItems}
+          showCreateWI={showCreateWI}
+          newWITitle={newWITitle}
+          newWIBody={newWIBody}
+          showLinkWI={showLinkWI}
+          linkWIId={linkWIId}
+          onOpenCreateWorkItem={handleOpenCreateWorkItem}
+          onShowCreateWIChange={setShowCreateWI}
+          onNewWITitleChange={setNewWITitle}
+          onNewWIBodyChange={setNewWIBody}
+          onCreateWorkItem={handleCreateWorkItem}
+          onShowLinkWIChange={setShowLinkWI}
+          onLinkWIIdChange={setLinkWIId}
+          onLinkWorkItem={handleLinkWorkItem}
+          onResetCreateWorkItemDraft={() => {
+            setNewWITitle("");
+            setNewWIBody("");
+          }}
+          attachments={attachments}
+          attachmentsLoading={attachmentsLoading}
+          onUploadAttachment={(file) => {
+            void handleUploadAttachment(file);
+          }}
+          onDeleteAttachment={(attId) => {
+            void handleDeleteAttachment(attId);
+          }}
+          getAttachmentDownloadUrl={apiClient.getThreadAttachmentDownloadUrl}
+        />
+      }
+    />
   );
 }

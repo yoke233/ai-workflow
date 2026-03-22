@@ -4,3 +4,9 @@
 [2026-03-22T13:31:36.3407532+08:00] [SESSION-1] Starting [task-001] 校准前端重构基线并冻结拆分蓝图 (base=0d96478)
 [2026-03-22T13:31:57.5397098+08:00] [SESSION-1] CHECKPOINT [task-001] step=1/2 "已确认大文件基线与消息链路"
 [2026-03-22T13:31:57.5397098+08:00] [SESSION-1] CHECKPOINT [task-001] step=2/2 "已落盘 harness backlog 与阶段计划文档"
+[2026-03-22T13:32:43.0328484+08:00] [SESSION-1] Completed [task-001] (commit pending)
+[2026-03-22T13:32:43.0328484+08:00] [SESSION-1] STATS tasks_total=9 completed=1 failed=0 pending=8 blocked=0 attempts_total=0 checkpoints=2
+[2026-03-22T13:35:09.4192073+08:00] [SESSION-1] Starting [task-002] 拆分 ThreadDetailPage 展示层与页面壳 (base=d0c777b)
+[2026-03-22T13:43:50.5765586+08:00] [SESSION-1] RECOVERY [task-002] action="commit uncommitted changes and mark completed" reason="validation passed with uncommitted changes present"
+[2026-03-22T13:43:50.5765586+08:00] [SESSION-1] CHECKPOINT [task-002] step=1/2 "已抽离 ThreadDetailPage 壳层展示组件"
+[2026-03-22T13:43:50.5765586+08:00] [SESSION-1] CHECKPOINT [task-002] step=2/2 "已通过单测与构建验证"

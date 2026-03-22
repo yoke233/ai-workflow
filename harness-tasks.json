@@ -43,14 +43,14 @@
     {
       "id": "task-002",
       "title": "拆分 ThreadDetailPage 展示层与页面壳",
-      "status": "pending",
+      "status": "in_progress",
       "priority": "P0",
       "depends_on": [
         "task-001"
       ],
       "attempts": 0,
       "max_attempts": 3,
-      "started_at_commit": null,
+      "started_at_commit": "d0c777b",
       "validation": {
         "command": "pwsh -NoProfile -Command \"& '.\\\\scripts\\\\test\\\\frontend-unit.ps1'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & '.\\\\scripts\\\\test\\\\frontend-build.ps1'; exit $LASTEXITCODE\"",
         "timeout_seconds": 1200
@@ -59,7 +59,20 @@
         "cleanup": null
       },
       "error_log": [],
-      "checkpoints": [],
+      "checkpoints": [
+        {
+          "step": 1,
+          "total": 2,
+          "description": "已抽离 ThreadDetailHeader、ThreadComposerPanel、ThreadDetailShell，页面 return 收敛为壳层编排",
+          "timestamp": "2026-03-22T13:43:50.5765586+08:00"
+        },
+        {
+          "step": 2,
+          "total": 2,
+          "description": "已通过 frontend-unit 与 frontend-build 验证，恢复协议判定可直接提交完成",
+          "timestamp": "2026-03-22T13:43:50.5765586+08:00"
+        }
+      ],
       "completed_at": null
     },
     {
