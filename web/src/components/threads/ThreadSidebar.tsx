@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { createContext, useContext, useRef, useState } from "react";
 import type { MutableRefObject, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
@@ -200,6 +200,16 @@ export interface ThreadSidebarProps {
   getAttachmentDownloadUrl: (threadId: number, attachmentId: number) => string;
 }
 
+const ThreadSidebarContext = createContext<ThreadSidebarProps | null>(null);
+
+function useThreadSidebarContext(): ThreadSidebarProps {
+  const context = useContext(ThreadSidebarContext);
+  if (!context) {
+    throw new Error("ThreadSidebarContext is missing");
+  }
+  return context;
+}
+
 /* ── Main component ── */
 
 export function ThreadSidebar(props: ThreadSidebarProps) {
@@ -232,113 +242,122 @@ export function ThreadSidebar(props: ThreadSidebarProps) {
   const taskCount = props.workItemLinks.length;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto">
-        {/* ── Members ── */}
-        <SidebarSection
-          id="members"
-          icon={Users}
-          label={t("threads.members", "Members")}
-          count={memberCount}
-          openSections={openSections}
-          onToggle={toggle}
-        >
-          <MembersSection {...props} showInvitePicker={showInvitePicker} setShowInvitePicker={setShowInvitePicker} onInvite={handleInvite} onCancelInvite={handleCancelInvite} />
-        </SidebarSection>
+    <ThreadSidebarContext.Provider value={props}>
+      <div className="flex h-full flex-col">
+        <div className="flex-1 overflow-y-auto">
+          {/* ── Members ── */}
+          <SidebarSection
+            id="members"
+            icon={Users}
+            label={t("threads.members", "Members")}
+            count={memberCount}
+            openSections={openSections}
+            onToggle={toggle}
+          >
+            <MembersSection
+              showInvitePicker={showInvitePicker}
+              setShowInvitePicker={setShowInvitePicker}
+              onInvite={handleInvite}
+              onCancelInvite={handleCancelInvite}
+            />
+          </SidebarSection>
 
-        {/* ── Tasks ── */}
-        <SidebarSection
-          id="proposals"
-          icon={FileText}
-          label={t("threads.proposals", "Proposals")}
-          count={props.proposals.length}
-          badge={
-            props.proposalsLoading ? (
-              <Loader2 className="h-3 w-3 animate-spin text-slate-400" />
-            ) : undefined
-          }
-          openSections={openSections}
-          onToggle={toggle}
-        >
-          <ProposalSection {...props} />
-        </SidebarSection>
+          {/* ── Tasks ── */}
+          <SidebarSection
+            id="proposals"
+            icon={FileText}
+            label={t("threads.proposals", "Proposals")}
+            count={props.proposals.length}
+            badge={
+              props.proposalsLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin text-slate-400" />
+              ) : undefined
+            }
+            openSections={openSections}
+            onToggle={toggle}
+          >
+            <ProposalSection />
+          </SidebarSection>
 
-        <SidebarSection
-          id="tasks"
-          icon={ClipboardList}
-          label={t("threads.tasks", "Tasks")}
-          count={taskCount}
-          openSections={openSections}
-          onToggle={toggle}
-        >
-          <TasksSection {...props} />
-        </SidebarSection>
+          <SidebarSection
+            id="tasks"
+            icon={ClipboardList}
+            label={t("threads.tasks", "Tasks")}
+            count={taskCount}
+            openSections={openSections}
+            onToggle={toggle}
+          >
+            <TasksSection />
+          </SidebarSection>
 
-        {/* ── Files ── */}
-        <SidebarSection
-          id="files"
-          icon={Paperclip}
-          label={t("threads.files", "Files")}
-          count={props.attachments.length}
-          openSections={openSections}
-          onToggle={toggle}
-        >
-          <FilesSection
-            threadId={props.thread.id}
-            attachments={props.attachments}
-            loading={props.attachmentsLoading}
-            onUpload={props.onUploadAttachment}
-            onDelete={props.onDeleteAttachment}
-            getDownloadUrl={props.getAttachmentDownloadUrl}
-          />
-        </SidebarSection>
+          {/* ── Files ── */}
+          <SidebarSection
+            id="files"
+            icon={Paperclip}
+            label={t("threads.files", "Files")}
+            count={props.attachments.length}
+            openSections={openSections}
+            onToggle={toggle}
+          >
+            <FilesSection
+              threadId={props.thread.id}
+              attachments={props.attachments}
+              loading={props.attachmentsLoading}
+              onUpload={props.onUploadAttachment}
+              onDelete={props.onDeleteAttachment}
+              getDownloadUrl={props.getAttachmentDownloadUrl}
+            />
+          </SidebarSection>
 
-        {/* ── Info ── */}
-        <SidebarSection
-          id="info"
-          icon={Info}
-          label={t("threads.info", "Info")}
-          openSections={openSections}
-          onToggle={toggle}
-        >
-          <InfoSection thread={props.thread} messagesCount={props.messagesCount} />
-        </SidebarSection>
+          {/* ── Info ── */}
+          <SidebarSection
+            id="info"
+            icon={Info}
+            label={t("threads.info", "Info")}
+            openSections={openSections}
+            onToggle={toggle}
+          >
+            <InfoSection thread={props.thread} messagesCount={props.messagesCount} />
+          </SidebarSection>
+        </div>
       </div>
-    </div>
+    </ThreadSidebarContext.Provider>
   );
 }
 
 /* ── Members section ── */
 
 function MembersSection({
-  agentSessionsWithProfileID,
-  selectedDiscussionAgentIDs,
-  profileByID,
-  highlightedAgentProfileID,
-  agentCardRefs,
-  removingAgentID,
-  onRemoveAgent,
-  onToggleDiscussionAgentSelection,
-  onStartDiscussionWithAgents,
-  onClearDiscussionAgents,
-  canStartDiscussionWithAgent,
-  agentStatusColor,
-  participants,
-  inviteableProfiles,
-  selectedInviteIDs,
-  invitingAgent,
-  onToggleInviteSelection,
   showInvitePicker,
   setShowInvitePicker,
   onInvite,
   onCancelInvite,
-}: ThreadSidebarProps & {
+}: {
   showInvitePicker: boolean;
   setShowInvitePicker: (v: boolean) => void;
   onInvite: () => void;
   onCancelInvite: () => void;
 }) {
   const { t } = useTranslation();
+  const {
+    agentSessionsWithProfileID,
+    selectedDiscussionAgentIDs,
+    profileByID,
+    highlightedAgentProfileID,
+    agentCardRefs,
+    removingAgentID,
+    onRemoveAgent,
+    onToggleDiscussionAgentSelection,
+    onStartDiscussionWithAgents,
+    onClearDiscussionAgents,
+    canStartDiscussionWithAgent,
+    agentStatusColor,
+    participants,
+    inviteableProfiles,
+    selectedInviteIDs,
+    invitingAgent,
+    onToggleInviteSelection,
+  } = useThreadSidebarContext();
 
   return (
     <div className="space-y-3">
@@ -594,28 +613,30 @@ function proposalStatusTone(status: string): string {
 }
 
 function ProposalSection({
-  proposals,
-  proposalsLoading,
-  showProposalEditor,
-  proposalEditor,
-  savingProposal,
-  proposalActionLoadingID,
-  proposalReviewInputs,
-  onOpenCreateProposal,
-  onOpenEditProposal,
-  onShowProposalEditorChange,
-  onProposalEditorFieldChange,
-  onProposalDraftChange,
-  onAddProposalDraft,
-  onRemoveProposalDraft,
-  onSaveProposal,
-  onProposalReviewInputChange,
-  onSubmitProposal,
-  onApproveProposal,
-  onRejectProposal,
-  onReviseProposal,
-}: ThreadSidebarProps) {
+}: {}) {
   const { t } = useTranslation();
+  const {
+    proposals,
+    proposalsLoading,
+    showProposalEditor,
+    proposalEditor,
+    savingProposal,
+    proposalActionLoadingID,
+    proposalReviewInputs,
+    onOpenCreateProposal,
+    onOpenEditProposal,
+    onShowProposalEditorChange,
+    onProposalEditorFieldChange,
+    onProposalDraftChange,
+    onAddProposalDraft,
+    onRemoveProposalDraft,
+    onSaveProposal,
+    onProposalReviewInputChange,
+    onSubmitProposal,
+    onApproveProposal,
+    onRejectProposal,
+    onReviseProposal,
+  } = useThreadSidebarContext();
 
   return (
     <div className="space-y-3">
@@ -991,25 +1012,27 @@ function readWorkItemSourceType(workItem: WorkItem | undefined): string | null {
 }
 
 function TasksSection({
-  workItemLinks,
-  orderedWorkItemLinks,
-  linkedWorkItems,
-  showCreateWI,
-  newWITitle,
-  newWIBody,
-  showLinkWI,
-  linkWIId,
-  onOpenCreateWorkItem,
-  onShowCreateWIChange,
-  onNewWITitleChange,
-  onNewWIBodyChange,
-  onCreateWorkItem,
-  onShowLinkWIChange,
-  onLinkWIIdChange,
-  onLinkWorkItem,
-  onResetCreateWorkItemDraft,
-}: ThreadSidebarProps) {
+}: {}) {
   const { t } = useTranslation();
+  const {
+    workItemLinks,
+    orderedWorkItemLinks,
+    linkedWorkItems,
+    showCreateWI,
+    newWITitle,
+    newWIBody,
+    showLinkWI,
+    linkWIId,
+    onOpenCreateWorkItem,
+    onShowCreateWIChange,
+    onNewWITitleChange,
+    onNewWIBodyChange,
+    onCreateWorkItem,
+    onShowLinkWIChange,
+    onLinkWIIdChange,
+    onLinkWorkItem,
+    onResetCreateWorkItemDraft,
+  } = useThreadSidebarContext();
 
   return (
     <div className="space-y-3">
