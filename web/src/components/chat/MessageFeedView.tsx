@@ -61,6 +61,7 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
       onClick={onClose}
+      role="presentation"
     >
       <button
         type="button"

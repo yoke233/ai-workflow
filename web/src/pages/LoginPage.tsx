@@ -39,6 +39,7 @@ export const LoginPage = ({ onLogin, loading, error }: LoginPageProps) => {
             <Input
               type="password"
               placeholder={t("login.placeholder")}
+              aria-label="API Token"
               value={token}
               onChange={(e) => setToken(e.target.value)}
               autoFocus

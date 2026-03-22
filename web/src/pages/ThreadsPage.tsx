@@ -202,6 +202,7 @@ export function ThreadsPage() {
           <input
             type="text"
             placeholder={t("threads.search", "Search threads...")}
+            aria-label="Search threads"
             className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-200"
             value={search}
             onChange={(e) => setSearch(e.target.value)}

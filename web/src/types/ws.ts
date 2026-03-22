@@ -1,3 +1,5 @@
+import type { Notification } from "./apiV2";
+
 export interface WsEnvelope<TPayload = unknown> {
   type: string;
   run_id?: string;
@@ -126,21 +128,7 @@ export type NotificationEventType =
   | "notification.all_read";
 
 export interface NotificationEventPayload {
-  notification?: {
-    id: number;
-    level: string;
-    title: string;
-    body?: string;
-    category?: string;
-    action_url?: string;
-    project_id?: number | null;
-    work_item_id?: number | null;
-    run_id?: number | null;
-    channels?: string[];
-    read: boolean;
-    created_at: string;
-    [key: string]: unknown;
-  };
+  notification?: Notification;
   notification_id?: number;
   [key: string]: unknown;
 }

@@ -37,7 +37,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
       "notification.created",
       (payload) => {
         if (payload?.notification) {
-          const n = payload.notification as unknown as Notification;
+          const n = payload.notification;
           set((state) => ({
             notifications: [n, ...state.notifications],
             unreadCount: state.unreadCount + 1,
