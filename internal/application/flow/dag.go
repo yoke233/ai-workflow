@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -266,4 +267,113 @@ func immediatePredecessorActionIDs(actions []*core.Action, action *core.Action) 
 		}
 	}
 	return ids
+}
+
+// ---------------------------------------------------------------------------
+// Action validation helpers (used by HTTP handlers and application services)
+// ---------------------------------------------------------------------------
+
+// ActionLister is the minimal store contract needed by the action validation functions.
+type ActionLister interface {
+	ListActionsByWorkItem(ctx context.Context, workItemID int64) ([]*core.Action, error)
+}
+
+// ValidateDAGConsistency checks that the full action set for a WorkItem won't
+// contain "false roots" — actions that silently lose their Position-based
+// ordering when DAG mode is triggered. An action is a false root when it has
+// no DependsOn yet sits at a Position higher than the minimum (meaning it
+// previously depended on lower-Position actions in Position mode).
+//
+// targetID == 0 means the action is not yet persisted (create path).
+func ValidateDAGConsistency(ctx context.Context, store ActionLister, workItemID int64, targetID int64, target *core.Action) error {
+	siblings, err := store.ListActionsByWorkItem(ctx, workItemID)
+	if err != nil {
+		return err
+	}
+
+	// Build the projected action set with the pending change applied.
+	actions := make([]*core.Action, 0, len(siblings)+1)
+	replaced := false
+	for _, s := range siblings {
+		if targetID != 0 && s.ID == targetID {
+			actions = append(actions, target)
+			replaced = true
+		} else {
+			actions = append(actions, s)
+		}
+	}
+	if !replaced {
+		actions = append(actions, target)
+	}
+
+	currentHasDeps := hasDependsOn(siblings)
+	projectedHasDeps := hasDependsOn(actions)
+
+	if !currentHasDeps && projectedHasDeps {
+		minPos := actions[0].Position
+		for _, a := range actions[1:] {
+			if a.Position < minPos {
+				minPos = a.Position
+			}
+		}
+
+		// Entering DAG mode from legacy Position mode requires every non-root
+		// action to declare explicit dependencies; otherwise lower-position
+		// ordering would silently disappear for actions that still have
+		// empty depends_on.
+		for _, a := range actions {
+			if len(a.DependsOn) == 0 && a.Position > minPos {
+				return fmt.Errorf(
+					"action %q (position %d) has no depends_on and would become a false root in DAG mode; set depends_on on all non-root actions first",
+					a.Name, a.Position)
+			}
+		}
+	}
+
+	return ValidateActions(actions)
+}
+
+// ValidateActionPosition checks that the given position is non-negative and not
+// already occupied by a sibling action (excluding actionID itself, so updates work).
+func ValidateActionPosition(ctx context.Context, store ActionLister, workItemID, actionID int64, position int) error {
+	if position < 0 {
+		return fmt.Errorf("position must be non-negative")
+	}
+	actions, err := store.ListActionsByWorkItem(ctx, workItemID)
+	if err != nil {
+		return err
+	}
+	for _, action := range actions {
+		if action == nil || action.ID == actionID {
+			continue
+		}
+		if action.Position == position {
+			return fmt.Errorf("position %d is already used by action %d", position, action.ID)
+		}
+	}
+	return nil
+}
+
+// ResolveCreateActionPosition determines the position for a new action.
+// If a position is explicitly requested, it is validated; otherwise the next
+// available position (max + 1) is returned.
+func ResolveCreateActionPosition(ctx context.Context, store ActionLister, workItemID int64, requested *int) (int, error) {
+	if requested != nil {
+		if err := ValidateActionPosition(ctx, store, workItemID, 0, *requested); err != nil {
+			return 0, err
+		}
+		return *requested, nil
+	}
+
+	actions, err := store.ListActionsByWorkItem(ctx, workItemID)
+	if err != nil {
+		return 0, err
+	}
+	position := 0
+	for _, action := range actions {
+		if action != nil && action.Position >= position {
+			position = action.Position + 1
+		}
+	}
+	return position, nil
 }

@@ -114,15 +114,10 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body", "BAD_REQUEST")
 		return
 	}
-	title := strings.TrimSpace(req.Title)
-	if title == "" {
-		writeError(w, http.StatusBadRequest, "title is required", "MISSING_TITLE")
-		return
-	}
 
 	result, err := h.threadService().CreateThread(r.Context(), threadapp.CreateThreadInput{
-		Title:    title,
-		OwnerID:  strings.TrimSpace(req.OwnerID),
+		Title:    req.Title,
+		OwnerID:  req.OwnerID,
 		Metadata: req.Metadata,
 	})
 	if err != nil {
