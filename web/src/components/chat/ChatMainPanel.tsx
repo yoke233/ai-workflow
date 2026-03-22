@@ -9,10 +9,13 @@ import { DraftSessionSetup } from "./DraftSessionSetup";
 import { MessageFeedView } from "./MessageFeedView";
 import type { ChatFeedEntry, LeadDriverOption } from "./chatTypes";
 
-interface ChatMainPanelProps {
+interface ChatMainPanelViewProps {
   detailView: "chat" | "events";
   currentEvents: ApiEvent[];
   isDraftSessionView: boolean;
+}
+
+interface ChatMainPanelDraftSetupProps {
   projects: Array<{ id: number; name: string }>;
   draftProjectId: number | null;
   draftProfileId: string;
@@ -39,6 +42,9 @@ interface ChatMainPanelProps {
   onSend: () => void;
   onPaste: (e: React.ClipboardEvent) => void;
   onRemovePendingFile: (index: number) => void;
+}
+
+interface ChatMainPanelFeedProps {
   chatFeedEntries: ChatFeedEntry[];
   hasMoreFeedEntries: boolean;
   loadingMore: boolean;
@@ -55,6 +61,11 @@ interface ChatMainPanelProps {
   onCreateWorkItem: (id: string, content: string) => void;
   onActivityGroupToggle: (id: string) => void;
 }
+
+type ChatMainPanelProps =
+  & ChatMainPanelViewProps
+  & ChatMainPanelDraftSetupProps
+  & ChatMainPanelFeedProps;
 
 export function ChatMainPanel({
   detailView,

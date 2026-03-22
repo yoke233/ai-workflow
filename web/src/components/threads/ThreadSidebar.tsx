@@ -113,11 +113,12 @@ type ProposalReviewInput = {
   reviewNote: string;
 };
 
-export interface ThreadSidebarProps {
+export interface ThreadSidebarInfoProps {
   thread: Thread;
   messagesCount: number;
+}
 
-  // Members: agents
+export interface ThreadSidebarMembersProps {
   inviteableProfiles: AgentProfile[];
   selectedInviteIDs: Set<string>;
   invitingAgent: boolean;
@@ -136,18 +137,32 @@ export interface ThreadSidebarProps {
   onClearDiscussionAgents: () => void;
   canStartDiscussionWithAgent: (status: string) => boolean;
   agentStatusColor: (status: string) => string;
-
-  // Members: participants
   participants: ThreadMember[];
+}
 
-  // Proposals
+export interface ThreadSidebarProposalDraftEditor {
+  proposalId: number | null;
+  title: string;
+  summary: string;
+  content: string;
+  proposedBy: string;
+  sourceMessageId: string;
+  drafts: ProposalDraftEditor[];
+}
+
+export interface ThreadSidebarProposalReviewState {
+  reviewedBy: string;
+  reviewNote: string;
+}
+
+export interface ThreadSidebarProposalProps {
   proposals: ThreadProposal[];
   proposalsLoading: boolean;
   showProposalEditor: boolean;
-  proposalEditor: ProposalEditor;
+  proposalEditor: ThreadSidebarProposalDraftEditor;
   savingProposal: boolean;
   proposalActionLoadingID: number | null;
-  proposalReviewInputs: Record<number, ProposalReviewInput>;
+  proposalReviewInputs: Record<number, ThreadSidebarProposalReviewState>;
   onOpenCreateProposal: () => void;
   onOpenEditProposal: (proposal: ThreadProposal) => void;
   onShowProposalEditorChange: (open: boolean) => void;
@@ -172,8 +187,9 @@ export interface ThreadSidebarProps {
   onApproveProposal: (proposalId: number) => void;
   onRejectProposal: (proposalId: number) => void;
   onReviseProposal: (proposalId: number) => void;
+}
 
-  // Tasks: work items
+export interface ThreadSidebarWorkItemProps {
   workItemLinks: ThreadWorkItemLink[];
   orderedWorkItemLinks: ThreadWorkItemLink[];
   linkedWorkItems: Record<number, WorkItem>;
@@ -191,14 +207,22 @@ export interface ThreadSidebarProps {
   onLinkWIIdChange: (value: string) => void;
   onLinkWorkItem: () => void;
   onResetCreateWorkItemDraft: () => void;
+}
 
-  // Files
+export interface ThreadSidebarFileProps {
   attachments: ThreadAttachment[];
   attachmentsLoading: boolean;
   onUploadAttachment: (file: File) => void;
   onDeleteAttachment: (id: number) => void;
   getAttachmentDownloadUrl: (threadId: number, attachmentId: number) => string;
 }
+
+export type ThreadSidebarProps =
+  & ThreadSidebarInfoProps
+  & ThreadSidebarMembersProps
+  & ThreadSidebarProposalProps
+  & ThreadSidebarWorkItemProps
+  & ThreadSidebarFileProps;
 
 const ThreadSidebarContext = createContext<ThreadSidebarProps | null>(null);
 
