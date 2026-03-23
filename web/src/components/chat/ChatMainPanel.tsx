@@ -132,7 +132,7 @@ export function ChatMainPanel({
       messageContainerRef={messageContainerRef}
       messagesEndRef={messagesEndRef}
       onMessageListScroll={onMessageListScroll}
-      viewportClassName="absolute inset-0 overflow-y-auto px-5 py-4 pr-6 [scrollbar-gutter:stable]"
+      viewportClassName="absolute inset-0 overflow-y-auto px-3 py-3 pr-3 [scrollbar-gutter:stable] md:px-5 md:py-4 md:pr-6"
       overlay={usesVirtualizedFeed ? undefined : <ChatScrollTrack containerRef={messageContainerRef} />}
     >
         {detailView === "events" ? (
@@ -201,3 +201,4 @@ export function ChatMainPanel({
     </MessageListViewport>
   );
 }
+

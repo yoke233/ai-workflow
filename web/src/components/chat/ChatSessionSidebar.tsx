@@ -132,15 +132,12 @@ export const ChatSessionSidebar = memo(function ChatSessionSidebar(props: ChatSe
   const { t } = useTranslation();
 
   const isDrawer = props.drawerOpen !== undefined;
-  if (isDrawer && !props.drawerOpen) return null;
 
   const handleSessionSelect = (sessionId: string) => {
     props.onSessionSelect(sessionId);
     if (isDrawer && props.onClose) props.onClose();
   };
 
-  /* Derive a stable preview map: only recalculate when messagesBySession changes */
-  // eslint-disable-next-line react-hooks/rules-of-hooks -- false positive: hook is unconditional inside memo()
   const previewMap = useMemo(() => {
     const map: Record<string, { preview: string; turnCount: number }> = {};
     for (const [sessionId, messages] of Object.entries(messagesBySession)) {
@@ -152,8 +149,10 @@ export const ChatSessionSidebar = memo(function ChatSessionSidebar(props: ChatSe
     return map;
   }, [messagesBySession]);
 
+  if (isDrawer && !props.drawerOpen) return null;
+
   const content = (
-    <div className={cn("flex w-72 flex-col border-r bg-sidebar", isDrawer && "h-screen")}>
+    <div className={cn("flex w-72 flex-col border-r bg-background", isDrawer && "h-screen shadow-xl")}>
       <div className="border-b p-3">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold">{t("chat.sessionList")}</h2>

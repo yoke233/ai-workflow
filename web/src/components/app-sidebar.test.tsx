@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
@@ -23,11 +24,14 @@ vi.mock("@/i18n", async () => {
   };
 });
 
-function renderSidebar(initialEntry = "/projects") {
+function renderSidebar(
+  initialEntry = "/projects",
+  props: ComponentProps<typeof AppSidebar> = {},
+) {
   return render(
     <I18nextProvider i18n={i18n}>
       <MemoryRouter initialEntries={[initialEntry]}>
-        <AppSidebar />
+        <AppSidebar {...props} />
       </MemoryRouter>
     </I18nextProvider>,
   );
@@ -79,4 +83,23 @@ describe("AppSidebar", () => {
 
     expect(localStorage.getItem("sidebar-collapsed")).toBe("true");
   });
+
+  it("移动端抽屉不会复用桌面折叠态", () => {
+    mockUseWorkbench.mockReturnValue({
+      projects: [
+        { id: 1, name: "Alpha" },
+      ],
+      selectedProjectId: 1,
+      setSelectedProjectId: vi.fn(),
+      logout: vi.fn(),
+    });
+    localStorage.setItem("sidebar-collapsed", "true");
+
+    renderSidebar("/", { drawerOpen: true, onClose: vi.fn() });
+
+    expect(screen.getByText("AI Workflow")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /首页/ })).toBeTruthy();
+    expect(screen.queryByTitle(/Expand sidebar|展开侧栏/)).toBeNull();
+  });
 });
+

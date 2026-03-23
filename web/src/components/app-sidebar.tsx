@@ -48,27 +48,26 @@ export function AppSidebar({ drawerOpen, onClose }: AppSidebarProps = {}) {
   );
 
   const isDrawer = drawerOpen !== undefined;
+  const effectiveCollapsed = isDrawer ? false : collapsed;
   if (isDrawer && !drawerOpen) return null;
 
   const sidebarContent = (
     <aside
       className={cn(
-        "flex h-screen flex-col border-r bg-sidebar",
-        isDrawer ? "w-72" : cn("transition-[width] duration-200", collapsed ? "w-14" : "w-56"),
+        "flex h-screen flex-col border-r bg-background",
+        isDrawer ? "w-72 shadow-xl" : cn("transition-[width] duration-200", effectiveCollapsed ? "w-14" : "w-56"),
       )}
     >
-      {/* Logo */}
       <div className="flex h-14 items-center gap-2.5 border-b px-5">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <GitBranch className="h-4 w-4" />
         </div>
-        {!collapsed && (
-          <span className="text-sm font-semibold tracking-tight whitespace-nowrap">AI Workflow</span>
+        {!effectiveCollapsed && (
+          <span className="whitespace-nowrap text-sm font-semibold tracking-tight">AI Workflow</span>
         )}
       </div>
 
-      {/* Project switcher */}
-      {!collapsed && (
+      {!effectiveCollapsed && (
         <div className="px-3 pt-3">
           <div className="relative">
             <button
@@ -108,49 +107,47 @@ export function AppSidebar({ drawerOpen, onClose }: AppSidebarProps = {}) {
         </div>
       )}
 
-      {/* Navigation */}
-      <nav className={cn("flex-1 overflow-y-auto py-3 space-y-1", collapsed ? "px-1.5" : "px-3")}>
+      <nav className={cn("flex-1 space-y-1 overflow-y-auto py-3", effectiveCollapsed ? "px-1.5" : "px-3")}>
         {navItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.to === "/"}
-            title={collapsed ? t(item.labelKey) : undefined}
+            title={effectiveCollapsed ? t(item.labelKey) : undefined}
             onClick={isDrawer ? onClose : undefined}
             className={({ isActive }) =>
               cn(
                 "flex items-center rounded-md text-sm font-medium transition-colors",
-                collapsed ? "justify-center px-0 py-2" : "gap-3 px-3 py-2",
+                effectiveCollapsed ? "justify-center px-0 py-2" : "gap-3 px-3 py-2",
                 isActive
-                  ? "bg-primary/10 text-primary font-semibold"
+                  ? "bg-primary/10 font-semibold text-primary"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
               )
             }
           >
             <item.icon className="h-4 w-4 shrink-0" />
-            {!collapsed && t(item.labelKey)}
+            {!effectiveCollapsed && t(item.labelKey)}
           </NavLink>
         ))}
       </nav>
 
-      {/* Settings + Language switcher + Logout + Collapse toggle */}
-      <div className={cn("border-t py-3 space-y-1", collapsed ? "px-1.5" : "px-3")}>
+      <div className={cn("space-y-1 border-t py-3", effectiveCollapsed ? "px-1.5" : "px-3")}>
         <NavLink
           to="/settings"
-          title={collapsed ? t("nav.settings") : undefined}
+          title={effectiveCollapsed ? t("nav.settings") : undefined}
           onClick={isDrawer ? onClose : undefined}
           className={({ isActive }) =>
             cn(
               "flex w-full items-center rounded-md text-sm font-medium transition-colors",
-              collapsed ? "justify-center px-0 py-2" : "gap-3 px-3 py-2",
+              effectiveCollapsed ? "justify-center px-0 py-2" : "gap-3 px-3 py-2",
               isActive
-                ? "bg-primary/10 text-primary font-semibold"
+                ? "bg-primary/10 font-semibold text-primary"
                 : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
             )
           }
         >
           <Settings className="h-4 w-4 shrink-0" />
-          {!collapsed && t("nav.settings")}
+          {!effectiveCollapsed && t("nav.settings")}
         </NavLink>
         <button
           onClick={() => {
@@ -158,47 +155,49 @@ export function AppSidebar({ drawerOpen, onClose }: AppSidebarProps = {}) {
             void i18n.changeLanguage(next);
             saveLanguage(next);
           }}
-          title={collapsed ? (i18n.language === "zh-CN" ? "English" : "中文") : undefined}
+          title={effectiveCollapsed ? (i18n.language === "zh-CN" ? "English" : "中文") : undefined}
           className={cn(
             "flex w-full items-center rounded-md text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
-            collapsed ? "justify-center px-0 py-2" : "gap-3 px-3 py-2",
+            effectiveCollapsed ? "justify-center px-0 py-2" : "gap-3 px-3 py-2",
           )}
         >
           <Globe className="h-4 w-4 shrink-0" />
-          {!collapsed && (i18n.language === "zh-CN" ? "English" : "中文")}
+          {!effectiveCollapsed && (i18n.language === "zh-CN" ? "English" : "中文")}
         </button>
         <button
           onClick={logout}
-          title={collapsed ? t("nav.logout") : undefined}
+          title={effectiveCollapsed ? t("nav.logout") : undefined}
           className={cn(
             "flex w-full items-center rounded-md text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
-            collapsed ? "justify-center px-0 py-2" : "gap-3 px-3 py-2",
+            effectiveCollapsed ? "justify-center px-0 py-2" : "gap-3 px-3 py-2",
           )}
         >
           <LogOut className="h-4 w-4 shrink-0" />
-          {!collapsed && t("nav.logout")}
+          {!effectiveCollapsed && t("nav.logout")}
         </button>
-        <button
-          onClick={() => {
-            const next = !collapsed;
-            setCollapsed(next);
-            localStorage.setItem("sidebar-collapsed", String(next));
-          }}
-          title={collapsed ? t("nav.expandSidebar", "Expand sidebar") : t("nav.collapseSidebar", "Collapse sidebar")}
-          className={cn(
-            "flex w-full items-center rounded-md text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
-            collapsed ? "justify-center px-0 py-2" : "gap-3 px-3 py-2",
-          )}
-        >
-          {collapsed ? (
-            <PanelLeftOpen className="h-4 w-4 shrink-0" />
-          ) : (
-            <>
-              <PanelLeftClose className="h-4 w-4 shrink-0" />
-              {t("nav.collapseSidebar", "Collapse")}
-            </>
-          )}
-        </button>
+        {!isDrawer && (
+          <button
+            onClick={() => {
+              const next = !collapsed;
+              setCollapsed(next);
+              localStorage.setItem("sidebar-collapsed", String(next));
+            }}
+            title={effectiveCollapsed ? t("nav.expandSidebar", "Expand sidebar") : t("nav.collapseSidebar", "Collapse sidebar")}
+            className={cn(
+              "flex w-full items-center rounded-md text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
+              effectiveCollapsed ? "justify-center px-0 py-2" : "gap-3 px-3 py-2",
+            )}
+          >
+            {effectiveCollapsed ? (
+              <PanelLeftOpen className="h-4 w-4 shrink-0" />
+            ) : (
+              <>
+                <PanelLeftClose className="h-4 w-4 shrink-0" />
+                {t("nav.collapseSidebar", "Collapse")}
+              </>
+            )}
+          </button>
+        )}
       </div>
     </aside>
   );

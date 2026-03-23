@@ -12,7 +12,7 @@ export function AppLayout() {
     return (
       <div className="flex h-screen flex-col overflow-hidden">
         {/* Mobile top bar */}
-        <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-sidebar px-3">
+        <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <button
             onClick={() => setDrawerOpen(true)}
             className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-accent"

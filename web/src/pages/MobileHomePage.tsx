@@ -360,55 +360,58 @@ export function MobileHomePage() {
               />
 
               {/* Bottom bar: selectors + send */}
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 overflow-x-auto">
-                  {/* Project selector */}
-                  <Select
-                    value={draftProjectId == null ? "" : String(draftProjectId)}
-                    onValueChange={(v) => {
-                      const nextId = v ? Number(v) : null;
-                      setDraftProjectId(nextId);
-                      setSelectedProjectId(nextId);
-                    }}
-                    className="h-8 max-w-[140px] text-xs"
-                  >
-                    <option value="">{t("chat.noProject")}</option>
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </Select>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-1 sm:flex-wrap sm:items-center">
+                  <div className="col-span-2 sm:w-[160px] md:w-[180px]">
+                    <Select
+                      value={draftProjectId == null ? "" : String(draftProjectId)}
+                      onValueChange={(v) => {
+                        const nextId = v ? Number(v) : null;
+                        setDraftProjectId(nextId);
+                        setSelectedProjectId(nextId);
+                      }}
+                      className="h-9 w-full text-xs sm:h-8"
+                    >
+                      <option value="">{t("chat.noProject")}</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </Select>
+                  </div>
 
-                  {/* Profile selector */}
-                  <Select
-                    value={draftProfileId || ""}
-                    onValueChange={(nextId) => {
-                      setDraftProfileId(nextId);
-                      const profile = leadProfiles.find((p) => p.id === nextId);
-                      if (profile?.driver_id) setDraftDriverId(profile.driver_id);
-                    }}
-                    className="h-8 max-w-[120px] text-xs"
-                  >
-                    {leadProfiles.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name || p.id}</option>
-                    ))}
-                  </Select>
+                  <div className="min-w-0 sm:w-[140px]">
+                    <Select
+                      value={draftProfileId || ""}
+                      onValueChange={(nextId) => {
+                        setDraftProfileId(nextId);
+                        const profile = leadProfiles.find((p) => p.id === nextId);
+                        if (profile?.driver_id) setDraftDriverId(profile.driver_id);
+                      }}
+                      className="h-9 w-full text-xs sm:h-8"
+                    >
+                      {leadProfiles.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name || p.id}</option>
+                      ))}
+                    </Select>
+                  </div>
 
-                  {/* Driver selector */}
-                  <Select
-                    value={draftDriverId || EMPTY_PROFILE_VALUE}
-                    onValueChange={(v) => {
-                      setDraftDriverId(v === EMPTY_PROFILE_VALUE ? "" : v);
-                    }}
-                    className="h-8 max-w-[140px] text-xs"
-                  >
-                    <option value={EMPTY_PROFILE_VALUE}>{t("chat.selectDriver")}</option>
-                    {leadDriverOptions.map((opt) => (
-                      <option key={opt.driverId} value={opt.driverId}>{opt.label}</option>
-                    ))}
-                  </Select>
+                  <div className="min-w-0 sm:w-[160px]">
+                    <Select
+                      value={draftDriverId || EMPTY_PROFILE_VALUE}
+                      onValueChange={(v) => {
+                        setDraftDriverId(v === EMPTY_PROFILE_VALUE ? "" : v);
+                      }}
+                      className="h-9 w-full text-xs sm:h-8"
+                    >
+                      <option value={EMPTY_PROFILE_VALUE}>{t("chat.selectDriver")}</option>
+                      {leadDriverOptions.map((opt) => (
+                        <option key={opt.driverId} value={opt.driverId}>{opt.label}</option>
+                      ))}
+                    </Select>
+                  </div>
                 </div>
 
-                <div className="flex shrink-0 items-center gap-1.5">
+                <div className="flex shrink-0 items-center justify-end gap-1.5">
                   <Button
                     variant="ghost"
                     size="icon"
@@ -621,3 +624,4 @@ function SessionListItem({
     </button>
   );
 }
+

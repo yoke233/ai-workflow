@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
-import { MessagesSquare } from "lucide-react";
 import { useWorkbench } from "@/contexts/WorkbenchContext";
 import { getErrorMessage } from "@/lib/v2Workbench";
 import { ChatSessionSidebar } from "@/components/chat/ChatSessionSidebar";
@@ -449,19 +448,7 @@ export function ChatPage() {
           {...(isMobile ? { drawerOpen: chatSidebarOpen, onClose: () => setChatSidebarOpen(false) } : {})}
         />
       }
-      mobileHeader={
-        isMobile ? (
-          <div className="flex h-10 shrink-0 items-center border-b px-3">
-            <button
-              onClick={() => setChatSidebarOpen(true)}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
-              title="Sessions"
-            >
-              <MessagesSquare className="h-4 w-4" />
-            </button>
-          </div>
-        ) : null
-      }
+      mobileHeader={null}
       header={
         !isDraftSessionView ? (
           <ChatHeader
@@ -479,7 +466,8 @@ export function ChatPage() {
             onCreatePR={() => void createPR()}
             onRefreshPR={() => void refreshPR()}
             prLoading={prLoading}
-          />
+            onOpenSessions={isMobile ? () => setChatSidebarOpen(true) : undefined}
+/>
         ) : null
       }
       errorBanner={error ? <ChatErrorBanner error={error} onClose={() => setError(null)} /> : null}
@@ -599,3 +587,5 @@ export function ChatPage() {
     />
   );
 }
+
+
