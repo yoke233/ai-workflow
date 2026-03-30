@@ -71,14 +71,5 @@ func ApplyEnvOverrides(cfg *Config) error {
 		cfg.GitHub.Token = v
 	}
 
-	// Runtime collector overrides (optional)
-	if v, ok := os.LookupEnv("AI_WORKFLOW_RUNTIME_COLLECTOR_MAX_RETRIES"); ok {
-		n, err := strconv.Atoi(strings.TrimSpace(v))
-		if err != nil {
-			return fmt.Errorf("invalid AI_WORKFLOW_RUNTIME_COLLECTOR_MAX_RETRIES: %w", err)
-		}
-		cfg.Runtime.Collector.MaxRetries = n
-	}
-
 	return nil
 }

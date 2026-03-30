@@ -233,11 +233,6 @@ func ApplyConfigLayer(cfg *Config, layer *ConfigLayer) {
 		if runtime.MockExecutor != nil {
 			cfg.Runtime.MockExecutor = *runtime.MockExecutor
 		}
-		if collector := runtime.Collector; collector != nil {
-			if collector.MaxRetries != nil {
-				cfg.Runtime.Collector.MaxRetries = *collector.MaxRetries
-			}
-		}
 		if llm := runtime.LLM; llm != nil {
 			if llm.DefaultConfigID != nil {
 				cfg.Runtime.LLM.DefaultConfigID = *llm.DefaultConfigID

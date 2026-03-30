@@ -66,7 +66,6 @@ func TestResolveFlowLLMConfigPrefersRuntimeLLMDefault(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.Defaults()
-	cfg.Runtime.Collector.MaxRetries = 3
 	cfg.Runtime.LLM.DefaultConfigID = "openai-chat-default"
 	cfg.Runtime.LLM.Configs = []config.RuntimeLLMEntryConfig{
 		{
@@ -91,16 +90,12 @@ func TestResolveFlowLLMConfigPrefersRuntimeLLMDefault(t *testing.T) {
 	if got.APIKey != "chat-key" || got.Model != "chat-model" {
 		t.Fatalf("got = %#v, want runtime.llm credentials", got)
 	}
-	if got.MaxRetries != 3 {
-		t.Fatalf("MaxRetries = %d, want 3", got.MaxRetries)
-	}
 }
 
 func TestResolveFlowLLMConfigSupportsAnthropicDefault(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.Defaults()
-	cfg.Runtime.Collector.MaxRetries = 2
 	cfg.Runtime.LLM.DefaultConfigID = "anthropic-default"
 	cfg.Runtime.LLM.Configs = []config.RuntimeLLMEntryConfig{
 		{
@@ -130,9 +125,6 @@ func TestResolveFlowLLMConfigSupportsAnthropicDefault(t *testing.T) {
 	}
 	if got.Temperature != 0.25 || got.MaxOutputTokens != 3000 || got.ThinkingBudgetTokens != 2048 {
 		t.Fatalf("got provider tuning = %#v, want anthropic runtime tuning", got)
-	}
-	if got.MaxRetries != 2 {
-		t.Fatalf("MaxRetries = %d, want 2", got.MaxRetries)
 	}
 }
 

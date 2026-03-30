@@ -449,10 +449,10 @@ func TestInputBuilder_ContextRefPriorityOrder(t *testing.T) {
 func TestExtractRunResultSummary_PrefersMetadata(t *testing.T) {
 	run := &core.Run{
 		ResultMarkdown: strings.Repeat("long content ", 100),
-		ResultMetadata: map[string]any{"summary": "Short summary from collector."},
+		ResultMetadata: map[string]any{"summary": "Short summary from signal."},
 	}
 	got := extractRunResultSummary(run)
-	if got != "Short summary from collector." {
+	if got != "Short summary from signal." {
 		t.Errorf("expected metadata summary, got: %q", got)
 	}
 }

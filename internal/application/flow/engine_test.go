@@ -425,40 +425,6 @@ func TestInputBuilder(t *testing.T) {
 	_ = bus // satisfy usage
 }
 
-// TestCollectorWiring: collector extracts metadata into deliverable after success.
-func TestCollectorWiring(t *testing.T) {
-	store, bus := setup(t)
-	ctx := context.Background()
-
-	// Collector that extracts a "summary" field.
-	collector := CollectorFunc(func(_ context.Context, actionType core.ActionType, markdown string) (map[string]any, error) {
-		return map[string]any{"summary": "extracted from: " + string(actionType)}, nil
-	})
-
-	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
-		// Simulate agent producing a result.
-		run.ResultMarkdown = "## Implementation\nDid the thing."
-		return nil
-	}
-
-	eng := New(store, bus, executor, WithConcurrency(1), WithCollector(collector))
-
-	workItemID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "collector-test", Status: core.WorkItemOpen})
-	aID, _ := store.CreateAction(ctx, &core.Action{WorkItemID: workItemID, Name: "A", Type: core.ActionExec, Status: core.ActionPending, Position: 0})
-
-	if err := eng.Run(ctx, workItemID); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-
-	del, err := store.GetLatestRunWithResult(ctx, aID)
-	if err != nil {
-		t.Fatalf("get run with result: %v", err)
-	}
-	if del.ResultMetadata["summary"] != "extracted from: exec" {
-		t.Fatalf("expected extracted metadata, got %v", del.ResultMetadata)
-	}
-}
-
 // TestResolverIntegration: engine uses resolver to set agent_id on run.
 func TestResolverIntegration(t *testing.T) {
 	store, bus := setup(t)

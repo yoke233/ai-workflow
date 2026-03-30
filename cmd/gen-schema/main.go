@@ -91,7 +91,6 @@ func addDescriptions(schema *jsonschema.Schema) {
 		"MCPConfig":          {"enabled": "是否启用 MCP 工具注入", "tools": "注入的 MCP 工具名列表"},
 		"RuntimeConfig": {
 			"mock_executor": "是否使用本地 stub 执行器",
-			"collector":     "运行时元数据采集配置",
 			"llm":           "LLM API provider 配置",
 			"sandbox":       "运行时沙箱配置",
 			"agents":        "运行时 driver 和 profile 配置",

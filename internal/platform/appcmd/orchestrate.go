@@ -514,20 +514,20 @@ func resolveOrchestrateLLMConfig(cfg *config.Config) (llm.Config, bool) {
 			if strings.TrimSpace(entry.ID) != defaultID {
 				continue
 			}
-			return llmConfigFromRuntimeEntry(entry, cfg.Runtime.Collector.MaxRetries)
+			return llmConfigFromRuntimeEntry(entry)
 		}
 		return llm.Config{}, false
 	}
 
 	for _, entry := range cfg.Runtime.LLM.Configs {
-		if llmCfg, ok := llmConfigFromRuntimeEntry(entry, cfg.Runtime.Collector.MaxRetries); ok {
+		if llmCfg, ok := llmConfigFromRuntimeEntry(entry); ok {
 			return llmCfg, true
 		}
 	}
 	return llm.Config{}, false
 }
 
-func llmConfigFromRuntimeEntry(entry config.RuntimeLLMEntryConfig, maxRetries int) (llm.Config, bool) {
+func llmConfigFromRuntimeEntry(entry config.RuntimeLLMEntryConfig) (llm.Config, bool) {
 	provider := strings.TrimSpace(entry.Type)
 	switch provider {
 	case "", llm.ProviderOpenAIResponse, llm.ProviderOpenAIChatCompletion, llm.ProviderAnthropic:
@@ -546,7 +546,6 @@ func llmConfigFromRuntimeEntry(entry config.RuntimeLLMEntryConfig, maxRetries in
 		MaxOutputTokens:      max(0, entry.MaxOutputTokens),
 		ReasoningEffort:      strings.TrimSpace(entry.ReasoningEffort),
 		ThinkingBudgetTokens: max(0, entry.ThinkingBudgetTokens),
-		MaxRetries:           maxRetries,
 	}, true
 }
 

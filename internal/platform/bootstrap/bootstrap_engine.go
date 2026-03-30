@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	acpproto "github.com/coder/acp-go-sdk"
-	llmcollector "github.com/yoke233/zhanggui/internal/adapters/collector/llm"
 	executoradapter "github.com/yoke233/zhanggui/internal/adapters/executor"
 	"github.com/yoke233/zhanggui/internal/adapters/llm"
 	resourceprovider "github.com/yoke233/zhanggui/internal/adapters/resource/provider"
@@ -37,7 +36,7 @@ func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, scmTokens 
 	acpPool := agentruntime.NewACPSessionPool(base.store, base.bus)
 
 	sessionMgr, sessionMode := buildSessionManager(bootstrapCfg, base.store, base.dataDir, acpPool, sb)
-	llmClient := buildCollectorClient(bootstrapCfg)
+	llmClient := buildLLMClient(bootstrapCfg)
 	executor := buildActionExecutor(base.store, base.bus, base.registry, sessionMgr, base.runtimeManager, bootstrapCfg, base.dataDir, scmTokens, upgradeFn, base.signalCfg)
 	engine := buildWorkItemEngine(base.store, base.bus, executor, base.registry, base.runtimeManager, bootstrapCfg, base.dataDir, scmTokens, llmClient)
 	schedulerCtx, schedulerStop := context.WithCancel(base.appCtx)
@@ -55,7 +54,7 @@ func buildFlowStack(base *bootstrapBase, bootstrapCfg *config.Config, scmTokens 
 	}, nil
 }
 
-func buildCollectorClient(bootstrapCfg *config.Config) *llm.Client {
+func buildLLMClient(bootstrapCfg *config.Config) *llm.Client {
 	cfg, source, ok := resolveFlowLLMConfig(bootstrapCfg)
 	if !ok {
 		return nil
@@ -65,7 +64,7 @@ func buildCollectorClient(bootstrapCfg *config.Config) *llm.Client {
 		slog.Warn("bootstrap: LLM client disabled (invalid config)", "source", source, "error", err)
 		return nil
 	}
-	slog.Info("bootstrap: LLM client enabled (collector + DAG generator)", "source", source)
+	slog.Info("bootstrap: LLM client enabled (planning + text completion)", "source", source)
 	return client
 }
 
@@ -73,33 +72,32 @@ func resolveFlowLLMConfig(bootstrapCfg *config.Config) (llm.Config, string, bool
 	if bootstrapCfg == nil {
 		return llm.Config{}, "", false
 	}
-	maxRetries := bootstrapCfg.Runtime.Collector.MaxRetries
-	if cfg, ok := resolveRuntimeLLMConfig(bootstrapCfg.Runtime.LLM, maxRetries); ok {
+	if cfg, ok := resolveRuntimeLLMConfig(bootstrapCfg.Runtime.LLM); ok {
 		return cfg, "runtime.llm", true
 	}
 	return llm.Config{}, "", false
 }
 
-func resolveRuntimeLLMConfig(cfg config.RuntimeLLMConfig, maxRetries int) (llm.Config, bool) {
+func resolveRuntimeLLMConfig(cfg config.RuntimeLLMConfig) (llm.Config, bool) {
 	defaultID := strings.TrimSpace(cfg.DefaultConfigID)
 	if defaultID != "" {
 		for _, item := range cfg.Configs {
 			if strings.TrimSpace(item.ID) != defaultID {
 				continue
 			}
-			return llmConfigFromRuntimeEntry(item, maxRetries)
+			return llmConfigFromRuntimeEntry(item)
 		}
 		return llm.Config{}, false
 	}
 	for _, item := range cfg.Configs {
-		if llmCfg, ok := llmConfigFromRuntimeEntry(item, maxRetries); ok {
+		if llmCfg, ok := llmConfigFromRuntimeEntry(item); ok {
 			return llmCfg, true
 		}
 	}
 	return llm.Config{}, false
 }
 
-func llmConfigFromRuntimeEntry(item config.RuntimeLLMEntryConfig, maxRetries int) (llm.Config, bool) {
+func llmConfigFromRuntimeEntry(item config.RuntimeLLMEntryConfig) (llm.Config, bool) {
 	provider := strings.ToLower(strings.TrimSpace(item.Type))
 	switch provider {
 	case "", llm.ProviderOpenAIResponse, llm.ProviderOpenAIChatCompletion, llm.ProviderAnthropic:
@@ -120,7 +118,6 @@ func llmConfigFromRuntimeEntry(item config.RuntimeLLMEntryConfig, maxRetries int
 		MaxOutputTokens:      max(0, item.MaxOutputTokens),
 		ReasoningEffort:      strings.TrimSpace(item.ReasoningEffort),
 		ThinkingBudgetTokens: max(0, item.ThinkingBudgetTokens),
-		MaxRetries:           maxRetries,
 	}, true
 }
 
@@ -220,9 +217,6 @@ func buildWorkItemEngine(
 		}),
 		flowapp.WithChangeRequestProviders(scmadapter.NewChangeRequestProviders),
 		flowapp.WithInputBuilder(flowapp.NewInputBuilder(store, inputBuilderOpts...)),
-	}
-	if llmClient != nil {
-		opts = append(opts, flowapp.WithCollector(llmcollector.NewLLMCollector(llmClient.Complete)))
 	}
 	if bootstrapCfg != nil && bootstrapCfg.Scheduler.MaxGlobalAgents > 0 {
 		opts = append(opts, flowapp.WithConcurrency(bootstrapCfg.Scheduler.MaxGlobalAgents))

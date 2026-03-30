@@ -23,7 +23,6 @@ type workflowRuntime struct {
 type preparationService struct {
 	resolver     Resolver
 	inputBuilder InputBuilder
-	collector    Collector
 	expander     CompositeExpander
 	workspace    WorkspaceProvider
 	resources    *ResourceResolver
@@ -66,11 +65,6 @@ func WithInputBuilder(b InputBuilder) Option {
 // WithBriefingBuilder is an alias for WithInputBuilder for backward compatibility.
 func WithBriefingBuilder(b InputBuilder) Option {
 	return WithInputBuilder(b)
-}
-
-// WithCollector sets the metadata collector for the finalize phase.
-func WithCollector(c Collector) Option {
-	return func(e *WorkItemEngine) { e.preparation.collector = c }
 }
 
 // WithExpander sets the composite action expander.

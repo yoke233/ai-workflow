@@ -271,7 +271,7 @@ func (b *DefaultInputBuilder) injectUpstreamContext(ctx context.Context, action 
 const maxSummaryFallbackChars = 300
 
 // extractRunResultSummary returns a compact summary of a Run's result.
-// Prefers the Collector-extracted "summary" from ResultMetadata; falls back to
+// Prefers the signal-provided "summary" from ResultMetadata; falls back to
 // the first 300 characters of ResultMarkdown.
 func extractRunResultSummary(run *core.Run) string {
 	if run.ResultMetadata != nil {

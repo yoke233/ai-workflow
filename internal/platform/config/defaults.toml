@@ -17,9 +17,6 @@ max_project_runs = 2
   stuck_merge_ttl = "15m"
   queue_stale_ttl = "60m"
 
-[runtime.collector]
-max_retries = 2
-
 [runtime.llm]
 default_config_id = "openai-response-default"
 

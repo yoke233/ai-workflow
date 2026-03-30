@@ -11,8 +11,8 @@ import (
 	"github.com/yoke233/zhanggui/internal/core"
 )
 
-// TestE2E_WorkItemResolverInputCollector covers resolver, input builder, and collector wiring.
-func TestE2E_WorkItemResolverInputCollector(t *testing.T) {
+// TestE2E_WorkItemResolverInput covers resolver and input builder wiring.
+func TestE2E_WorkItemResolverInput(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
@@ -20,10 +20,6 @@ func TestE2E_WorkItemResolverInputCollector(t *testing.T) {
 		{ID: "designer", Role: core.RoleWorker, Capabilities: []string{"design"}},
 		{ID: "coder", Role: core.RoleWorker, Capabilities: []string{"go"}},
 	}
-
-	collector := CollectorFunc(func(_ context.Context, actionType core.ActionType, md string) (map[string]any, error) {
-		return map[string]any{"collected": true, "type": string(actionType)}, nil
-	})
 
 	var capturedInput string
 	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
@@ -38,11 +34,10 @@ func TestE2E_WorkItemResolverInputCollector(t *testing.T) {
 		WithConcurrency(1),
 		WithResolver(NewProfileRegistry(profiles)),
 		WithInputBuilder(NewInputBuilder(store)),
-		WithCollector(collector),
 	)
 
 	workItemID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "e2e-pipeline", Status: core.WorkItemOpen})
-	designID, _ := store.CreateAction(ctx, &core.Action{
+	store.CreateAction(ctx, &core.Action{
 		WorkItemID:           workItemID,
 		Name:                 "design",
 		Type:                 core.ActionExec,
@@ -51,7 +46,7 @@ func TestE2E_WorkItemResolverInputCollector(t *testing.T) {
 		AgentRole:            "worker",
 		RequiredCapabilities: []string{"design"},
 	})
-	implID, _ := store.CreateAction(ctx, &core.Action{
+	_, _ = store.CreateAction(ctx, &core.Action{
 		WorkItemID:           workItemID,
 		Name:                 "implement",
 		Type:                 core.ActionExec,
@@ -77,29 +72,16 @@ func TestE2E_WorkItemResolverInputCollector(t *testing.T) {
 		t.Fatalf("expected input snapshot to contain upstream deliverable content, got %q", capturedInput)
 	}
 
-	designRun, _ := store.GetLatestRunWithResult(ctx, designID)
-	if designRun.ResultMetadata["collected"] != true {
-		t.Fatalf("design run metadata not collected: %v", designRun.ResultMetadata)
-	}
-
-	implRun, _ := store.GetLatestRunWithResult(ctx, implID)
-	if implRun.ResultMetadata["collected"] != true {
-		t.Fatalf("implement run metadata not collected: %v", implRun.ResultMetadata)
-	}
 }
 
-// TestE2E_WorkItemGateRejectRetryWithCollector covers reject -> retry -> pass with collector output.
-func TestE2E_WorkItemGateRejectRetryWithCollector(t *testing.T) {
+// TestE2E_WorkItemGateRejectRetry covers reject -> retry -> pass.
+func TestE2E_WorkItemGateRejectRetry(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
 
 	var gateCount int32
 	var implCount int32
 	var deployCount int32
-
-	collector := CollectorFunc(func(_ context.Context, actionType core.ActionType, md string) (map[string]any, error) {
-		return map[string]any{"action_type": string(actionType)}, nil
-	})
 
 	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
 		if action.Type == core.ActionGate {
@@ -121,7 +103,7 @@ func TestE2E_WorkItemGateRejectRetryWithCollector(t *testing.T) {
 		return nil
 	}
 
-	eng := New(store, bus, executor, WithConcurrency(1), WithCollector(collector))
+	eng := New(store, bus, executor, WithConcurrency(1))
 
 	workItemID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "e2e-gate-retry", Status: core.WorkItemOpen})
 	store.CreateAction(ctx, &core.Action{
@@ -170,10 +152,6 @@ func TestE2E_WorkItemGateRejectRetryWithCollector(t *testing.T) {
 		t.Fatalf("expected deploy done, got %s", deployAction.Status)
 	}
 
-	deployRun, _ := store.GetLatestRunWithResult(ctx, deployID)
-	if deployRun.ResultMetadata["action_type"] != "exec" {
-		t.Fatalf("deploy run missing collected metadata: %v", deployRun.ResultMetadata)
-	}
 }
 
 // TestE2E_WorkItemCompositeWithGate covers a plan action whose child work item contains a gate.
@@ -372,10 +350,6 @@ func TestE2E_WorkItemFullOrchestration(t *testing.T) {
 		{ID: "deployer", Role: core.RoleWorker, Capabilities: []string{"deploy"}},
 	}
 
-	collector := CollectorFunc(func(_ context.Context, actionType core.ActionType, md string) (map[string]any, error) {
-		return map[string]any{"collected": true}, nil
-	})
-
 	var gateCount int32
 	var designCount int32
 	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
@@ -414,7 +388,6 @@ func TestE2E_WorkItemFullOrchestration(t *testing.T) {
 		WithConcurrency(2),
 		WithResolver(NewProfileRegistry(profiles)),
 		WithInputBuilder(NewInputBuilder(store)),
-		WithCollector(collector),
 		WithExpander(expander),
 	)
 
@@ -478,14 +451,6 @@ func TestE2E_WorkItemFullOrchestration(t *testing.T) {
 	implAction, _ := store.GetAction(ctx, implID)
 	if childWorkItemID(implAction) == nil {
 		t.Fatal("expected impl to have child_work_item_id")
-	}
-
-	deployRun, _ := store.GetLatestRunWithResult(ctx, deployID)
-	if deployRun == nil {
-		t.Fatal("expected deploy run with result")
-	}
-	if deployRun.ResultMetadata["collected"] != true {
-		t.Fatalf("expected collected metadata on deploy, got %v", deployRun.ResultMetadata)
 	}
 
 	if designCount != 1 {

@@ -386,26 +386,11 @@
         "profiles"
       ]
     },
-    "RuntimeCollectorConfig": {
-      "properties": {
-        "max_retries": {
-          "type": "integer"
-        }
-      },
-      "type": "object",
-      "required": [
-        "max_retries"
-      ]
-    },
     "RuntimeConfig": {
       "properties": {
         "mock_executor": {
           "type": "boolean",
           "description": "是否使用本地 stub 执行器"
-        },
-        "collector": {
-          "$ref": "#/$defs/RuntimeCollectorConfig",
-          "description": "运行时元数据采集配置"
         },
         "llm": {
           "$ref": "#/$defs/RuntimeLLMConfig",
@@ -443,7 +428,6 @@
       "type": "object",
       "required": [
         "mock_executor",
-        "collector",
         "llm",
         "sandbox",
         "agents",
@@ -546,6 +530,12 @@
           "type": "array",
           "description": "启动参数"
         },
+        "sandbox_args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "env": {
           "additionalProperties": {
             "type": "string"
@@ -563,63 +553,9 @@
         "id",
         "launch_command",
         "launch_args",
+        "sandbox_args",
         "env",
         "capabilities_max"
-      ]
-    },
-    "RuntimeRunProbeConfig": {
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "interval": {
-          "type": "string",
-          "examples": [
-            "2h",
-            "30m",
-            "10s",
-            "500ms"
-          ]
-        },
-        "after": {
-          "type": "string",
-          "examples": [
-            "2h",
-            "30m",
-            "10s",
-            "500ms"
-          ]
-        },
-        "idle_after": {
-          "type": "string",
-          "examples": [
-            "2h",
-            "30m",
-            "10s",
-            "500ms"
-          ]
-        },
-        "timeout": {
-          "type": "string",
-          "examples": [
-            "2h",
-            "30m",
-            "10s",
-            "500ms"
-          ]
-        },
-        "max_attempts": {
-          "type": "integer"
-        }
-      },
-      "type": "object",
-      "required": [
-        "enabled",
-        "interval",
-        "after",
-        "idle_after",
-        "timeout",
-        "max_attempts"
       ]
     },
     "RuntimeInspectionConfig": {
@@ -688,6 +624,18 @@
         "model": {
           "type": "string",
           "description": "默认模型名"
+        },
+        "temperature": {
+          "type": "number"
+        },
+        "max_output_tokens": {
+          "type": "integer"
+        },
+        "reasoning_effort": {
+          "type": "string"
+        },
+        "thinking_budget_tokens": {
+          "type": "integer"
         }
       },
       "type": "object",
@@ -696,7 +644,11 @@
         "type",
         "base_url",
         "api_key",
-        "model"
+        "model",
+        "temperature",
+        "max_output_tokens",
+        "reasoning_effort",
+        "thinking_budget_tokens"
       ]
     },
     "RuntimeLiteBoxConfig": {
@@ -942,6 +894,10 @@
           "type": "string",
           "description": "引用的 driver ID"
         },
+        "llm_config_id": {
+          "type": "string",
+          "description": "引用的 LLM provider 配置 ID（位于 runtime.llm.configs）"
+        },
         "role": {
           "type": "string",
           "description": "运行时角色"
@@ -985,6 +941,7 @@
         "id",
         "name",
         "driver",
+        "llm_config_id",
         "role",
         "capabilities",
         "actions_allowed",
@@ -996,6 +953,9 @@
     },
     "RuntimePromptsConfig": {
       "properties": {
+        "thread_shared_boot_template": {
+          "type": "string"
+        },
         "rework_followup": {
           "type": "string"
         },
@@ -1017,12 +977,68 @@
       },
       "type": "object",
       "required": [
+        "thread_shared_boot_template",
         "rework_followup",
         "continue_followup",
         "pr_implement_objective",
         "pr_gate_objective",
         "pr_merge_rework_feedback",
         "pr_providers"
+      ]
+    },
+    "RuntimeRunProbeConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "interval": {
+          "type": "string",
+          "examples": [
+            "2h",
+            "30m",
+            "10s",
+            "500ms"
+          ]
+        },
+        "after": {
+          "type": "string",
+          "examples": [
+            "2h",
+            "30m",
+            "10s",
+            "500ms"
+          ]
+        },
+        "idle_after": {
+          "type": "string",
+          "examples": [
+            "2h",
+            "30m",
+            "10s",
+            "500ms"
+          ]
+        },
+        "timeout": {
+          "type": "string",
+          "examples": [
+            "2h",
+            "30m",
+            "10s",
+            "500ms"
+          ]
+        },
+        "max_attempts": {
+          "type": "integer"
+        }
+      },
+      "type": "object",
+      "required": [
+        "enabled",
+        "interval",
+        "after",
+        "idle_after",
+        "timeout",
+        "max_attempts"
       ]
     },
     "RuntimeSandboxConfig": {
@@ -1032,6 +1048,9 @@
         },
         "provider": {
           "type": "string"
+        },
+        "gc": {
+          "$ref": "#/$defs/RuntimeSandboxGCConfig"
         },
         "litebox": {
           "$ref": "#/$defs/RuntimeLiteBoxConfig"
@@ -1044,8 +1063,44 @@
       "required": [
         "enabled",
         "provider",
+        "gc",
         "litebox",
         "docker"
+      ]
+    },
+    "RuntimeSandboxGCConfig": {
+      "properties": {
+        "archive_cleanup": {
+          "type": "boolean"
+        },
+        "startup_cleanup": {
+          "type": "boolean"
+        },
+        "interval": {
+          "type": "string",
+          "examples": [
+            "2h",
+            "30m",
+            "10s",
+            "500ms"
+          ]
+        },
+        "repo_max_age": {
+          "type": "string",
+          "examples": [
+            "2h",
+            "30m",
+            "10s",
+            "500ms"
+          ]
+        }
+      },
+      "type": "object",
+      "required": [
+        "archive_cleanup",
+        "startup_cleanup",
+        "interval",
+        "repo_max_age"
       ]
     },
     "RuntimeSessionConfig": {

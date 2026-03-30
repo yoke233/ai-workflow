@@ -9,18 +9,12 @@ import (
 	"github.com/yoke233/zhanggui/internal/core"
 )
 
-// TestSignalComplete_SkipsCollector verifies that when the executor creates a
+// TestSignalComplete_WritesMetadata verifies that when the executor creates a
 // SignalComplete, handleSuccess picks it up and writes agent-provided metadata
-// directly to the deliverable — bypassing the LLM Collector entirely.
-func TestSignalComplete_SkipsCollector(t *testing.T) {
+// directly to the run result.
+func TestSignalComplete_WritesMetadata(t *testing.T) {
 	store, bus := setup(t)
 	ctx := context.Background()
-
-	collectorCalled := false
-	collector := CollectorFunc(func(_ context.Context, _ core.ActionType, _ string) (map[string]any, error) {
-		collectorCalled = true
-		return map[string]any{"collector_key": "should_not_appear"}, nil
-	})
 
 	executor := func(_ context.Context, action *core.Action, run *core.Run) error {
 		// Simulate agent producing result + calling action_complete MCP tool.
@@ -48,7 +42,7 @@ func TestSignalComplete_SkipsCollector(t *testing.T) {
 		return err
 	}
 
-	eng := New(store, bus, executor, WithConcurrency(1), WithCollector(collector))
+	eng := New(store, bus, executor, WithConcurrency(1))
 
 	workItemID, _ := store.CreateWorkItem(ctx, &core.WorkItem{Title: "signal-complete", Status: core.WorkItemOpen})
 	actionID, _ := store.CreateAction(ctx, &core.Action{
@@ -58,11 +52,6 @@ func TestSignalComplete_SkipsCollector(t *testing.T) {
 
 	if err := eng.Run(ctx, workItemID); err != nil {
 		t.Fatalf("run: %v", err)
-	}
-
-	// Collector should NOT have been called.
-	if collectorCalled {
-		t.Fatal("collector was called but should have been skipped due to SignalComplete")
 	}
 
 	// Action should be done.

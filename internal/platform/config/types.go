@@ -61,7 +61,6 @@ type RuntimeConfig struct {
 	// MockExecutor makes runtime action runs use an in-process stub instead of ACP agents.
 	// Useful for smoke tests and environments without LLM credentials.
 	MockExecutor   bool                        `toml:"mock_executor" yaml:"mock_executor" json:"mock_executor"`
-	Collector      RuntimeCollectorConfig      `toml:"collector" yaml:"collector" json:"collector"`
 	LLM            RuntimeLLMConfig            `toml:"llm" yaml:"llm" json:"llm"`
 	Sandbox        RuntimeSandboxConfig        `toml:"sandbox"   yaml:"sandbox" json:"sandbox"`
 	Agents         RuntimeAgentsConfig         `toml:"agents"    yaml:"agents" json:"agents"`
@@ -271,13 +270,6 @@ type RuntimeSessionConfig struct {
 	ContextWarnRatio   float64  `toml:"context_warn_ratio"  yaml:"context_warn_ratio" json:"context_warn_ratio,omitempty"`
 }
 
-// RuntimeCollectorConfig configures the runtime metadata collector.
-type RuntimeCollectorConfig struct {
-	// MaxRetries controls how many additional attempts the collector makes
-	// for transient OpenAI API errors. 0 means no retry.
-	MaxRetries int `toml:"max_retries" yaml:"max_retries"`
-}
-
 // RuntimeLLMConfig stores editable LLM provider endpoints in config.toml.
 type RuntimeLLMConfig struct {
 	DefaultConfigID string                  `toml:"default_config_id" yaml:"default_config_id" json:"default_config_id"`
@@ -412,7 +404,6 @@ type LLMFilterLayer struct {
 
 type RuntimeLayer struct {
 	MockExecutor   *bool                       `toml:"mock_executor"    yaml:"mock_executor"`
-	Collector      *RuntimeCollectorLayer      `toml:"collector"       yaml:"collector"`
 	LLM            *RuntimeLLMLayer            `toml:"llm"             yaml:"llm"`
 	Sandbox        *RuntimeSandboxLayer        `toml:"sandbox"         yaml:"sandbox"`
 	Agents         *RuntimeAgentsLayerCfg      `toml:"agents"          yaml:"agents"`
@@ -532,10 +523,6 @@ type RuntimeAgentsLayerCfg struct {
 type RuntimeMCPLayer struct {
 	Servers         *[]RuntimeMCPServerConfig         `toml:"servers"          yaml:"servers"`
 	ProfileBindings *[]RuntimeMCPProfileBindingConfig `toml:"profile_bindings" yaml:"profile_bindings"`
-}
-
-type RuntimeCollectorLayer struct {
-	MaxRetries *int `toml:"max_retries" yaml:"max_retries"`
 }
 
 type RuntimeLLMLayer struct {

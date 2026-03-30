@@ -20,11 +20,6 @@ type InputBuilder interface {
 	Build(ctx context.Context, action *core.Action) (string, error)
 }
 
-// Collector extracts structured metadata from agent markdown output (via small model + tool_use).
-type Collector interface {
-	Extract(ctx context.Context, actionType core.ActionType, markdown string) (map[string]any, error)
-}
-
 // CompositeExpander decomposes a plan action into child actions for its child work item.
 type CompositeExpander interface {
 	Expand(ctx context.Context, action *core.Action) ([]*core.Action, error)
@@ -35,13 +30,6 @@ type ExpanderFunc func(ctx context.Context, action *core.Action) ([]*core.Action
 
 func (f ExpanderFunc) Expand(ctx context.Context, action *core.Action) ([]*core.Action, error) {
 	return f(ctx, action)
-}
-
-// CollectorFunc adapts a plain function into a Collector.
-type CollectorFunc func(ctx context.Context, actionType core.ActionType, markdown string) (map[string]any, error)
-
-func (f CollectorFunc) Extract(ctx context.Context, actionType core.ActionType, markdown string) (map[string]any, error) {
-	return f(ctx, actionType, markdown)
 }
 
 // prepare resolves agent, builds input (with external resources), and returns values for the Run record.
@@ -172,21 +160,10 @@ func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action,
 		return nil // non-fatal; other actions can continue
 	}
 
-	// 2. Check if agent provided structured completion signal → skip Collector.
+	// 2. Check if agent provided structured completion signal.
 	completeSignal, _ := e.workflow.store.GetLatestActionSignal(ctx, action.ID, core.SignalComplete)
 	if completeSignal != nil && completeSignal.RunID == run.ID {
 		e.applySignalMetadata(ctx, action, run, completeSignal.Payload)
-	} else {
-		// 3. Fallback: LLM Collector extracts metadata (existing behavior).
-		if err := e.collectMetadata(ctx, action); err != nil {
-			e.workflow.bus.Publish(ctx, core.Event{
-				Type:       core.EventRunFailed,
-				WorkItemID: action.WorkItemID,
-				ActionID:   action.ID,
-				Timestamp:  time.Now().UTC(),
-				Data:       map[string]any{"collect_error": err.Error()},
-			})
-		}
 	}
 
 	// Deposit declared output resources after successful execution.
@@ -218,8 +195,7 @@ func (e *WorkItemEngine) handleSuccess(ctx context.Context, action *core.Action,
 	}
 }
 
-// applySignalMetadata writes agent-provided metadata directly to the action's latest run result,
-// bypassing the LLM Collector.
+// applySignalMetadata writes agent-provided metadata directly to the action's latest run result.
 func (e *WorkItemEngine) applySignalMetadata(ctx context.Context, action *core.Action, run *core.Run, payload map[string]any) {
 	r, err := e.workflow.store.GetLatestRunWithResult(ctx, action.ID)
 	if err != nil {
@@ -233,38 +209,6 @@ func (e *WorkItemEngine) applySignalMetadata(ctx context.Context, action *core.A
 	}
 	r.ResultMetadata["signal_source"] = "agent"
 	_ = e.workflow.store.UpdateRun(ctx, r)
-}
-
-// collectMetadata runs the Collector (if set) to extract structured metadata from the action's latest Run result.
-func (e *WorkItemEngine) collectMetadata(ctx context.Context, action *core.Action) error {
-	if e.preparation.collector == nil {
-		return nil
-	}
-	r, err := e.workflow.store.GetLatestRunWithResult(ctx, action.ID)
-	if err != nil {
-		return nil // no result to collect from
-	}
-	if r.ResultMarkdown == "" {
-		return nil
-	}
-
-	metadata, err := e.preparation.collector.Extract(ctx, action.Type, r.ResultMarkdown)
-	if err != nil {
-		return fmt.Errorf("collect metadata for action %d: %w", action.ID, err)
-	}
-
-	// Merge extracted metadata into existing metadata (don't overwrite).
-	if r.ResultMetadata == nil {
-		r.ResultMetadata = metadata
-	} else {
-		for k, v := range metadata {
-			if _, exists := r.ResultMetadata[k]; !exists {
-				r.ResultMetadata[k] = v
-			}
-		}
-	}
-
-	return e.workflow.store.UpdateRun(ctx, r)
 }
 
 const (
