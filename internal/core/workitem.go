@@ -83,9 +83,12 @@ const (
 // A WorkItem optionally belongs to a Project and can point at a specific
 // ResourceSpace ID for workspace isolation.
 type WorkItem struct {
-	ID              int64  `json:"id"`
-	ProjectID       *int64 `json:"project_id,omitempty"`
-	ResourceSpaceID *int64 `json:"resource_space_id,omitempty"` // which resource space to work on
+	ID                 int64  `json:"id"`
+	ProjectID          *int64 `json:"project_id,omitempty"`
+	ResourceSpaceID    *int64 `json:"resource_space_id,omitempty"` // which resource space to work on
+	ParentWorkItemID   *int64 `json:"parent_work_item_id,omitempty"`
+	RootWorkItemID     *int64 `json:"root_work_item_id,omitempty"`
+	FinalDeliverableID *int64 `json:"final_deliverable_id,omitempty"`
 
 	// Planning fields
 	Title     string           `json:"title"`
@@ -95,8 +98,14 @@ type WorkItem struct {
 	DependsOn []int64          `json:"depends_on,omitempty"`
 
 	// Execution fields
-	Status   WorkItemStatus `json:"status"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	Status             WorkItemStatus `json:"status"`
+	ExecutorProfileID  string         `json:"executor_profile_id,omitempty"`
+	ReviewerProfileID  string         `json:"reviewer_profile_id,omitempty"`
+	ActiveProfileID    string         `json:"active_profile_id,omitempty"`
+	SponsorProfileID   string         `json:"sponsor_profile_id,omitempty"`
+	CreatedByProfileID string         `json:"created_by_profile_id,omitempty"`
+	EscalationPath     []string       `json:"escalation_path,omitempty"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
 
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`

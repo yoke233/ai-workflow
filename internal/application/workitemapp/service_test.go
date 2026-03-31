@@ -296,6 +296,56 @@ func TestServiceCreateWorkItemPersistsDependsOnAndRollsBackOnBootstrapFailure(t 
 	}
 }
 
+func TestServiceCreateWorkItemPersistsActiveProfileAndFinalDeliverable(t *testing.T) {
+	store := newWorkItemAppTestStore(t)
+	svc := newSQLiteWorkItemService(store, newSQLiteTxAdapter(store, nil), nil)
+	ctx := context.Background()
+
+	finalDeliverableID := int64(9)
+	parentWorkItemID := int64(5)
+	rootWorkItemID := int64(1)
+
+	item, err := svc.CreateWorkItem(ctx, CreateWorkItemInput{
+		Title:              "Implement login",
+		ExecutorProfileID:  "lead",
+		ReviewerProfileID:  "ceo",
+		ActiveProfileID:    "lead",
+		SponsorProfileID:   "ceo",
+		CreatedByProfileID: "ceo",
+		ParentWorkItemID:   &parentWorkItemID,
+		RootWorkItemID:     &rootWorkItemID,
+		FinalDeliverableID: &finalDeliverableID,
+		EscalationPath:     []string{"lead", "ceo"},
+		Metadata:           map[string]any{"source": "task3"},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	if item.ActiveProfileID != "lead" {
+		t.Fatalf("ActiveProfileID = %q, want lead", item.ActiveProfileID)
+	}
+	if item.FinalDeliverableID == nil || *item.FinalDeliverableID != finalDeliverableID {
+		t.Fatalf("FinalDeliverableID = %v, want %d", item.FinalDeliverableID, finalDeliverableID)
+	}
+	if len(item.EscalationPath) != 2 || item.EscalationPath[1] != "ceo" {
+		t.Fatalf("EscalationPath = %+v", item.EscalationPath)
+	}
+
+	persisted, err := store.GetWorkItem(ctx, item.ID)
+	if err != nil {
+		t.Fatalf("GetWorkItem: %v", err)
+	}
+	if persisted.ExecutorProfileID != "lead" || persisted.ReviewerProfileID != "ceo" {
+		t.Fatalf("executor/reviewer not persisted: %+v", persisted)
+	}
+	if persisted.ParentWorkItemID == nil || *persisted.ParentWorkItemID != parentWorkItemID {
+		t.Fatalf("ParentWorkItemID = %v, want %d", persisted.ParentWorkItemID, parentWorkItemID)
+	}
+	if persisted.RootWorkItemID == nil || *persisted.RootWorkItemID != rootWorkItemID {
+		t.Fatalf("RootWorkItemID = %v, want %d", persisted.RootWorkItemID, rootWorkItemID)
+	}
+}
+
 func TestServiceUpdateWorkItemAllowsCrossProjectDependenciesInsideSameInitiative(t *testing.T) {
 	store := newWorkItemAppTestStore(t)
 	ctx := context.Background()

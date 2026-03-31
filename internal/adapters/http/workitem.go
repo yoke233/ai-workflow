@@ -10,26 +10,44 @@ import (
 )
 
 type createWorkItemRequest struct {
-	ProjectID       *int64         `json:"project_id,omitempty"`
-	ResourceSpaceID *int64         `json:"resource_space_id,omitempty"`
-	Title           string         `json:"title"`
-	Body            string         `json:"body,omitempty"`
-	Priority        string         `json:"priority,omitempty"`
-	Labels          []string       `json:"labels,omitempty"`
-	DependsOn       []int64        `json:"depends_on,omitempty"`
-	Metadata        map[string]any `json:"metadata,omitempty"`
+	ProjectID          *int64         `json:"project_id,omitempty"`
+	ResourceSpaceID    *int64         `json:"resource_space_id,omitempty"`
+	ParentWorkItemID   *int64         `json:"parent_work_item_id,omitempty"`
+	RootWorkItemID     *int64         `json:"root_work_item_id,omitempty"`
+	FinalDeliverableID *int64         `json:"final_deliverable_id,omitempty"`
+	Title              string         `json:"title"`
+	Body               string         `json:"body,omitempty"`
+	Priority           string         `json:"priority,omitempty"`
+	ExecutorProfileID  string         `json:"executor_profile_id,omitempty"`
+	ReviewerProfileID  string         `json:"reviewer_profile_id,omitempty"`
+	ActiveProfileID    string         `json:"active_profile_id,omitempty"`
+	SponsorProfileID   string         `json:"sponsor_profile_id,omitempty"`
+	CreatedByProfileID string         `json:"created_by_profile_id,omitempty"`
+	Labels             []string       `json:"labels,omitempty"`
+	DependsOn          []int64        `json:"depends_on,omitempty"`
+	EscalationPath     []string       `json:"escalation_path,omitempty"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
 }
 
 type updateWorkItemRequest struct {
-	ProjectID       *int64         `json:"project_id,omitempty"`
-	ResourceSpaceID *int64         `json:"resource_space_id,omitempty"`
-	Title           *string        `json:"title,omitempty"`
-	Body            *string        `json:"body,omitempty"`
-	Status          *string        `json:"status,omitempty"`
-	Priority        *string        `json:"priority,omitempty"`
-	Labels          *[]string      `json:"labels,omitempty"`
-	DependsOn       *[]int64       `json:"depends_on,omitempty"`
-	Metadata        map[string]any `json:"metadata,omitempty"`
+	ProjectID          *int64         `json:"project_id,omitempty"`
+	ResourceSpaceID    *int64         `json:"resource_space_id,omitempty"`
+	ParentWorkItemID   *int64         `json:"parent_work_item_id,omitempty"`
+	RootWorkItemID     *int64         `json:"root_work_item_id,omitempty"`
+	FinalDeliverableID *int64         `json:"final_deliverable_id,omitempty"`
+	Title              *string        `json:"title,omitempty"`
+	Body               *string        `json:"body,omitempty"`
+	Status             *string        `json:"status,omitempty"`
+	Priority           *string        `json:"priority,omitempty"`
+	ExecutorProfileID  *string        `json:"executor_profile_id,omitempty"`
+	ReviewerProfileID  *string        `json:"reviewer_profile_id,omitempty"`
+	ActiveProfileID    *string        `json:"active_profile_id,omitempty"`
+	SponsorProfileID   *string        `json:"sponsor_profile_id,omitempty"`
+	CreatedByProfileID *string        `json:"created_by_profile_id,omitempty"`
+	Labels             *[]string      `json:"labels,omitempty"`
+	DependsOn          *[]int64       `json:"depends_on,omitempty"`
+	EscalationPath     *[]string      `json:"escalation_path,omitempty"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
 }
 
 func (h *Handler) createWorkItem(w http.ResponseWriter, r *http.Request) {
@@ -39,14 +57,23 @@ func (h *Handler) createWorkItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	workItem, err := h.workItemService().CreateWorkItem(r.Context(), workitemapp.CreateWorkItemInput{
-		ProjectID:       req.ProjectID,
-		ResourceSpaceID: req.ResourceSpaceID,
-		Title:           req.Title,
-		Body:            req.Body,
-		Priority:        req.Priority,
-		Labels:          req.Labels,
-		DependsOn:       req.DependsOn,
-		Metadata:        req.Metadata,
+		ProjectID:          req.ProjectID,
+		ResourceSpaceID:    req.ResourceSpaceID,
+		ParentWorkItemID:   req.ParentWorkItemID,
+		RootWorkItemID:     req.RootWorkItemID,
+		FinalDeliverableID: req.FinalDeliverableID,
+		Title:              req.Title,
+		Body:               req.Body,
+		Priority:           req.Priority,
+		ExecutorProfileID:  req.ExecutorProfileID,
+		ReviewerProfileID:  req.ReviewerProfileID,
+		ActiveProfileID:    req.ActiveProfileID,
+		SponsorProfileID:   req.SponsorProfileID,
+		CreatedByProfileID: req.CreatedByProfileID,
+		Labels:             req.Labels,
+		DependsOn:          req.DependsOn,
+		EscalationPath:     req.EscalationPath,
+		Metadata:           req.Metadata,
 	})
 	if err != nil {
 		if writeWorkItemAppError(w, err) {
@@ -135,16 +162,25 @@ func (h *Handler) updateWorkItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updated, err := h.workItemService().UpdateWorkItem(r.Context(), workitemapp.UpdateWorkItemInput{
-		ID:              id,
-		ProjectID:       req.ProjectID,
-		ResourceSpaceID: req.ResourceSpaceID,
-		Title:           req.Title,
-		Body:            req.Body,
-		Status:          req.Status,
-		Priority:        req.Priority,
-		Labels:          req.Labels,
-		DependsOn:       req.DependsOn,
-		Metadata:        req.Metadata,
+		ID:                 id,
+		ProjectID:          req.ProjectID,
+		ResourceSpaceID:    req.ResourceSpaceID,
+		ParentWorkItemID:   req.ParentWorkItemID,
+		RootWorkItemID:     req.RootWorkItemID,
+		FinalDeliverableID: req.FinalDeliverableID,
+		Title:              req.Title,
+		Body:               req.Body,
+		Status:             req.Status,
+		Priority:           req.Priority,
+		ExecutorProfileID:  req.ExecutorProfileID,
+		ReviewerProfileID:  req.ReviewerProfileID,
+		ActiveProfileID:    req.ActiveProfileID,
+		SponsorProfileID:   req.SponsorProfileID,
+		CreatedByProfileID: req.CreatedByProfileID,
+		Labels:             req.Labels,
+		DependsOn:          req.DependsOn,
+		EscalationPath:     req.EscalationPath,
+		Metadata:           req.Metadata,
 	})
 	if err != nil {
 		if writeWorkItemAppError(w, err) {

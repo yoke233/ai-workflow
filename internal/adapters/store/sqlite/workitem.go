@@ -121,16 +121,25 @@ func (s *Store) UpdateWorkItem(ctx context.Context, workItem *core.WorkItem) err
 	result := s.orm.WithContext(ctx).Model(&WorkItemModel{}).
 		Where("id = ?", workItem.ID).
 		Updates(map[string]any{
-			"project_id":        model.ProjectID,
-			"resource_space_id": model.ResourceSpaceID,
-			"title":             model.Title,
-			"body":              model.Body,
-			"status":            model.Status,
-			"priority":          model.Priority,
-			"labels":            model.Labels,
-			"depends_on":        model.DependsOn,
-			"metadata":          model.Metadata,
-			"updated_at":        model.UpdatedAt,
+			"project_id":            model.ProjectID,
+			"resource_space_id":     model.ResourceSpaceID,
+			"parent_work_item_id":   model.ParentWorkItemID,
+			"root_work_item_id":     model.RootWorkItemID,
+			"final_deliverable_id":  model.FinalDeliverableID,
+			"title":                 model.Title,
+			"body":                  model.Body,
+			"status":                model.Status,
+			"priority":              model.Priority,
+			"executor_profile_id":   model.ExecutorProfileID,
+			"reviewer_profile_id":   model.ReviewerProfileID,
+			"active_profile_id":     model.ActiveProfileID,
+			"sponsor_profile_id":    model.SponsorProfileID,
+			"created_by_profile_id": model.CreatedByProfileID,
+			"labels":                model.Labels,
+			"depends_on":            model.DependsOn,
+			"escalation_path":       model.EscalationPath,
+			"metadata":              model.Metadata,
+			"updated_at":            model.UpdatedAt,
 		})
 	if result.Error != nil {
 		return result.Error

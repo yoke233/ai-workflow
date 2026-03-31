@@ -110,6 +110,70 @@ func TestIssueCRUD(t *testing.T) {
 	}
 }
 
+func TestStoreWorkItemCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	parentID := int64(7)
+	rootID := int64(1)
+	finalDeliverableID := int64(12)
+
+	item := &core.WorkItem{
+		Title:              "single-kernel-work-item",
+		Status:             core.WorkItemOpen,
+		Priority:           core.PriorityHigh,
+		ExecutorProfileID:  "lead",
+		ReviewerProfileID:  "ceo",
+		ActiveProfileID:    "lead",
+		SponsorProfileID:   "ceo",
+		CreatedByProfileID: "ceo",
+		ParentWorkItemID:   &parentID,
+		RootWorkItemID:     &rootID,
+		FinalDeliverableID: &finalDeliverableID,
+		EscalationPath:     []string{"lead", "ceo"},
+	}
+
+	id, err := s.CreateWorkItem(ctx, item)
+	if err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+
+	got, err := s.GetWorkItem(ctx, id)
+	if err != nil {
+		t.Fatalf("GetWorkItem() error = %v", err)
+	}
+	if got.ActiveProfileID != "lead" || got.SponsorProfileID != "ceo" {
+		t.Fatalf("responsibility fields not preserved: %+v", got)
+	}
+	if got.FinalDeliverableID == nil || *got.FinalDeliverableID != finalDeliverableID {
+		t.Fatalf("FinalDeliverableID = %v, want %d", got.FinalDeliverableID, finalDeliverableID)
+	}
+	if len(got.EscalationPath) != 2 || got.EscalationPath[0] != "lead" {
+		t.Fatalf("EscalationPath = %+v", got.EscalationPath)
+	}
+
+	got.ActiveProfileID = "ceo"
+	got.FinalDeliverableID = nil
+	got.EscalationPath = []string{"ceo"}
+	if err := s.UpdateWorkItem(ctx, got); err != nil {
+		t.Fatalf("UpdateWorkItem() error = %v", err)
+	}
+
+	updated, err := s.GetWorkItem(ctx, id)
+	if err != nil {
+		t.Fatalf("GetWorkItem(updated) error = %v", err)
+	}
+	if updated.ActiveProfileID != "ceo" {
+		t.Fatalf("ActiveProfileID = %q, want ceo", updated.ActiveProfileID)
+	}
+	if updated.FinalDeliverableID != nil {
+		t.Fatalf("FinalDeliverableID = %v, want nil", updated.FinalDeliverableID)
+	}
+	if len(updated.EscalationPath) != 1 || updated.EscalationPath[0] != "ceo" {
+		t.Fatalf("EscalationPath = %+v", updated.EscalationPath)
+	}
+}
+
 func TestIssueNotFound(t *testing.T) {
 	s := newTestStore(t)
 	_, err := s.GetWorkItem(context.Background(), 9999)

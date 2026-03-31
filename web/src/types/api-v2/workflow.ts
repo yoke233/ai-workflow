@@ -18,11 +18,20 @@ export interface WorkItem {
   id: number;
   project_id?: number | null;
   resource_space_id?: number | null;
+  parent_work_item_id?: number | null;
+  root_work_item_id?: number | null;
+  final_deliverable_id?: number | null;
   title: string;
   body: string;
   priority: WorkItemPriority;
+  executor_profile_id?: string;
+  reviewer_profile_id?: string;
+  active_profile_id?: string;
+  sponsor_profile_id?: string;
+  created_by_profile_id?: string;
   labels?: string[];
   depends_on?: number[];
+  escalation_path?: string[];
   status: WorkItemStatus;
   metadata?: Record<string, unknown>;
   archived_at?: string | null;
@@ -33,22 +42,42 @@ export interface WorkItem {
 export interface CreateWorkItemRequest {
   project_id?: number;
   resource_space_id?: number;
+  parent_work_item_id?: number;
+  root_work_item_id?: number;
+  final_deliverable_id?: number;
   title: string;
   body?: string;
   priority?: WorkItemPriority;
+  executor_profile_id?: string;
+  reviewer_profile_id?: string;
+  active_profile_id?: string;
+  sponsor_profile_id?: string;
+  created_by_profile_id?: string;
   labels?: string[];
   depends_on?: number[];
+  escalation_path?: string[];
   metadata?: Record<string, unknown>;
 }
 
 export interface UpdateWorkItemRequest {
+  project_id?: number;
+  resource_space_id?: number;
+  parent_work_item_id?: number;
+  root_work_item_id?: number;
+  final_deliverable_id?: number;
   title?: string;
   body?: string;
   status?: WorkItemStatus;
   priority?: WorkItemPriority;
+  executor_profile_id?: string;
+  reviewer_profile_id?: string;
+  active_profile_id?: string;
+  sponsor_profile_id?: string;
+  created_by_profile_id?: string;
   labels?: string[];
-  project_id?: number;
   depends_on?: number[];
+  escalation_path?: string[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface Project {
@@ -381,4 +410,3 @@ export interface UpdateActionRequest {
   max_retries?: number;
   config?: Record<string, unknown>;
 }
-

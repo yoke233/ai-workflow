@@ -206,9 +206,13 @@ func TestAPI_CreateWorkItem(t *testing.T) {
 	_, ts := setupAPI(t)
 
 	resp, err := post(ts, "/work-items", map[string]any{
-		"title":    "test-issue",
-		"priority": "medium",
-		"metadata": map[string]any{"env": "test"},
+		"title":               "test-issue",
+		"priority":            "medium",
+		"executor_profile_id": "lead",
+		"reviewer_profile_id": "ceo",
+		"active_profile_id":   "lead",
+		"sponsor_profile_id":  "ceo",
+		"metadata":            map[string]any{"env": "test"},
 	})
 	if err != nil {
 		t.Fatalf("post: %v", err)
@@ -230,14 +234,20 @@ func TestAPI_CreateWorkItem(t *testing.T) {
 	if issue.Status != core.WorkItemOpen {
 		t.Fatalf("expected open, got %s", issue.Status)
 	}
+	if issue.ActiveProfileID != "lead" || issue.SponsorProfileID != "ceo" {
+		t.Fatalf("expected responsibility fields to round-trip, got %+v", issue)
+	}
 }
 
 func TestAPI_WorkItemRoutesCRUDAndLifecycle(t *testing.T) {
 	h, ts := setupAPI(t)
 
 	resp, err := post(ts, "/work-items", map[string]any{
-		"title":    "alias-create",
-		"priority": "medium",
+		"title":               "alias-create",
+		"priority":            "medium",
+		"active_profile_id":   "lead",
+		"executor_profile_id": "lead",
+		"reviewer_profile_id": "ceo",
 	})
 	if err != nil {
 		t.Fatalf("create work item: %v", err)
@@ -259,9 +269,13 @@ func TestAPI_WorkItemRoutesCRUDAndLifecycle(t *testing.T) {
 	if fetched.Title != "alias-create" {
 		t.Fatalf("expected created work item to be readable, got %q", fetched.Title)
 	}
+	if fetched.ActiveProfileID != "lead" {
+		t.Fatalf("expected active_profile_id lead, got %q", fetched.ActiveProfileID)
+	}
 
 	resp, _ = put(ts, fmt.Sprintf("/work-items/%d", issue.ID), map[string]any{
-		"title": "alias-updated",
+		"title":             "alias-updated",
+		"active_profile_id": "ceo",
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 updating via /work-items, got %d", resp.StatusCode)
@@ -275,6 +289,9 @@ func TestAPI_WorkItemRoutesCRUDAndLifecycle(t *testing.T) {
 	decodeJSON(resp, &updated)
 	if updated.Title != "alias-updated" {
 		t.Fatalf("expected alias-updated, got %q", updated.Title)
+	}
+	if updated.ActiveProfileID != "ceo" {
+		t.Fatalf("expected active_profile_id ceo, got %q", updated.ActiveProfileID)
 	}
 
 	resp, _ = get(ts, "/work-items")
@@ -812,8 +829,8 @@ func TestAPI_GetIssue_NotFound(t *testing.T) {
 func TestAPI_ListWorkItems(t *testing.T) {
 	_, ts := setupAPI(t)
 
-	post(ts, "/work-items", map[string]any{"title": "issue-1", "priority": "medium"})
-	resp, _ := post(ts, "/work-items", map[string]any{"title": "issue-2", "priority": "medium"})
+	post(ts, "/work-items", map[string]any{"title": "issue-1", "priority": "medium", "active_profile_id": "lead"})
+	resp, _ := post(ts, "/work-items", map[string]any{"title": "issue-2", "priority": "medium", "active_profile_id": "ceo"})
 	var archivedIssue core.WorkItem
 	decodeJSON(resp, &archivedIssue)
 	resp, _ = post(ts, fmt.Sprintf("/work-items/%d/archive", archivedIssue.ID), nil)
@@ -829,6 +846,9 @@ func TestAPI_ListWorkItems(t *testing.T) {
 	decodeJSON(resp, &issues)
 	if len(issues) != 1 {
 		t.Fatalf("expected 1 unarchived issue, got %d", len(issues))
+	}
+	if issues[0].ActiveProfileID != "lead" {
+		t.Fatalf("expected active_profile_id lead in list response, got %+v", issues[0])
 	}
 
 	resp, _ = get(ts, "/work-items?archived=true")

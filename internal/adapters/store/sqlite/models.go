@@ -57,19 +57,28 @@ type ProjectModel struct {
 func (ProjectModel) TableName() string { return "projects" }
 
 type WorkItemModel struct {
-	ID              int64                     `gorm:"column:id;primaryKey;autoIncrement"`
-	ProjectID       *int64                    `gorm:"column:project_id"`
-	ResourceSpaceID *int64                    `gorm:"column:resource_space_id"`
-	Title           string                    `gorm:"column:title;not null"`
-	Body            string                    `gorm:"column:body;not null"`
-	Status          string                    `gorm:"column:status;not null"`
-	Priority        string                    `gorm:"column:priority;not null"`
-	Labels          JSONField[[]string]       `gorm:"column:labels;type:text"`
-	DependsOn       JSONField[[]int64]        `gorm:"column:depends_on;type:text"`
-	Metadata        JSONField[map[string]any] `gorm:"column:metadata;type:text"`
-	ArchivedAt      *time.Time                `gorm:"column:archived_at"`
-	CreatedAt       time.Time                 `gorm:"column:created_at"`
-	UpdatedAt       time.Time                 `gorm:"column:updated_at"`
+	ID                 int64                     `gorm:"column:id;primaryKey;autoIncrement"`
+	ProjectID          *int64                    `gorm:"column:project_id"`
+	ResourceSpaceID    *int64                    `gorm:"column:resource_space_id"`
+	ParentWorkItemID   *int64                    `gorm:"column:parent_work_item_id"`
+	RootWorkItemID     *int64                    `gorm:"column:root_work_item_id"`
+	FinalDeliverableID *int64                    `gorm:"column:final_deliverable_id"`
+	Title              string                    `gorm:"column:title;not null"`
+	Body               string                    `gorm:"column:body;not null"`
+	Status             string                    `gorm:"column:status;not null"`
+	Priority           string                    `gorm:"column:priority;not null"`
+	ExecutorProfileID  string                    `gorm:"column:executor_profile_id;not null;default:''"`
+	ReviewerProfileID  string                    `gorm:"column:reviewer_profile_id;not null;default:''"`
+	ActiveProfileID    string                    `gorm:"column:active_profile_id;not null;default:''"`
+	SponsorProfileID   string                    `gorm:"column:sponsor_profile_id;not null;default:''"`
+	CreatedByProfileID string                    `gorm:"column:created_by_profile_id;not null;default:''"`
+	Labels             JSONField[[]string]       `gorm:"column:labels;type:text"`
+	DependsOn          JSONField[[]int64]        `gorm:"column:depends_on;type:text"`
+	EscalationPath     JSONField[[]string]       `gorm:"column:escalation_path;type:text"`
+	Metadata           JSONField[map[string]any] `gorm:"column:metadata;type:text"`
+	ArchivedAt         *time.Time                `gorm:"column:archived_at"`
+	CreatedAt          time.Time                 `gorm:"column:created_at"`
+	UpdatedAt          time.Time                 `gorm:"column:updated_at"`
 }
 
 func (WorkItemModel) TableName() string { return "work_items" }
@@ -898,19 +907,28 @@ func workItemModelFromCore(w *core.WorkItem) *WorkItemModel {
 		return nil
 	}
 	return &WorkItemModel{
-		ID:              w.ID,
-		ProjectID:       w.ProjectID,
-		ResourceSpaceID: w.ResourceSpaceID,
-		Title:           w.Title,
-		Body:            w.Body,
-		Status:          string(w.Status),
-		Priority:        string(w.Priority),
-		Labels:          JSONField[[]string]{Data: w.Labels},
-		DependsOn:       JSONField[[]int64]{Data: w.DependsOn},
-		Metadata:        JSONField[map[string]any]{Data: w.Metadata},
-		ArchivedAt:      w.ArchivedAt,
-		CreatedAt:       w.CreatedAt,
-		UpdatedAt:       w.UpdatedAt,
+		ID:                 w.ID,
+		ProjectID:          w.ProjectID,
+		ResourceSpaceID:    w.ResourceSpaceID,
+		ParentWorkItemID:   w.ParentWorkItemID,
+		RootWorkItemID:     w.RootWorkItemID,
+		FinalDeliverableID: w.FinalDeliverableID,
+		Title:              w.Title,
+		Body:               w.Body,
+		Status:             string(w.Status),
+		Priority:           string(w.Priority),
+		ExecutorProfileID:  w.ExecutorProfileID,
+		ReviewerProfileID:  w.ReviewerProfileID,
+		ActiveProfileID:    w.ActiveProfileID,
+		SponsorProfileID:   w.SponsorProfileID,
+		CreatedByProfileID: w.CreatedByProfileID,
+		Labels:             JSONField[[]string]{Data: w.Labels},
+		DependsOn:          JSONField[[]int64]{Data: w.DependsOn},
+		EscalationPath:     JSONField[[]string]{Data: w.EscalationPath},
+		Metadata:           JSONField[map[string]any]{Data: w.Metadata},
+		ArchivedAt:         w.ArchivedAt,
+		CreatedAt:          w.CreatedAt,
+		UpdatedAt:          w.UpdatedAt,
 	}
 }
 
@@ -919,19 +937,28 @@ func (m *WorkItemModel) toCore() *core.WorkItem {
 		return nil
 	}
 	return &core.WorkItem{
-		ID:              m.ID,
-		ProjectID:       m.ProjectID,
-		ResourceSpaceID: m.ResourceSpaceID,
-		Title:           m.Title,
-		Body:            m.Body,
-		Status:          core.WorkItemStatus(m.Status),
-		Priority:        core.WorkItemPriority(m.Priority),
-		Labels:          m.Labels.Data,
-		DependsOn:       m.DependsOn.Data,
-		Metadata:        m.Metadata.Data,
-		ArchivedAt:      m.ArchivedAt,
-		CreatedAt:       m.CreatedAt,
-		UpdatedAt:       m.UpdatedAt,
+		ID:                 m.ID,
+		ProjectID:          m.ProjectID,
+		ResourceSpaceID:    m.ResourceSpaceID,
+		ParentWorkItemID:   m.ParentWorkItemID,
+		RootWorkItemID:     m.RootWorkItemID,
+		FinalDeliverableID: m.FinalDeliverableID,
+		Title:              m.Title,
+		Body:               m.Body,
+		Status:             core.WorkItemStatus(m.Status),
+		Priority:           core.WorkItemPriority(m.Priority),
+		ExecutorProfileID:  m.ExecutorProfileID,
+		ReviewerProfileID:  m.ReviewerProfileID,
+		ActiveProfileID:    m.ActiveProfileID,
+		SponsorProfileID:   m.SponsorProfileID,
+		CreatedByProfileID: m.CreatedByProfileID,
+		Labels:             m.Labels.Data,
+		DependsOn:          m.DependsOn.Data,
+		EscalationPath:     m.EscalationPath.Data,
+		Metadata:           m.Metadata.Data,
+		ArchivedAt:         m.ArchivedAt,
+		CreatedAt:          m.CreatedAt,
+		UpdatedAt:          m.UpdatedAt,
 	}
 }
 

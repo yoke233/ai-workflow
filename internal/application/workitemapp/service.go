@@ -67,15 +67,24 @@ func (s *Service) CreateWorkItem(ctx context.Context, input CreateWorkItemInput)
 	}
 
 	workItem := &core.WorkItem{
-		ProjectID:       input.ProjectID,
-		ResourceSpaceID: input.ResourceSpaceID,
-		Title:           title,
-		Body:            strings.TrimSpace(input.Body),
-		Status:          core.WorkItemOpen,
-		Priority:        priority,
-		Labels:          cloneStrings(input.Labels),
-		DependsOn:       cloneInt64s(input.DependsOn),
-		Metadata:        cloneMetadata(input.Metadata),
+		ProjectID:          input.ProjectID,
+		ResourceSpaceID:    input.ResourceSpaceID,
+		ParentWorkItemID:   input.ParentWorkItemID,
+		RootWorkItemID:     input.RootWorkItemID,
+		FinalDeliverableID: input.FinalDeliverableID,
+		Title:              title,
+		Body:               strings.TrimSpace(input.Body),
+		Status:             core.WorkItemOpen,
+		Priority:           priority,
+		ExecutorProfileID:  strings.TrimSpace(input.ExecutorProfileID),
+		ReviewerProfileID:  strings.TrimSpace(input.ReviewerProfileID),
+		ActiveProfileID:    strings.TrimSpace(input.ActiveProfileID),
+		SponsorProfileID:   strings.TrimSpace(input.SponsorProfileID),
+		CreatedByProfileID: strings.TrimSpace(input.CreatedByProfileID),
+		Labels:             cloneStrings(input.Labels),
+		DependsOn:          cloneInt64s(input.DependsOn),
+		EscalationPath:     cloneStrings(input.EscalationPath),
+		Metadata:           cloneMetadata(input.Metadata),
 	}
 
 	id, err := s.store.CreateWorkItem(ctx, workItem)
@@ -123,6 +132,15 @@ func (s *Service) UpdateWorkItem(ctx context.Context, input UpdateWorkItemInput)
 		}
 		workItem.ResourceSpaceID = input.ResourceSpaceID
 	}
+	if input.ParentWorkItemID != nil {
+		workItem.ParentWorkItemID = input.ParentWorkItemID
+	}
+	if input.RootWorkItemID != nil {
+		workItem.RootWorkItemID = input.RootWorkItemID
+	}
+	if input.FinalDeliverableID != nil {
+		workItem.FinalDeliverableID = input.FinalDeliverableID
+	}
 	if input.Title != nil {
 		workItem.Title = strings.TrimSpace(*input.Title)
 		if workItem.Title == "" {
@@ -138,6 +156,21 @@ func (s *Service) UpdateWorkItem(ctx context.Context, input UpdateWorkItemInput)
 	if input.Priority != nil {
 		workItem.Priority = core.WorkItemPriority(strings.TrimSpace(*input.Priority))
 	}
+	if input.ExecutorProfileID != nil {
+		workItem.ExecutorProfileID = strings.TrimSpace(*input.ExecutorProfileID)
+	}
+	if input.ReviewerProfileID != nil {
+		workItem.ReviewerProfileID = strings.TrimSpace(*input.ReviewerProfileID)
+	}
+	if input.ActiveProfileID != nil {
+		workItem.ActiveProfileID = strings.TrimSpace(*input.ActiveProfileID)
+	}
+	if input.SponsorProfileID != nil {
+		workItem.SponsorProfileID = strings.TrimSpace(*input.SponsorProfileID)
+	}
+	if input.CreatedByProfileID != nil {
+		workItem.CreatedByProfileID = strings.TrimSpace(*input.CreatedByProfileID)
+	}
 	if input.Labels != nil {
 		workItem.Labels = cloneStrings(*input.Labels)
 	}
@@ -146,6 +179,9 @@ func (s *Service) UpdateWorkItem(ctx context.Context, input UpdateWorkItemInput)
 			return nil, err
 		}
 		workItem.DependsOn = cloneInt64s(*input.DependsOn)
+	}
+	if input.EscalationPath != nil {
+		workItem.EscalationPath = cloneStrings(*input.EscalationPath)
 	}
 	if input.Metadata != nil {
 		workItem.Metadata = cloneMetadata(input.Metadata)
