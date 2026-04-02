@@ -47,10 +47,61 @@ func bootstrapProfiles(profiles []*core.AgentProfile) []*core.AgentProfile {
 	if len(profiles) == 0 {
 		return nil
 	}
+	profilesByID := make(map[string]*core.AgentProfile, len(profiles))
 	for _, profile := range profiles {
-		if profile != nil && profile.ID == "ceo" {
-			return []*core.AgentProfile{profile}
+		if profile == nil {
+			continue
 		}
+		profilesByID[profile.ID] = profile
+	}
+	if ceo := profilesByID["ceo"]; ceo != nil {
+		selected := map[string]*core.AgentProfile{
+			ceo.ID: ceo,
+		}
+
+		leadIDs := make([]string, 0, len(profilesByID))
+		for _, profile := range profiles {
+			if profile == nil || profile.ID == ceo.ID {
+				continue
+			}
+			if profile.ManagerProfileID != ceo.ID {
+				continue
+			}
+			switch profile.Role {
+			case core.RoleLead, core.RoleWorker, core.RoleGate:
+				selected[profile.ID] = profile
+				if profile.Role == core.RoleLead {
+					leadIDs = append(leadIDs, profile.ID)
+				}
+			}
+		}
+
+		for _, leadID := range leadIDs {
+			for _, profile := range profiles {
+				if profile == nil || profile.ID == ceo.ID {
+					continue
+				}
+				if profile.ManagerProfileID != leadID {
+					continue
+				}
+				switch profile.Role {
+				case core.RoleWorker, core.RoleGate:
+					selected[profile.ID] = profile
+				}
+			}
+		}
+
+		out := make([]*core.AgentProfile, 0, len(selected))
+		for _, profile := range profiles {
+			if profile == nil {
+				continue
+			}
+			if selected[profile.ID] == nil {
+				continue
+			}
+			out = append(out, profile)
+		}
+		return out
 	}
 	for _, profile := range profiles {
 		if profile != nil {

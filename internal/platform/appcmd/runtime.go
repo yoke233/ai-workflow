@@ -44,10 +44,12 @@ func runEnsureExecutionProfiles(out io.Writer, args []string) error {
 
 	var driverID string
 	var managerProfileID string
+	var leadID string
 	var workerID string
 	var reviewerID string
 	fs.StringVar(&driverID, "driver-id", "", "driver ID to use for ensured execution profiles")
-	fs.StringVar(&managerProfileID, "manager-profile", "ceo", "manager profile ID for ensured profiles")
+	fs.StringVar(&managerProfileID, "manager-profile", "ceo", "top-level manager profile ID for ensured execution profiles")
+	fs.StringVar(&leadID, "lead-id", "lead", "lead profile ID for ensured execution profiles")
 	fs.StringVar(&workerID, "worker-id", "worker", "execution worker profile ID")
 	fs.StringVar(&reviewerID, "reviewer-id", "reviewer", "review gate profile ID")
 	if err := fs.Parse(args); err != nil {
@@ -75,10 +77,16 @@ func runEnsureExecutionProfiles(out io.Writer, args []string) error {
 		return err
 	}
 
-	workerCfg := buildExecutionWorkerProfileConfig(strings.TrimSpace(workerID), strings.TrimSpace(managerProfileID), selectedDriver.ID)
-	reviewerCfg := buildExecutionReviewerProfileConfig(strings.TrimSpace(reviewerID), strings.TrimSpace(managerProfileID), selectedDriver.ID)
+	leadCfg := buildExecutionLeadProfileConfig(strings.TrimSpace(leadID), strings.TrimSpace(managerProfileID), selectedDriver.ID)
+	workerCfg := buildExecutionWorkerProfileConfig(strings.TrimSpace(workerID), leadCfg.ID, selectedDriver.ID)
+	reviewerCfg := buildExecutionReviewerProfileConfig(strings.TrimSpace(reviewerID), leadCfg.ID, selectedDriver.ID)
 
-	updatedConfig := make([]string, 0, 2)
+	updatedConfig := make([]string, 0, 3)
+	if updated, err := ensureRuntimeProfileConfig(context.Background(), manager, leadCfg); err != nil {
+		return err
+	} else if updated {
+		updatedConfig = append(updatedConfig, leadCfg.ID)
+	}
 	if updated, err := ensureRuntimeProfileConfig(context.Background(), manager, workerCfg); err != nil {
 		return err
 	} else if updated {
@@ -111,7 +119,7 @@ func runEnsureExecutionProfiles(out io.Writer, args []string) error {
 		profilesByID[profile.ID] = profile
 	}
 
-	toMaterialize := []string{strings.TrimSpace(managerProfileID), workerCfg.ID, reviewerCfg.ID}
+	toMaterialize := []string{strings.TrimSpace(managerProfileID), leadCfg.ID, workerCfg.ID, reviewerCfg.ID}
 	materialized := make([]string, 0, len(toMaterialize))
 	for _, profileID := range toMaterialize {
 		if profileID == "" {
@@ -198,6 +206,24 @@ func buildExecutionWorkerProfileConfig(profileID string, managerProfileID string
 			Reuse:    true,
 			MaxTurns: 24,
 			IdleTTL:  config.Duration{Duration: 15 * time.Minute},
+		},
+	}
+}
+
+func buildExecutionLeadProfileConfig(profileID string, managerProfileID string, driverID string) config.RuntimeProfileConfig {
+	return config.RuntimeProfileConfig{
+		ID:               firstRuntimeValue(profileID, "lead"),
+		Name:             "Lead Agent",
+		ManagerProfileID: strings.TrimSpace(managerProfileID),
+		Driver:           strings.TrimSpace(driverID),
+		LLMConfigID:      "system",
+		Role:             string(core.RoleLead),
+		Capabilities:     []string{"planning", "review", "fullstack"},
+		PromptTemplate:   "team_leader",
+		Session: config.RuntimeSessionConfig{
+			Reuse:    true,
+			MaxTurns: 50,
+			IdleTTL:  config.Duration{Duration: 30 * time.Minute},
 		},
 	}
 }

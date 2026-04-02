@@ -10,7 +10,7 @@ import (
 	"github.com/yoke233/zhanggui/internal/platform/config"
 )
 
-func TestRunProfileListSeedsCEOOnly(t *testing.T) {
+func TestRunProfileListSeedsMinimumOrg(t *testing.T) {
 	t.Setenv("AI_WORKFLOW_DATA_DIR", t.TempDir())
 
 	runtime, err := defaultNewProfileRuntime()
@@ -31,11 +31,15 @@ func TestRunProfileListSeedsCEOOnly(t *testing.T) {
 	if !result.OK {
 		t.Fatalf("result.OK = false: %+v", result)
 	}
-	if len(result.List) != 1 {
-		t.Fatalf("len(result.List) = %d, want 1", len(result.List))
+	if len(result.List) != 4 {
+		t.Fatalf("len(result.List) = %d, want 4", len(result.List))
 	}
-	if result.List[0].ID != "ceo" {
-		t.Fatalf("result.List[0].ID = %q, want ceo", result.List[0].ID)
+	ids := make([]string, 0, len(result.List))
+	for _, profile := range result.List {
+		ids = append(ids, profile.ID)
+	}
+	if got, want := strings.Join(ids, ","), "ceo,lead,reviewer,worker"; got != want {
+		t.Fatalf("profile ids = %q, want %q", got, want)
 	}
 }
 
@@ -142,8 +146,11 @@ func TestRunProfileCreateMutateAndDelete(t *testing.T) {
 	}
 
 	list := executeProfileTestCommand(t, runtime, []string{"list"})
-	if len(list.List) != 1 || list.List[0].ID != "ceo" {
-		t.Fatalf("expected only ceo after delete, got %#v", list.List)
+	if len(list.List) != 4 {
+		t.Fatalf("expected minimum org after delete, got %#v", list.List)
+	}
+	if got := strings.Join([]string{list.List[0].ID, list.List[1].ID, list.List[2].ID, list.List[3].ID}, ","); got != "ceo,lead,reviewer,worker" {
+		t.Fatalf("unexpected profile ids after delete = %q", got)
 	}
 }
 

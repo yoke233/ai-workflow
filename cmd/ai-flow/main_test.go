@@ -192,12 +192,12 @@ func TestRuntimeEnsureExecutionProfilesForwardsFlags(t *testing.T) {
 			return nil
 		},
 	})
-	cmd.SetArgs([]string{"runtime", "ensure-execution-profiles", "--driver-id", "codex-acp", "--manager-profile", "ceo"})
+	cmd.SetArgs([]string{"runtime", "ensure-execution-profiles", "--driver-id", "codex-acp", "--manager-profile", "ceo", "--lead-id", "lead"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	want := []string{"ensure-execution-profiles", "--driver-id", "codex-acp", "--manager-profile", "ceo"}
+	want := []string{"ensure-execution-profiles", "--driver-id", "codex-acp", "--manager-profile", "ceo", "--lead-id", "lead"}
 	if !reflect.DeepEqual(gotArgs, want) {
 		t.Fatalf("runtime args = %#v, want %#v", gotArgs, want)
 	}
@@ -279,6 +279,39 @@ func TestOrchestrateCommandForwardsTaskCreateFlags(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	want := []string{"task", "create", "--title", "CEO bootstrap", "--project-id", "12", "--json"}
+	if !reflect.DeepEqual(gotArgs, want) {
+		t.Fatalf("orchestrate args = %#v, want %#v", gotArgs, want)
+	}
+}
+
+func TestOrchestrateCommandForwardsCEOSubmitFlags(t *testing.T) {
+	t.Parallel()
+
+	var gotArgs []string
+	cmd := newRootCmd(commandDeps{
+		out:            &bytes.Buffer{},
+		err:            &bytes.Buffer{},
+		version:        versionString,
+		runServer:      func([]string) error { return nil },
+		runExecutor:    func([]string) error { return nil },
+		runQualityGate: func([]string) error { return nil },
+		runMCPServe:    func([]string) error { return nil },
+		runOrchestrate: func(args []string) error {
+			gotArgs = append([]string(nil), args...)
+			return nil
+		},
+	})
+	cmd.SetArgs([]string{
+		"orchestrate", "ceo", "submit",
+		"--description", "Add OTP support",
+		"--owner-id", "alice",
+		"--json",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	want := []string{"ceo", "submit", "--description", "Add OTP support", "--owner-id", "alice", "--json"}
 	if !reflect.DeepEqual(gotArgs, want) {
 		t.Fatalf("orchestrate args = %#v, want %#v", gotArgs, want)
 	}

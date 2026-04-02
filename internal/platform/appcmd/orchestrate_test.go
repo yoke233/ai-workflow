@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yoke233/zhanggui/internal/application/ceoapp"
 	"github.com/yoke233/zhanggui/internal/application/orchestrateapp"
 	"github.com/yoke233/zhanggui/internal/core"
 )
@@ -22,6 +23,10 @@ type fakeOrchestrateService struct {
 	reassignTaskInput   orchestrateapp.ReassignTaskInput
 	decomposeTaskInput  orchestrateapp.DecomposeTaskInput
 	escalateThreadInput orchestrateapp.EscalateThreadInput
+}
+
+type fakeCEOService struct {
+	submitInput ceoapp.SubmitInput
 }
 
 func (f *fakeOrchestrateService) CreateTask(_ context.Context, input orchestrateapp.CreateTaskInput) (*orchestrateapp.CreateTaskResult, error) {
@@ -110,6 +115,18 @@ func TestParseOrchestrateArgsTaskCreate(t *testing.T) {
 	}
 }
 
+func (f *fakeCEOService) Submit(_ context.Context, input ceoapp.SubmitInput) (*ceoapp.SubmitResult, error) {
+	f.submitInput = input
+	return &ceoapp.SubmitResult{
+		Mode:        ceoapp.ModeDirectExecution,
+		Summary:     "created executable work item",
+		Status:      "direct_ready",
+		NextStep:    "run_work_item",
+		WorkItemID:  64,
+		ActionCount: 2,
+	}, nil
+}
+
 func TestParseOrchestrateArgsRejectsUnknownFlag(t *testing.T) {
 	t.Parallel()
 
@@ -119,6 +136,33 @@ func TestParseOrchestrateArgsRejectsUnknownFlag(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("unexpected error = %v", err)
+	}
+}
+
+func TestParseOrchestrateArgsCEOSubmit(t *testing.T) {
+	t.Parallel()
+
+	opts, err := parseOrchestrateArgs([]string{
+		"ceo", "submit",
+		"--description", "Add OTP support",
+		"--context", "backend only",
+		"--owner-id", "alice",
+		"--json",
+	})
+	if err != nil {
+		t.Fatalf("parseOrchestrateArgs() error = %v", err)
+	}
+	if opts.Action != "ceo.submit" {
+		t.Fatalf("Action = %q, want ceo.submit", opts.Action)
+	}
+	if opts.Description != "Add OTP support" {
+		t.Fatalf("Description = %q", opts.Description)
+	}
+	if opts.Context != "backend only" {
+		t.Fatalf("Context = %q", opts.Context)
+	}
+	if opts.OwnerID != "alice" {
+		t.Fatalf("OwnerID = %q", opts.OwnerID)
 	}
 }
 
@@ -188,6 +232,40 @@ func TestRunOrchestrateToWriterEmitsFollowUpJSON(t *testing.T) {
 	}
 }
 
+func TestRunOrchestrateToWriterEmitsCEOSubmitJSON(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	orchestrateSvc := &fakeOrchestrateService{}
+	ceoSvc := &fakeCEOService{}
+	err := runOrchestrateToWriterWithServices(&out, orchestrateSvc, ceoSvc, []string{
+		"ceo", "submit",
+		"--description", "Add OTP support",
+		"--owner-id", "alice",
+		"--json",
+	})
+	if err != nil {
+		t.Fatalf("runOrchestrateToWriterWithServices() error = %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if payload["action"] != "ceo.submit" {
+		t.Fatalf("action = %v, want ceo.submit", payload["action"])
+	}
+	if payload["mode"] != "direct_execution" {
+		t.Fatalf("mode = %v, want direct_execution", payload["mode"])
+	}
+	if payload["work_item_id"] != float64(64) {
+		t.Fatalf("work_item_id = %v, want 64", payload["work_item_id"])
+	}
+	if ceoSvc.submitInput.Description != "Add OTP support" {
+		t.Fatalf("submitInput.Description = %q", ceoSvc.submitInput.Description)
+	}
+}
+
 func TestRunOrchestrateTaskCreateThenFollowUp(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AI_WORKFLOW_DATA_DIR", dataDir)
@@ -231,7 +309,7 @@ func RunOrchestrateWithWriters(out io.Writer, args []string) error {
 	if runtime != nil && runtime.close != nil {
 		defer runtime.close()
 	}
-	return runOrchestrateToWriter(out, runtime.service, args)
+	return runOrchestrateToWriterWithServices(out, runtime.service, runtime.ceo, args)
 }
 
 func decodeOrchestrateJSON(t *testing.T, raw []byte) map[string]any {

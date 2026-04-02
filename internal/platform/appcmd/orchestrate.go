@@ -13,8 +13,10 @@ import (
 	"github.com/yoke233/zhanggui/internal/adapters/llm"
 	llmplanning "github.com/yoke233/zhanggui/internal/adapters/planning/llm"
 	"github.com/yoke233/zhanggui/internal/adapters/store/sqlite"
+	"github.com/yoke233/zhanggui/internal/application/ceoapp"
 	"github.com/yoke233/zhanggui/internal/application/orchestrateapp"
 	"github.com/yoke233/zhanggui/internal/application/planning"
+	"github.com/yoke233/zhanggui/internal/application/requirementapp"
 	"github.com/yoke233/zhanggui/internal/application/threadapp"
 	"github.com/yoke233/zhanggui/internal/application/workitemapp"
 	"github.com/yoke233/zhanggui/internal/core"
@@ -44,6 +46,9 @@ type orchestrateCLIOptions struct {
 	InviteProfiles    []string
 	InviteHumans      []string
 	ForceNew          bool
+	Description       string
+	Context           string
+	OwnerID           string
 	JSON              bool
 }
 
@@ -56,8 +61,13 @@ type orchestrateService interface {
 	EscalateThread(ctx context.Context, input orchestrateapp.EscalateThreadInput) (*orchestrateapp.EscalateThreadResult, error)
 }
 
+type ceoService interface {
+	Submit(ctx context.Context, input ceoapp.SubmitInput) (*ceoapp.SubmitResult, error)
+}
+
 type orchestrateRuntime struct {
 	service orchestrateService
+	ceo     ceoService
 	close   func() error
 }
 
@@ -71,6 +81,7 @@ type orchestrateResult struct {
 	Status              core.WorkItemStatus `json:"status,omitempty"`
 	Blocked             bool                `json:"blocked,omitempty"`
 	ActiveProfile       string              `json:"active_profile,omitempty"`
+	Mode                string              `json:"mode,omitempty"`
 	RecommendedNextStep string              `json:"recommended_next_step,omitempty"`
 	ActionCount         int                 `json:"action_count,omitempty"`
 	LatestRunSummary    string              `json:"latest_run_summary,omitempty"`
@@ -94,46 +105,65 @@ func RunOrchestrate(args []string) error {
 	if runtime != nil && runtime.close != nil {
 		defer runtime.close()
 	}
-	return runOrchestrateToWriter(os.Stdout, runtime.service, args)
+	return runOrchestrateToWriterWithServices(os.Stdout, runtime.service, runtime.ceo, args)
 }
 
 func runOrchestrateToWriter(out io.Writer, svc orchestrateService, args []string) error {
+	return runOrchestrateToWriterWithServices(out, svc, nil, args)
+}
+
+func runOrchestrateToWriterWithServices(out io.Writer, svc orchestrateService, ceoSvc ceoService, args []string) error {
 	opts, err := parseOrchestrateArgs(args)
 	if err != nil {
 		return err
 	}
-	if svc == nil {
+	if opts.Action == "ceo.submit" && ceoSvc == nil {
+		return fmt.Errorf("ceo service is not configured")
+	}
+	if opts.Action != "ceo.submit" && svc == nil {
 		return fmt.Errorf("orchestration service is not configured")
 	}
 	if out == nil {
 		out = io.Discard
 	}
-	return executeOrchestrateAction(context.Background(), out, svc, opts)
+	return executeOrchestrateAction(context.Background(), out, svc, ceoSvc, opts)
 }
 
 func parseOrchestrateArgs(args []string) (orchestrateCLIOptions, error) {
-	if len(args) < 2 || strings.TrimSpace(args[0]) != "task" {
-		return orchestrateCLIOptions{}, fmt.Errorf("usage: ai-flow orchestrate task <create|follow-up|adopt-deliverable|assign-profile|reassign|decompose|escalate-thread> [flags]")
+	if len(args) < 2 {
+		return orchestrateCLIOptions{}, fmt.Errorf("usage: ai-flow orchestrate <task|ceo> ...")
 	}
 
 	opts := orchestrateCLIOptions{JSON: true}
-	switch strings.TrimSpace(args[1]) {
-	case "create":
-		opts.Action = "task.create"
-	case "follow-up":
-		opts.Action = "task.follow-up"
-	case "adopt-deliverable":
-		opts.Action = "task.adopt-deliverable"
-	case "assign-profile":
-		opts.Action = "task.assign-profile"
-	case "reassign":
-		opts.Action = "task.reassign"
-	case "decompose":
-		opts.Action = "task.decompose"
-	case "escalate-thread":
-		opts.Action = "task.escalate-thread"
+	switch strings.TrimSpace(args[0]) {
+	case "task":
+		switch strings.TrimSpace(args[1]) {
+		case "create":
+			opts.Action = "task.create"
+		case "follow-up":
+			opts.Action = "task.follow-up"
+		case "adopt-deliverable":
+			opts.Action = "task.adopt-deliverable"
+		case "assign-profile":
+			opts.Action = "task.assign-profile"
+		case "reassign":
+			opts.Action = "task.reassign"
+		case "decompose":
+			opts.Action = "task.decompose"
+		case "escalate-thread":
+			opts.Action = "task.escalate-thread"
+		default:
+			return orchestrateCLIOptions{}, fmt.Errorf("usage: ai-flow orchestrate task <create|follow-up|adopt-deliverable|assign-profile|reassign|decompose|escalate-thread> [flags]")
+		}
+	case "ceo":
+		switch strings.TrimSpace(args[1]) {
+		case "submit":
+			opts.Action = "ceo.submit"
+		default:
+			return orchestrateCLIOptions{}, fmt.Errorf("usage: ai-flow orchestrate ceo submit [flags]")
+		}
 	default:
-		return orchestrateCLIOptions{}, fmt.Errorf("usage: ai-flow orchestrate task <create|follow-up|adopt-deliverable|assign-profile|reassign|decompose|escalate-thread> [flags]")
+		return orchestrateCLIOptions{}, fmt.Errorf("usage: ai-flow orchestrate <task|ceo> ...")
 	}
 
 	for i := 2; i < len(args); i++ {
@@ -320,6 +350,33 @@ func parseOrchestrateArgs(args []string) (orchestrateCLIOptions, error) {
 			opts.InviteHumans = parseCSV(strings.TrimPrefix(arg, "--invite-humans="))
 		case arg == "--force-new":
 			opts.ForceNew = true
+		case arg == "--description":
+			value, next, err := nextArgValue(args, i, "--description")
+			if err != nil {
+				return orchestrateCLIOptions{}, err
+			}
+			opts.Description = value
+			i = next
+		case strings.HasPrefix(arg, "--description="):
+			opts.Description = strings.TrimSpace(strings.TrimPrefix(arg, "--description="))
+		case arg == "--context":
+			value, next, err := nextArgValue(args, i, "--context")
+			if err != nil {
+				return orchestrateCLIOptions{}, err
+			}
+			opts.Context = value
+			i = next
+		case strings.HasPrefix(arg, "--context="):
+			opts.Context = strings.TrimSpace(strings.TrimPrefix(arg, "--context="))
+		case arg == "--owner-id":
+			value, next, err := nextArgValue(args, i, "--owner-id")
+			if err != nil {
+				return orchestrateCLIOptions{}, err
+			}
+			opts.OwnerID = value
+			i = next
+		case strings.HasPrefix(arg, "--owner-id="):
+			opts.OwnerID = strings.TrimSpace(strings.TrimPrefix(arg, "--owner-id="))
 		case arg == "--json":
 			opts.JSON = true
 		default:
@@ -330,7 +387,7 @@ func parseOrchestrateArgs(args []string) (orchestrateCLIOptions, error) {
 	return opts, nil
 }
 
-func executeOrchestrateAction(ctx context.Context, out io.Writer, svc orchestrateService, opts orchestrateCLIOptions) error {
+func executeOrchestrateAction(ctx context.Context, out io.Writer, svc orchestrateService, ceoSvc ceoService, opts orchestrateCLIOptions) error {
 	var result orchestrateResult
 	var err error
 
@@ -347,6 +404,8 @@ func executeOrchestrateAction(ctx context.Context, out io.Writer, svc orchestrat
 		result, err = executeDecomposeTask(ctx, svc, opts)
 	case "task.escalate-thread":
 		result, err = executeEscalateThread(ctx, svc, opts)
+	case "ceo.submit":
+		result, err = executeCEOSubmit(ctx, ceoSvc, opts)
 	default:
 		return fmt.Errorf("unsupported action: %s", opts.Action)
 	}
@@ -357,6 +416,32 @@ func executeOrchestrateAction(ctx context.Context, out io.Writer, svc orchestrat
 	enc := json.NewEncoder(out)
 	enc.SetEscapeHTML(false)
 	return enc.Encode(result)
+}
+
+func executeCEOSubmit(ctx context.Context, svc ceoService, opts orchestrateCLIOptions) (orchestrateResult, error) {
+	resp, err := svc.Submit(ctx, ceoapp.SubmitInput{
+		Description: opts.Description,
+		Context:     opts.Context,
+		OwnerID:     opts.OwnerID,
+	})
+	if err != nil {
+		return orchestrateResult{}, err
+	}
+	result := orchestrateResult{
+		OK:                  true,
+		Action:              opts.Action,
+		Summary:             resp.Summary,
+		Mode:                string(resp.Mode),
+		RecommendedNextStep: resp.NextStep,
+		ActionCount:         resp.ActionCount,
+	}
+	if resp.Thread != nil {
+		result.ThreadID = resp.Thread.ID
+	}
+	if resp.WorkItemID > 0 {
+		result.WorkItemID = resp.WorkItemID
+	}
+	return result, nil
 }
 
 func executeCreateTask(ctx context.Context, svc orchestrateService, opts orchestrateCLIOptions) (orchestrateResult, error) {
@@ -538,9 +623,16 @@ func defaultNewOrchestrateRuntime() (*orchestrateRuntime, error) {
 		Threads:         threads,
 		Registry:        store,
 	})
+	requirements := requirementapp.New(requirementapp.Config{
+		Store:         store,
+		Registry:      store,
+		ThreadService: threads,
+		LLM:           newRequirementCompleter(cfg),
+	})
 
 	return &orchestrateRuntime{
 		service: service,
+		ceo:     ceoapp.New(ceoapp.Config{Requirements: requirements, Tasks: service}),
 		close:   store.Close,
 	}, nil
 }
@@ -555,6 +647,18 @@ func newPlanningService(cfg *config.Config, store *sqlite.Store, skillsRoot stri
 		return nil
 	}
 	return planning.NewService(llmplanning.NewCompleter(client), store, planning.WithPlanningSkillsRoot(skillsRoot))
+}
+
+func newRequirementCompleter(cfg *config.Config) requirementapp.LLMCompleter {
+	llmCfg, ok := resolveOrchestrateLLMConfig(cfg)
+	if !ok {
+		return nil
+	}
+	client, err := llm.New(llmCfg)
+	if err != nil {
+		return nil
+	}
+	return llmplanning.NewCompleter(client)
 }
 
 func resolveOrchestrateLLMConfig(cfg *config.Config) (llm.Config, bool) {

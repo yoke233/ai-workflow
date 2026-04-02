@@ -13,6 +13,50 @@ func newOrchestrateCmd(deps commandDeps) *cobra.Command {
 		Short: "Run orchestration control actions",
 	}
 	cmd.AddCommand(newOrchestrateTaskCmd(deps))
+	cmd.AddCommand(newOrchestrateCEOCmd(deps))
+	return cmd
+}
+
+func newOrchestrateCEOCmd(deps commandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ceo",
+		Short: "Run CEO single-entry orchestration actions",
+	}
+	cmd.AddCommand(newOrchestrateCEOSubmitCmd(deps))
+	return cmd
+}
+
+func newOrchestrateCEOSubmitCmd(deps commandDeps) *cobra.Command {
+	var description string
+	var context string
+	var ownerID string
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "submit",
+		Short: "Submit a requirement to the CEO single-entry workflow",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			forwardArgs := []string{"ceo", "submit"}
+			if cmd.Flags().Changed("description") {
+				forwardArgs = append(forwardArgs, "--description", description)
+			}
+			if cmd.Flags().Changed("context") {
+				forwardArgs = append(forwardArgs, "--context", context)
+			}
+			if cmd.Flags().Changed("owner-id") {
+				forwardArgs = append(forwardArgs, "--owner-id", ownerID)
+			}
+			if cmd.Flags().Changed("json") && jsonOutput {
+				forwardArgs = append(forwardArgs, "--json")
+			}
+			return deps.runOrchestrate(forwardArgs)
+		},
+	}
+	cmd.Flags().StringVar(&description, "description", "", "Requirement description")
+	cmd.Flags().StringVar(&context, "context", "", "Optional additional context")
+	cmd.Flags().StringVar(&ownerID, "owner-id", "", "Owner/user ID")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Emit JSON output")
 	return cmd
 }
 

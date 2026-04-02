@@ -189,6 +189,7 @@ func newRuntimeCmd(deps commandDeps) *cobra.Command {
 func newRuntimeEnsureExecutionProfilesCmd(deps commandDeps) *cobra.Command {
 	var driverID string
 	var managerProfile string
+	var leadID string
 	var workerID string
 	var reviewerID string
 	cmd := &cobra.Command{
@@ -203,6 +204,9 @@ func newRuntimeEnsureExecutionProfilesCmd(deps commandDeps) *cobra.Command {
 			if cmd.Flags().Changed("manager-profile") {
 				forwardArgs = append(forwardArgs, "--manager-profile", managerProfile)
 			}
+			if cmd.Flags().Changed("lead-id") {
+				forwardArgs = append(forwardArgs, "--lead-id", leadID)
+			}
 			if cmd.Flags().Changed("worker-id") {
 				forwardArgs = append(forwardArgs, "--worker-id", workerID)
 			}
@@ -214,6 +218,7 @@ func newRuntimeEnsureExecutionProfilesCmd(deps commandDeps) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&driverID, "driver-id", "", "Driver ID to use for ensured execution profiles")
 	cmd.Flags().StringVar(&managerProfile, "manager-profile", "ceo", "Manager profile ID for ensured profiles")
+	cmd.Flags().StringVar(&leadID, "lead-id", "lead", "Lead profile ID")
 	cmd.Flags().StringVar(&workerID, "worker-id", "worker", "Execution worker profile ID")
 	cmd.Flags().StringVar(&reviewerID, "reviewer-id", "reviewer", "Review gate profile ID")
 	return cmd

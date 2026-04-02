@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/yoke233/zhanggui/internal/platform/config"
 )
 
-func TestSeedRegistrySeedsOnlyCEOOnEmptyStore(t *testing.T) {
+func TestSeedRegistryMaterializesMinimumOrgOnEmptyStore(t *testing.T) {
 	t.Parallel()
 
 	store := newBootstrapRegistryTestStore(t)
@@ -22,14 +23,31 @@ func TestSeedRegistrySeedsOnlyCEOOnEmptyStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListProfiles() error = %v", err)
 	}
-	if len(profiles) != 1 {
-		t.Fatalf("profiles len = %d, want 1", len(profiles))
+	if len(profiles) != 4 {
+		t.Fatalf("profiles len = %d, want 4", len(profiles))
 	}
-	if profiles[0].ID != "ceo" {
-		t.Fatalf("profiles[0].ID = %q, want ceo", profiles[0].ID)
+
+	ids := make([]string, 0, len(profiles))
+	managers := make(map[string]string, len(profiles))
+	for _, profile := range profiles {
+		ids = append(ids, profile.ID)
+		managers[profile.ID] = profile.ManagerProfileID
 	}
-	if profiles[0].ManagerProfileID != "" {
-		t.Fatalf("profiles[0].ManagerProfileID = %q, want empty", profiles[0].ManagerProfileID)
+	slices.Sort(ids)
+	if got, want := ids, []string{"ceo", "lead", "reviewer", "worker"}; !slices.Equal(got, want) {
+		t.Fatalf("profile ids = %#v, want %#v", got, want)
+	}
+	if managers["ceo"] != "" {
+		t.Fatalf("ceo manager = %q, want empty", managers["ceo"])
+	}
+	if managers["lead"] != "ceo" {
+		t.Fatalf("lead manager = %q, want ceo", managers["lead"])
+	}
+	if managers["worker"] != "lead" {
+		t.Fatalf("worker manager = %q, want lead", managers["worker"])
+	}
+	if managers["reviewer"] != "lead" {
+		t.Fatalf("reviewer manager = %q, want lead", managers["reviewer"])
 	}
 }
 
@@ -62,6 +80,30 @@ func TestSeedRegistryDoesNotOverwriteExistingProfiles(t *testing.T) {
 	}
 	if profiles[0].ID != "custom" {
 		t.Fatalf("profiles[0].ID = %q, want custom", profiles[0].ID)
+	}
+}
+
+func TestBootstrapProfilesFollowsConfiguredManagerChain(t *testing.T) {
+	t.Parallel()
+
+	profiles := bootstrapProfiles([]*core.AgentProfile{
+		{ID: "ceo", Role: core.RoleLead},
+		{ID: "director", Role: core.RoleLead, ManagerProfileID: "ceo"},
+		{ID: "builder-a", Role: core.RoleWorker, ManagerProfileID: "director"},
+		{ID: "gate-a", Role: core.RoleGate, ManagerProfileID: "director"},
+		{ID: "support-a", Role: core.RoleSupport, ManagerProfileID: "director"},
+	})
+
+	if len(profiles) != 4 {
+		t.Fatalf("profiles len = %d, want 4", len(profiles))
+	}
+	got := make([]string, 0, len(profiles))
+	for _, profile := range profiles {
+		got = append(got, profile.ID)
+	}
+	want := []string{"ceo", "director", "builder-a", "gate-a"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("profile ids = %#v, want %#v", got, want)
 	}
 }
 
@@ -108,6 +150,20 @@ func bootstrapRegistrySeedConfig() *config.Config {
 					LLMConfigID:      "system",
 					Role:             string(core.RoleLead),
 					ManagerProfileID: "ceo",
+				}, {
+					ID:               "worker",
+					Name:             "Worker Agent",
+					Driver:           "codex-cli",
+					LLMConfigID:      "system",
+					Role:             string(core.RoleWorker),
+					ManagerProfileID: "lead",
+				}, {
+					ID:               "reviewer",
+					Name:             "Reviewer Agent",
+					Driver:           "codex-cli",
+					LLMConfigID:      "system",
+					Role:             string(core.RoleGate),
+					ManagerProfileID: "lead",
 				}},
 			},
 		},

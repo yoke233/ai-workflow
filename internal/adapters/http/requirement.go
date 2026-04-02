@@ -60,44 +60,7 @@ func (h *Handler) createThreadFromRequirement(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_REQUIREMENT_THREAD_FAILED")
 		return
 	}
-
-	successfulAgents := append([]string(nil), result.AgentIDs...)
-	inviteErrors := map[string]string{}
-	if h.threadPool != nil {
-		successfulAgents = successfulAgents[:0]
-		for _, profileID := range result.AgentIDs {
-			if _, inviteErr := h.threadPool.InviteAgent(r.Context(), result.Thread.ID, profileID); inviteErr != nil {
-				inviteErrors[profileID] = inviteErr.Error()
-				continue
-			}
-			successfulAgents = append(successfulAgents, profileID)
-		}
-		if len(inviteErrors) == 0 {
-			inviteErrors = nil
-		}
-	}
-
-	metadata := map[string]any{
-		"source":    "requirements.create_thread",
-		"broadcast": len(successfulAgents) == 0,
-	}
-	if req.Analysis != nil {
-		if summary := strings.TrimSpace(req.Analysis.Summary); summary != "" {
-			metadata["analysis_summary"] = summary
-		}
-		if req.Analysis.Type != "" {
-			metadata["analysis_type"] = req.Analysis.Type
-		}
-	}
-
-	_, message, err := h.createThreadMessageAndRoute(r.Context(), threadMessageInput{
-		ThreadID:       result.Thread.ID,
-		SenderID:       req.OwnerID,
-		Role:           "human",
-		Content:        buildRequirementInitialMessage(req),
-		Metadata:       metadata,
-		TargetAgentIDs: successfulAgents,
-	})
+	kickoff, err := h.routeRequirementThreadKickoff(r.Context(), result.Thread.ID, req.OwnerID, req, result.AgentIDs, "requirements.create_thread")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "CREATE_REQUIREMENT_MESSAGE_FAILED")
 		return
@@ -106,9 +69,9 @@ func (h *Handler) createThreadFromRequirement(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusCreated, requirementCreateThreadResponse{
 		Thread:       result.Thread,
 		ContextRefs:  result.ContextRefs,
-		Agents:       successfulAgents,
-		Message:      message,
-		InviteErrors: inviteErrors,
+		Agents:       kickoff.Agents,
+		Message:      kickoff.Message,
+		InviteErrors: kickoff.InviteErrors,
 	})
 }
 

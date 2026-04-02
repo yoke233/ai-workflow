@@ -50,8 +50,8 @@ func TestRunEnsureExecutionProfilesMaterializesWorkerAndReviewer(t *testing.T) {
 	if worker.DriverID != "codex-acp" {
 		t.Fatalf("worker.DriverID = %q, want codex-acp", worker.DriverID)
 	}
-	if worker.ManagerProfileID != "ceo" {
-		t.Fatalf("worker.ManagerProfileID = %q, want ceo", worker.ManagerProfileID)
+	if worker.ManagerProfileID != "lead" {
+		t.Fatalf("worker.ManagerProfileID = %q, want lead", worker.ManagerProfileID)
 	}
 
 	reviewer, err := store.GetProfile(context.Background(), "reviewer")
@@ -61,8 +61,19 @@ func TestRunEnsureExecutionProfilesMaterializesWorkerAndReviewer(t *testing.T) {
 	if reviewer.DriverID != "codex-acp" {
 		t.Fatalf("reviewer.DriverID = %q, want codex-acp", reviewer.DriverID)
 	}
-	if reviewer.ManagerProfileID != "ceo" {
-		t.Fatalf("reviewer.ManagerProfileID = %q, want ceo", reviewer.ManagerProfileID)
+	if reviewer.ManagerProfileID != "lead" {
+		t.Fatalf("reviewer.ManagerProfileID = %q, want lead", reviewer.ManagerProfileID)
+	}
+
+	lead, err := store.GetProfile(context.Background(), "lead")
+	if err != nil {
+		t.Fatalf("GetProfile(lead) error = %v", err)
+	}
+	if lead.DriverID != "codex-acp" {
+		t.Fatalf("lead.DriverID = %q, want codex-acp", lead.DriverID)
+	}
+	if lead.ManagerProfileID != "ceo" {
+		t.Fatalf("lead.ManagerProfileID = %q, want ceo", lead.ManagerProfileID)
 	}
 
 	reloaded, _, _, err := LoadConfig()
@@ -72,6 +83,9 @@ func TestRunEnsureExecutionProfilesMaterializesWorkerAndReviewer(t *testing.T) {
 	byID := make(map[string]config.RuntimeProfileConfig)
 	for _, profile := range reloaded.Runtime.Agents.Profiles {
 		byID[strings.TrimSpace(profile.ID)] = profile
+	}
+	if byID["lead"].Driver != "codex-acp" {
+		t.Fatalf("config lead.driver = %q, want codex-acp", byID["lead"].Driver)
 	}
 	if byID["worker"].Driver != "codex-acp" {
 		t.Fatalf("config worker.driver = %q, want codex-acp", byID["worker"].Driver)
